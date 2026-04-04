@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PokéScellé — Tracker de Prix Scellé Pokémon</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-scroll">
+                <!-- User -->
+                <div class="sidebar-user" id="sidebarUser">
+                    <div class="sidebar-avatar">?</div>
+                    <div class="sidebar-user-info">
+                        <span class="sidebar-username" id="sidebarUsername">Non connecté</span>
+                        <span class="sidebar-user-sub" id="sidebarUserSub">0 items suivis</span>
+                    </div>
+                </div>
+
+                <!-- Nav -->
+                <nav class="sidebar-nav">
+                    <div class="sidebar-nav-label">NAVIGATION</div>
+                    <a href="#" class="sidebar-link active" data-section="catalogue" onclick="switchSection('catalogue', event)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                        Items Pokémon
+                    </a>
+                    <a href="#" class="sidebar-link" data-section="portfolio" onclick="switchSection('portfolio', event)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 000 4h4v-4h-4z"/></svg>
+                        Portfolio
+                    </a>
+                    <a href="#" class="sidebar-link" data-section="tendances" onclick="switchSection('tendances', event)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                        Tendances
+                    </a>
+                </nav>
+
+                <!-- Filters -->
+                <div class="sidebar-filters" id="sidebarFilters">
+                    <div class="filter-section">
+                        <div class="filter-header">
+                            <span>Type d'items</span>
+                            <span class="filter-count" id="typeCount">6</span>
+                        </div>
+                        <div class="filter-chips" id="filterChips">
+                            <button class="chip active" data-type="" onclick="setTypeFilter('')">Tous les types</button>
+                            <button class="chip" data-type="etb" onclick="setTypeFilter('etb')">ETB</button>
+                            <button class="chip" data-type="booster" onclick="setTypeFilter('booster')">Booster</button>
+                            <button class="chip" data-type="display" onclick="setTypeFilter('display')">Display 36</button>
+                            <button class="chip" data-type="display18" onclick="setTypeFilter('display18')">Display 18</button>
+                            <button class="chip" data-type="tripack" onclick="setTypeFilter('tripack')">Tripack</button>
+                            <button class="chip" data-type="bundle" onclick="setTypeFilter('bundle')">Bundle 6</button>
+                        </div>
+                    </div>
+
+                    <div class="filter-section">
+                        <div class="filter-header">
+                            <span>Blocs Pokémon</span>
+                            <span class="filter-count" id="blocCount">2</span>
+                        </div>
+                        <div class="filter-checks" id="filterBlocs">
+                            <label class="check-item">
+                                <input type="checkbox" checked onchange="render()"> Écarlate et Violet
+                            </label>
+                            <label class="check-item">
+                                <input type="checkbox" checked onchange="render()"> Méga-Évolution
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="filter-section">
+                        <div class="filter-header"><span>Prix</span></div>
+                        <select id="filterPrix" onchange="render()">
+                            <option value="">Tous les prix</option>
+                            <option value="0-20">Moins de 20 €</option>
+                            <option value="20-50">20 – 50 €</option>
+                            <option value="50-100">50 – 100 €</option>
+                            <option value="100-300">100 – 300 €</option>
+                            <option value="300-99999">Plus de 300 €</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main-content">
+            <!-- Top bar -->
+            <div class="topbar">
+                <div class="topbar-left">
+                    <div class="search-box">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input type="search" id="searchInput" placeholder="Votre Item Pokémon..." autocomplete="off">
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <div class="ebay-status" id="ebayBanner"></div>
+                    <select id="sortBy">
+                        <option value="name">A → Z</option>
+                        <option value="price-asc">Prix ↑</option>
+                        <option value="price-desc">Prix ↓</option>
+                        <option value="trend-desc">Tendance ↑</option>
+                        <option value="trend-asc">Tendance ↓</option>
+                    </select>
+                    <div id="authArea">
+                        <button class="btn-auth" onclick="openAuthModal('login')">Connexion</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section: Catalogue -->
+            <section class="section-catalogue" id="sectionCatalogue">
+                <div class="section-header">
+                    <div>
+                        <h1 class="page-title">Recherche par type de scellé</h1>
+                        <p class="page-desc">Découvrez <span id="resultsCount">0</span> produits scellés Pokémon en français, avec prix actualisés via eBay.</p>
+                    </div>
+                </div>
+
+                <!-- Active type badge -->
+                <div class="active-filter-badge" id="activeFilterBadge"></div>
+
+                <div id="productsGrid" class="products-grid"></div>
+            </section>
+
+            <!-- Section: Portfolio -->
+            <section class="section-portfolio" id="sectionPortfolio" style="display:none">
+                <div class="section-header">
+                    <h1 class="page-title">Mon Portfolio</h1>
+                    <button class="btn-outline" onclick="resetPortfolio()">Réinitialiser</button>
+                </div>
+                <div class="portfolio-summary" id="portfolioSummary"></div>
+                <div class="portfolio-grid" id="portfolioGrid"></div>
+            </section>
+
+            <!-- Section: Tendances -->
+            <section class="section-tendances" id="sectionTendances" style="display:none">
+                <div class="section-header">
+                    <h1 class="page-title">Tendances du marché</h1>
+                    <p class="page-desc">Les mouvements de prix les plus significatifs</p>
+                </div>
+                <div class="tendances-grid">
+                    <div class="tendance-block">
+                        <h3><span class="t-dot green"></span>Fortes hausses</h3>
+                        <ol id="trendUp" class="t-list"></ol>
+                    </div>
+                    <div class="tendance-block">
+                        <h3><span class="t-dot red"></span>Fortes baisses</h3>
+                        <ol id="trendMid" class="t-list"></ol>
+                    </div>
+                    <div class="tendance-block">
+                        <h3><span class="t-dot blue"></span>Plus cotés</h3>
+                        <ol id="trendHot" class="t-list"></ol>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Auth Modal -->
+    <div class="modal-overlay" id="authModal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeAuthModal()">&times;</button>
+            <div class="modal-tabs">
+                <button class="modal-tab active" id="tabLogin" onclick="switchAuthTab('login')">Connexion</button>
+                <button class="modal-tab" id="tabRegister" onclick="switchAuthTab('register')">Créer un compte</button>
+            </div>
+            <form id="authForm">
+                <div class="field">
+                    <label for="authUsername">Nom d'utilisateur</label>
+                    <input type="text" id="authUsername" required minlength="3" autocomplete="username">
+                </div>
+                <div class="field">
+                    <label for="authPassword">Mot de passe</label>
+                    <input type="password" id="authPassword" required minlength="4" autocomplete="current-password">
+                </div>
+                <div class="auth-error" id="authError"></div>
+                <button type="submit" class="btn-primary" id="authSubmit">Se connecter</button>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

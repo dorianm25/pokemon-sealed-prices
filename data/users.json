@@ -1,0 +1,32 @@
+{
+  "dorian": {
+    "username": "dorian",
+    "salt": "076ca138e1df428c9b9b31400b9cb1d1",
+    "hash": "4e2de0ecba382c962b0c38f5cecca094b4310d51bf06dd394ea19dca5d9a066bc60b429f4decd8e6ddeb064c6352b5dbda92abc697e730b371757a8fb3d22df1",
+    "createdAt": "2026-04-04T00:06:50.513Z"
+  },
+  "testuser": {
+    "username": "testuser",
+    "salt": "fccbb995214d189f58e4e87da2714bfa",
+    "hash": "df3bd8daf453b326bd2a68bfc2b2d5402214fc806d7bf70ae1980c4dfd4713cd221acf1561e1fbe453092ebd309ed22518b2aa8b93001ab0d28c5f30fb9cbede",
+    "createdAt": "2026-04-04T00:09:29.991Z"
+  },
+  "newuser": {
+    "username": "newuser",
+    "salt": "ec27402d27778765139a5679de18d5fa",
+    "hash": "94577356297c0fb2c793d28d3f2e6eeb7e829381efedbb9ecf2369a22857e5e75c0160beb786fce7cd68c8e40c3735aba2b2be2d1af2829590051c799fd6e9cd",
+    "createdAt": "2026-04-04T00:11:09.850Z"
+  },
+  "user2": {
+    "username": "user2",
+    "salt": "82d386f28c59eb6d59b81650e0c2ef00",
+    "hash": "f14f4bd9d4898cbbf722373fb2eeff452c19e2ca76a1dbc0ed8fa7e6ff52b174ebe2ee8e3a842551046d56d77f44fab173be1e1fee6c2fed00ba2712b822d3b3",
+    "createdAt": "2026-04-04T00:12:08.160Z"
+  },
+  "sdfg": {
+    "username": "sdfg",
+    "salt": "a040c1759824142bc10da1f511be70a9",
+    "hash": "d40aa7f06f60ba9e6255a71c8f784430ee7757ea11395c1fe1d1c21d26549b0833c080d7fd1c6204ce7d04326ba539bcae36b9fb460f230f6afcc6d5b522b865",
+    "createdAt": "2026-04-04T00:13:27.223Z"
+  }
+}
