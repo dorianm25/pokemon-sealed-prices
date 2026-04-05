@@ -21,6 +21,7 @@ const PORT = process.env.PORT || 3001;
 
 const USERS_FILE = path.join(__dirname, 'data', 'users.json');
 const PORTFOLIOS_DIR = path.join(__dirname, 'data', 'portfolios');
+const PORTFOLIO_HISTORY_FILE = path.join(__dirname, 'data', 'portfolio-history.json');
 const TOKEN_SECRET = process.env.TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
 
 async function ensureDataDirs() {
@@ -709,6 +710,112 @@ app.put('/api/portfolio', authMiddleware, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Portfolio History ────────────────────────────────────────
+
+async function readPortfolioHistory() {
+    try {
+        const data = await fs.readFile(PORTFOLIO_HISTORY_FILE, 'utf-8');
+        return JSON.parse(data);
+    } catch {
+        return [];
+    }
+}
+
+async function writePortfolioHistory(history) {
+    await ensureDataDirs();
+    await fs.writeFile(PORTFOLIO_HISTORY_FILE, JSON.stringify(history, null, 2));
+}
+
+async function snapshotPortfolio() {
+    console.log('[Portfolio] Snapshot en cours...');
+    try {
+        // Lire tous les portfolios utilisateurs
+        let allFiles;
+        try {
+            allFiles = await fs.readdir(PORTFOLIOS_DIR);
+        } catch {
+            allFiles = [];
+        }
+
+        // Agréger: pour chaque produit, prendre le max qty trouvé (ou le premier user)
+        // Si pas de fichiers, utiliser le portfolio par défaut du frontend
+        let portfolio = {};
+        for (const file of allFiles) {
+            if (!file.endsWith('.json')) continue;
+            try {
+                const data = JSON.parse(await fs.readFile(path.join(PORTFOLIOS_DIR, file), 'utf-8'));
+                for (const [name, h] of Object.entries(data)) {
+                    if (h.qty > 0) {
+                        if (!portfolio[name] || h.qty > portfolio[name].qty) {
+                            portfolio[name] = h;
+                        }
+                    }
+                }
+            } catch {}
+        }
+
+        // Calculer la valeur totale avec les prix en cache
+        let totalInvested = 0, totalValue = 0;
+        for (const product of PRODUCTS_TO_TRACK) {
+            const h = portfolio[product.name];
+            if (!h || h.qty <= 0) continue;
+            totalInvested += h.qty * h.cost;
+
+            // Lire le prix en cache
+            const cached = await readCache(product.id);
+            const price = cached?.price || 0;
+            totalValue += h.qty * price;
+        }
+
+        const today = new Date().toISOString().slice(0, 10);
+        const entry = { date: today, invested: Math.round(totalInvested * 100) / 100, value: Math.round(totalValue * 100) / 100, pnl: Math.round((totalValue - totalInvested) * 100) / 100 };
+
+        const history = await readPortfolioHistory();
+        const idx = history.findIndex(h => h.date === today);
+        if (idx >= 0) {
+            history[idx] = entry;
+        } else {
+            history.push(entry);
+        }
+        // Garder max 365 jours
+        if (history.length > 365) history.splice(0, history.length - 365);
+
+        await writePortfolioHistory(history);
+        console.log(`[Portfolio] Snapshot OK: investi=${entry.invested}€, valeur=${entry.value}€, P&L=${entry.pnl}€`);
+    } catch (err) {
+        console.error('[Portfolio] Erreur snapshot:', err.message);
+    }
+}
+
+// API : historique du portfolio
+app.get('/api/portfolio-history', async (_req, res) => {
+    const history = await readPortfolioHistory();
+    res.json(history);
+});
+
+// API : forcer un snapshot maintenant
+app.post('/api/portfolio-snapshot', async (_req, res) => {
+    await snapshotPortfolio();
+    const history = await readPortfolioHistory();
+    res.json({ ok: true, entries: history.length });
+});
+
+// Cron minuit : snapshot portfolio
+function scheduleMidnightSnapshot() {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(24, 0, 0, 0); // prochain minuit
+    const msUntilMidnight = midnight.getTime() - now.getTime();
+
+    console.log(`[Portfolio] Prochain snapshot dans ${Math.round(msUntilMidnight / 60000)} min`);
+
+    setTimeout(() => {
+        snapshotPortfolio();
+        // Puis toutes les 24h
+        setInterval(snapshotPortfolio, 24 * 60 * 60 * 1000);
+    }, msUntilMidnight);
+}
+
 // ── Start ────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
@@ -723,4 +830,8 @@ app.listen(PORT, () => {
 │  Produits suivis : ${String(PRODUCTS_TO_TRACK.length).padEnd(20)}│
 └─────────────────────────────────────────┘
 `);
+
+    // Snapshot initial au démarrage (après 30s pour laisser le cache se remplir)
+    setTimeout(snapshotPortfolio, 30000);
+    scheduleMidnightSnapshot();
 });

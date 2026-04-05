@@ -1011,6 +1011,57 @@ function renderPortfolioSummary(pf) {
     `;
 }
 
+let portfolioChartInstance = null;
+
+async function loadPortfolioChart() {
+    const wrap = document.getElementById('portfolioChartWrap');
+    try {
+        const res = await fetch('/api/portfolio-history');
+        const history = await res.json();
+        if (!history || history.length === 0) { wrap.style.display = 'none'; return; }
+
+        wrap.style.display = 'block';
+        const labels = history.map(h => h.date);
+        const investedData = history.map(h => h.invested);
+        const valueData = history.map(h => h.value);
+        const pnlData = history.map(h => h.pnl);
+
+        if (portfolioChartInstance) portfolioChartInstance.destroy();
+
+        const ctx = document.getElementById('portfolioChart').getContext('2d');
+        portfolioChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'Investi', data: investedData, borderColor: '#94a3b8', backgroundColor: 'rgba(148,163,184,0.08)', borderWidth: 2, pointRadius: 3, tension: 0.3, fill: false },
+                    { label: 'Valeur', data: valueData, borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.10)', borderWidth: 2, pointRadius: 3, tension: 0.3, fill: true },
+                    { label: 'P&L', data: pnlData, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.08)', borderWidth: 2, pointRadius: 3, tension: 0.3, borderDash: [5, 3], fill: false },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: '#94a3b8', font: { size: 12 } } },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} €`,
+                        },
+                    },
+                },
+                scales: {
+                    x: { ticks: { color: '#64748b', maxRotation: 45 }, grid: { color: 'rgba(148,163,184,0.1)' } },
+                    y: { ticks: { color: '#64748b', callback: v => v + ' €' }, grid: { color: 'rgba(148,163,184,0.1)' } },
+                },
+            },
+        });
+    } catch {
+        wrap.style.display = 'none';
+    }
+}
+
 async function renderPortfolio() {
     const pf = await loadPortfolio();
     const sorted = [...products].sort((a, b) => {
@@ -1022,6 +1073,7 @@ async function renderPortfolio() {
     });
     document.getElementById('portfolioGrid').innerHTML = sorted.map(p => renderPortfolioCard(p, pf)).join('');
     renderPortfolioSummary(pf);
+    loadPortfolioChart();
 }
 
 // ── Events ───────────────────────────────────────────────────
