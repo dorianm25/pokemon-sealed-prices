@@ -10,5 +10,20 @@
   },
   "ev85-display": {
     "fixedPrice": 580
+  },
+  "ev01-etb": {
+    "query": "ETB EV01"
+  },
+  "ev01-display": {
+    "query": "Display EV01"
+  },
+  "ev02-etb": {
+    "query": "ETB EV02"
+  },
+  "ev35-etb": {
+    "query": "ETB 151"
+  },
+  "ev45-booster": {
+    "query": "booster EV 4.5"
   }
 }

@@ -444,9 +444,55 @@ body {
    PRODUCT GRID
    ============================================================ */
 .products-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.products-grid > .product-card {
+    /* Fallback quand pas groupé par série */
+}
+
+.serie-group {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.serie-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    background: rgba(34, 197, 94, 0.06);
+    border-bottom: 1px solid var(--border);
+}
+
+.serie-code {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--green-light);
+    background: rgba(34, 197, 94, 0.15);
+    padding: 3px 10px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+}
+
+.serie-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.serie-items {
     display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    padding: 12px;
+}
+
+.flat-grid {
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 16px;
 }
 
 /* ============================================================
@@ -1302,7 +1348,8 @@ body {
    ============================================================ */
 @media (max-width: 900px) {
     .sidebar { width: 220px; }
-    .products-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+    .serie-items { grid-template-columns: repeat(3, 1fr); }
+    .serie-items.flat-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
     .kpi-grid { grid-template-columns: repeat(2, 1fr); }
     .detail-body { grid-template-columns: 1fr; }
 }
@@ -1333,11 +1380,15 @@ body {
     .section-portfolio,
     .section-tendances { padding: 12px; }
 
-    /* Product grid: 2 columns on mobile */
-    .products-grid {
-        grid-template-columns: repeat(2, 1fr);
+    /* Product grid: 2-3 columns on mobile */
+    .serie-items {
+        grid-template-columns: repeat(3, 1fr);
         gap: 8px;
+        padding: 8px;
     }
+    .serie-items.flat-grid { grid-template-columns: repeat(2, 1fr); }
+    .serie-header { padding: 10px 12px; }
+    .serie-name { font-size: 13px; }
 
     /* Cards more compact */
     .product-img { aspect-ratio: 1 / 1; }
@@ -1376,7 +1427,7 @@ body {
 }
 
 @media (max-width: 380px) {
-    .products-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+    .serie-items { grid-template-columns: repeat(2, 1fr); gap: 6px; }
     .product-name { font-size: 10px; }
     .product-info { padding: 6px 8px 8px; }
 }

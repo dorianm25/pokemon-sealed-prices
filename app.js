@@ -29,6 +29,7 @@ const products = [
     ...serie('EV02', 'Évolutions à Paldea', 'EV'),
     ...serie('EV03', 'Flammes Obsidiennes', 'EV'),
     ...serie('EV3.5', 'Pokémon 151', 'EV', { display: { price: 1200, old: 575, low: 900, high: 1400 } }),
+    { name: 'Display Bundle Pokémon 151', ext: 'EV3.5 — Pokémon 151', serie: 'Écarlate et Violet', type: 'dispbundle', price: 0, old: 0, trend: 0, low: 0, high: 0 },
     ...serie('EV04', 'Faille Paradoxe', 'EV'),
     ...serie('EV4.5', 'Destinées de Paldea', 'EV', { etb: { price: 130, old: 80, low: 100, high: 150 } }),
     ...serie('EV05', 'Forces Temporelles', 'EV'),
@@ -37,6 +38,7 @@ const products = [
     ...serie('EV07', 'Couronne Stellaire', 'EV'),
     ...serie('EV08', 'Étincelles Déferlantes', 'EV'),
     ...serie('EV8.5', 'Évolutions Prismatiques', 'EV', { etb: { price: 100, old: 54.99, low: 80, high: 120 }, display: { price: 500, old: 520, low: 450, high: 550 } }),
+    { name: 'Display Bundle Évolutions Prismatiques', ext: 'EV8.5 — Évolutions Prismatiques', serie: 'Écarlate et Violet', type: 'dispbundle', price: 0, old: 0, trend: 0, low: 0, high: 0 },
     ...serie('EV09', 'Aventures Ensemble', 'EV', { display: { price: 200, old: 190, low: 180, high: 220 } }),
     ...serie('EV10', 'Rivalités Destinées', 'EV', { etb: { price: 130, old: 54.99, low: 100, high: 160 }, display: { price: 350, old: 215, low: 300, high: 400 }, display18: { price: 170, old: 107, low: 140, high: 200 } }),
     ...serie('EV10.S2', 'Foudre Noire (EV10.5)', 'EV', { etb: { price: 80, old: 54.99, low: 65, high: 95 } }),
@@ -64,7 +66,7 @@ function trendLabel(t) {
     return `${arrow} ${sign}${t} %`;
 }
 
-const TYPE_LABELS = { etb: 'ETB', display: 'DISPLAY 36', display18: 'DISPLAY 18', tripack: 'TRIPACK', bundle: 'BUNDLE', booster: 'BOOSTER' };
+const TYPE_LABELS = { etb: 'ETB', display: 'DISPLAY 36', display18: 'DISPLAY 18', tripack: 'TRIPACK', bundle: 'BUNDLE', booster: 'BOOSTER', dispbundle: 'DISPLAY BUNDLE' };
 
 // ── Mobile sidebar toggle ──────────────────────────────────
 
@@ -99,6 +101,9 @@ function buildEbayMap() {
             map[`${sid}-${tid}`] = `${tprefix} ${sname}`;
         }
     }
+    // Produits spéciaux
+    map['ev35-dispbundle'] = 'Display Bundle Pokémon 151';
+    map['ev85-dispbundle'] = 'Display Bundle Évolutions Prismatiques';
     return map;
 }
 
@@ -580,6 +585,11 @@ function getFiltered() {
         case 'price-desc': list.sort((a, b) => b.price - a.price); break;
         case 'trend-desc': list.sort((a, b) => b.trend - a.trend); break;
         case 'trend-asc':  list.sort((a, b) => a.trend - b.trend); break;
+        case 'serie':      list.sort((a, b) => {
+            const codeA = a.ext.split(' — ')[0];
+            const codeB = b.ext.split(' — ')[0];
+            return codeA.localeCompare(codeB, 'fr', { numeric: true });
+        }); break;
         default:           list.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
     }
 
@@ -588,7 +598,35 @@ function getFiltered() {
 
 function render() {
     const list = getFiltered();
-    document.getElementById('productsGrid').innerHTML = list.map(renderCard).join('');
+    const sort = document.getElementById('sortBy').value;
+    const grid = document.getElementById('productsGrid');
+
+    if (sort === 'serie') {
+        // Grouper par série avec en-têtes
+        const groups = [];
+        let currentCode = null;
+        for (const p of list) {
+            const code = p.ext.split(' — ')[0];
+            if (code !== currentCode) {
+                currentCode = code;
+                const serieName = p.ext.split(' — ')[1] || p.serie;
+                groups.push({ code, name: serieName, items: [] });
+            }
+            groups[groups.length - 1].items.push(p);
+        }
+        grid.innerHTML = groups.map(g =>
+            `<div class="serie-group">
+                <div class="serie-header">
+                    <span class="serie-code">${g.code}</span>
+                    <span class="serie-name">${g.name}</span>
+                </div>
+                <div class="serie-items">${g.items.map(renderCard).join('')}</div>
+            </div>`
+        ).join('');
+    } else {
+        grid.innerHTML = `<div class="serie-items flat-grid">${list.map(renderCard).join('')}</div>`;
+    }
+
     document.getElementById('resultsCount').textContent = list.length;
 
     // Active filter badge
@@ -672,39 +710,11 @@ async function fetchEbayPrices() {
 
     const ids = Object.keys(EBAY_PRODUCT_MAP);
     let updated = 0;
+    const total = ids.length;
 
-    // Phase 1 : charger tous les prix en cache d'un coup (rapide)
-    try {
-        const bulkRes = await fetch('/api/prices');
-        const bulkData = await bulkRes.json();
-        if (bulkData.products) {
-            for (const ep of bulkData.products) {
-                const name = applyEbayPrice(ep);
-                if (name) {
-                    updated++;
-                    updateCard(name);
-                }
-            }
-        }
-    } catch {}
-
-    if (banner) {
-        banner.textContent = updated > 0 ? `${updated} prix via eBay` : 'Chargement des prix…';
-    }
-
-    // Phase 2 : charger individuellement ceux qui manquent
-    const missing = ids.filter(id => {
-        const name = EBAY_PRODUCT_MAP[id];
-        const p = products.find(pr => pr.name === name);
-        return p && p.sampleSize === undefined && !p.lastListing;
-    });
-
-    if (missing.length > 0 && banner) {
-        banner.textContent = `${updated} prix — chargement de ${missing.length} restants…`;
-    }
-
-    for (let i = 0; i < missing.length; i += 3) {
-        const batch = missing.slice(i, i + 3);
+    // Chargement progressif : chaque prix arrive et s'affiche en direct
+    for (let i = 0; i < ids.length; i += 3) {
+        const batch = ids.slice(i, i + 3);
         const results = await Promise.allSettled(
             batch.map(id => fetch(`/api/price/${id}`).then(r => r.json()))
         );
@@ -720,11 +730,11 @@ async function fetchEbayPrices() {
         }
 
         if (banner) {
-            banner.textContent = `${updated} prix — chargement…`;
+            banner.textContent = `${updated}/${total} prix chargés…`;
         }
 
-        if (i + 3 < missing.length) {
-            await new Promise(r => setTimeout(r, 500));
+        if (i + 3 < ids.length) {
+            await new Promise(r => setTimeout(r, 200));
         }
     }
 

@@ -9,10 +9,10 @@
   },
   {
     "date": "2026-04-05",
-    "median": 24.9,
+    "median": 27,
     "low": 24.9,
-    "high": 24.9,
-    "lastPrice": 24.9,
-    "sampleSize": 1
+    "high": 36.9,
+    "lastPrice": 29,
+    "sampleSize": 4
   }
 ]

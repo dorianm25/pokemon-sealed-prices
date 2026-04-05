@@ -307,39 +307,41 @@ function extractPrices(ebayResponse, limits) {
 
 // Génère les 6 produits pour une série
 // minPrice / maxPrice : tolérance de prix pour filtrer les résultats eBay (modifiable par produit)
-function serieProducts(id, nom, nomSearch) {
-    const s = nomSearch || nom.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[éèê]/gi, 'e').replace(/[àâ]/gi, 'a').replace(/[ùû]/gi, 'u');
+function serieProducts(id, nom, code, opts = {}) {
+    const nl = opts.noLimits;
     return [
-        { id: `${id}-etb`,       query: `pokemon ETB ${s} FR neuf`,               name: `ETB ${nom}`,         minPrice: 20,  maxPrice: 200 },
-        { id: `${id}-display`,    query: `pokemon display 36 boosters ${s} FR`,    name: `Display ${nom}`,  minPrice: 160,  maxPrice: 800 },
-        { id: `${id}-display18`,  query: `pokemon demi display 18 boosters ${s} FR`,    name: `Demi Display  ${nom}`,  minPrice: 20,  maxPrice: 200 },
-        { id: `${id}-tripack`,    query: `pokemon tripack ${s} FR neuf`,           name: `Tripack ${nom}`,     minPrice: 8,   maxPrice: 40 },
-        { id: `${id}-bundle`,     query: `pokemon bundle 6 boosters ${s} FR`,      name: `Bundle 6 ${nom}`,    minPrice: 30,  maxPrice: 130 },
-        { id: `${id}-booster`,    query: `pokemon booster blister ${s} FR neuf`,           name: `Booster blister ${nom}`,     minPrice: 3,   maxPrice: 15 },
+        { id: `${id}-etb`,       query: `ETB ${nom} ${code}`,               name: `ETB ${nom}`,            minPrice: nl ? 0 : 40,   maxPrice: nl ? 99999 : 300 },
+        { id: `${id}-display`,    query: `display ${nom} ${code}`,          name: `Display 36 ${nom}`,     minPrice: nl ? 0 : 220,  maxPrice: nl ? 99999 : 400 },
+        { id: `${id}-display18`,  query: `demi display ${nom} ${code}`,     name: `Display 18 ${nom}`,     minPrice: nl ? 0 : 100,  maxPrice: nl ? 99999 : 200 },
+        { id: `${id}-tripack`,    query: `tripack ${nom} ${code}`,          name: `Tripack ${nom}`,        minPrice: nl ? 0 : 18,   maxPrice: nl ? 99999 : 45 },
+        { id: `${id}-bundle`,     query: `bundle ${nom} ${code}`,           name: `Bundle 6 ${nom}`,       minPrice: nl ? 0 : 30,   maxPrice: nl ? 99999 : 130 },
+        { id: `${id}-booster`,    query: `booster ${nom} ${code}`,          name: `Booster ${nom}`,        minPrice: nl ? 0 : 5,    maxPrice: nl ? 99999 : 23 },
     ];
 }
 
 const PRODUCTS_TO_TRACK = [
-    ...serieProducts('ev01', 'Écarlate et Violet', 'ecarlate violet'),
-    ...serieProducts('ev02', 'Évolutions à Paldea', 'evolutions paldea'),
-    ...serieProducts('ev03', 'Flammes Obsidiennes', 'flammes obsidiennes'),
-    ...serieProducts('ev35', 'Pokémon 151', 'pokemon 151'),
-    ...serieProducts('ev04', 'Faille Paradoxe', 'faille paradoxe'),
-    ...serieProducts('ev45', 'Destinées de Paldea', 'destinees paldea'),
-    ...serieProducts('ev05', 'Forces Temporelles', 'forces temporelles'),
-    ...serieProducts('ev06', 'Mascarade Crépusculaire', 'mascarade crepusculaire'),
-    ...serieProducts('ev65', 'Fable Nébuleuse', 'fable nebuleuse'),
-    ...serieProducts('ev07', 'Couronne Stellaire', 'couronne stellaire'),
-    ...serieProducts('ev08', 'Étincelles Déferlantes', 'etincelles deferlantes'),
-    ...serieProducts('ev85', 'Évolutions Prismatiques', 'evolutions prismatiques'),
-    ...serieProducts('ev09', 'Aventures Ensemble', 'aventures ensemble'),
-    ...serieProducts('ev10', 'Rivalités Destinées', 'rivalites destinees'),
-    ...serieProducts('ev10.5', 'Foudre Noire (EV10.5)', 'foudre noire EV10.5'),
-    ...serieProducts('ev10.5', 'Flamme Blanche (EV10.5)', 'flamme blanche EV10.5'),
-    ...serieProducts('me01', 'Méga-Évolution', 'mega evolution'),
-    ...serieProducts('me02', 'Flammes Fantasmagoriques', 'flammes fantasmagoriques'),
-    ...serieProducts('me2.5', 'Héros Transcendants', 'heros transcendants'),
-    ...serieProducts('me03', 'Équilibre Parfait', 'equilibre parfait'),
+    ...serieProducts('ev01', 'Écarlate et Violet', 'EV01'),
+    ...serieProducts('ev02', 'Évolutions à Paldea', 'EV02'),
+    ...serieProducts('ev03', 'Flammes Obsidiennes', 'EV03'),
+    ...serieProducts('ev35', 'Pokémon 151', 'EV3.5', { noLimits: true }),
+    { id: 'ev35-dispbundle', query: 'display bundle Pokémon 151 EV3.5', name: 'Display Bundle Pokémon 151', minPrice: 0, maxPrice: 99999 },
+    ...serieProducts('ev04', 'Faille Paradoxe', 'EV04'),
+    ...serieProducts('ev45', 'Destinées de Paldea', 'EV4.5'),
+    ...serieProducts('ev05', 'Forces Temporelles', 'EV05'),
+    ...serieProducts('ev06', 'Mascarade Crépusculaire', 'EV06'),
+    ...serieProducts('ev65', 'Fable Nébuleuse', 'EV6.5'),
+    ...serieProducts('ev07', 'Couronne Stellaire', 'EV07'),
+    ...serieProducts('ev08', 'Étincelles Déferlantes', 'EV08'),
+    ...serieProducts('ev85', 'Évolutions Prismatiques', 'EV8.5'),
+    { id: 'ev85-dispbundle', query: 'display bundle Évolutions Prismatiques EV8.5', name: 'Display Bundle Évolutions Prismatiques', minPrice: 0, maxPrice: 99999 },
+    ...serieProducts('ev09', 'Aventures Ensemble', 'EV09'),
+    ...serieProducts('ev10', 'Rivalités Destinées', 'EV10'),
+    ...serieProducts('ev10.5', 'Foudre Noire (EV10.5)', 'EV10.5'),
+    ...serieProducts('ev10.5', 'Flamme Blanche (EV10.5)', 'EV10.5'),
+    ...serieProducts('me01', 'Méga-Évolution', 'ME01'),
+    ...serieProducts('me02', 'Flammes Fantasmagoriques', 'ME02'),
+    ...serieProducts('me2.5', 'Héros Transcendants', 'ME2.5'),
+    ...serieProducts('me03', 'Équilibre Parfait', 'ME03'),
 ];
 
 // ── Fetch specific eBay item by URL ─────────────────────────
