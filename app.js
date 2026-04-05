@@ -124,8 +124,8 @@ function renderCard(p, i) {
         </div>
         <div class="product-prices">
             <div class="product-price-col">
-                <span class="product-price-label">Prix moyen</span>
-                <span class="product-price-value">${fmt(p.price)}</span>
+                <span class="product-price-label">Dernier prix</span>
+                <span class="product-price-value">${fmt(p.lastPrice || p.lastListing?.price || p.price)}</span>
             </div>
             <div class="product-price-col" style="text-align:right">
                 <span class="product-price-label">résultats</span>
@@ -145,7 +145,7 @@ function updateCard(productName) {
     const priceEl = card.querySelector('.product-price-value');
     const subEl = card.querySelector('.product-price-sub');
 
-    if (priceEl) priceEl.textContent = fmt(p.price);
+    if (priceEl) priceEl.textContent = fmt(p.lastPrice || p.lastListing?.price || p.price);
     if (subEl) subEl.textContent = p.sampleSize || '—';
 
     // Update image if available
