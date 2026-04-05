@@ -660,8 +660,8 @@ async function fetchEbayPrices() {
     const ids = Object.keys(EBAY_PRODUCT_MAP);
     let updated = 0;
 
-    for (let i = 0; i < ids.length; i += 5) {
-        const batch = ids.slice(i, i + 5);
+    for (let i = 0; i < ids.length; i += 3) {
+        const batch = ids.slice(i, i + 3);
         const results = await Promise.allSettled(
             batch.map(id => fetch(`/api/price/${id}`).then(r => r.json()))
         );
@@ -677,7 +677,12 @@ async function fetchEbayPrices() {
         }
 
         if (banner) {
-            banner.textContent = `Chargement… ${updated} prix`;
+            banner.textContent = `Chargement… ${updated}/${ids.length} prix`;
+        }
+
+        // Pause entre les batchs pour ne pas surcharger l'API
+        if (i + 3 < ids.length) {
+            await new Promise(r => setTimeout(r, 500));
         }
     }
 

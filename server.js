@@ -486,6 +486,9 @@ app.get('/api/prices', async (req, res) => {
                 continue;
             }
 
+            // Throttle entre chaque appel eBay
+            await new Promise(r => setTimeout(r, 300));
+
             const limits = { min: product.minPrice, max: product.maxPrice };
             const ebayData = await searchEbaySold(product.query, 20, limits);
             const priceData = extractPrices(ebayData, limits);
