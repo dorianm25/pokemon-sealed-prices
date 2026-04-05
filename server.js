@@ -394,8 +394,9 @@ function extractItemPrice(item) {
 }
 
 // ── Custom queries (overrides) ──────────────────────────────
-// Format: { "product-id": { query: "...", url: "..." } }
-// Si url est défini, on fetch cet item spécifique au lieu de chercher
+// Format: { "product-id": { query: "...", url: "...", fixedPrice: 580 } }
+// fixedPrice : force un prix de marché fixe (ignore eBay)
+// url : fetch cet item spécifique au lieu de chercher
 
 const CUSTOM_QUERIES_FILE = path.join(__dirname, 'data', 'custom-queries.json');
 
@@ -442,8 +443,19 @@ app.get('/api/price/:productId', async (req, res) => {
 
         let priceData;
 
+        // Si un prix fixe est défini, l'utiliser directement
+        if (custom?.fixedPrice) {
+            const fp = custom.fixedPrice;
+            priceData = {
+                price: fp, lastPrice: fp, low: fp, high: fp,
+                sampleSize: 1, lastUpdated: new Date().toISOString(),
+                lastListing: { title: 'Prix fixé manuellement', price: fp, currency: 'EUR', url: '', image: '' },
+                fixedPrice: true,
+            };
+        }
+
         // Si un lien eBay spécifique est défini, fetch cet item
-        if (custom?.url) {
+        if (!priceData && custom?.url) {
             const legacyId = extractItemIdFromUrl(custom.url);
             if (legacyId) {
                 const item = await fetchEbayItem(legacyId);
