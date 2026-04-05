@@ -1254,6 +1254,31 @@ body {
 }
 
 /* ============================================================
+   HAMBURGER BUTTON (hidden on desktop)
+   ============================================================ */
+.topbar-hamburger {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+}
+.topbar-hamburger:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); }
+
+/* Sidebar overlay (mobile only) */
+.sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 99;
+}
+.sidebar-overlay.open { display: block; }
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 900px) {
@@ -1264,11 +1289,75 @@ body {
 }
 
 @media (max-width: 640px) {
-    .sidebar { display: none; }
-    .topbar { padding: 0 12px; }
+    /* Sidebar: drawer overlay */
+    .sidebar {
+        position: fixed;
+        left: 0; top: 0; bottom: 0;
+        width: 280px;
+        z-index: 100;
+        transform: translateX(-100%);
+        transition: transform 0.25s var(--ease-out);
+    }
+    .sidebar.open { transform: translateX(0); }
+
+    /* Show hamburger */
+    .topbar-hamburger { display: flex; }
+
+    /* Topbar compact */
+    .topbar { padding: 0 12px; gap: 8px; }
+    .topbar-right .ebay-status { display: none; }
+    .topbar-right select { font-size: 11px; padding: 4px 6px; }
+    .topbar-right .btn-auth { font-size: 11px; padding: 5px 10px; }
+
+    /* Sections */
     .section-catalogue,
     .section-portfolio,
-    .section-tendances { padding: 16px; }
-    .products-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
-    .kpi-grid { grid-template-columns: 1fr 1fr; }
+    .section-tendances { padding: 12px; }
+
+    /* Product grid: 2 columns on mobile */
+    .products-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+
+    /* Cards more compact */
+    .product-img { aspect-ratio: 1 / 1; }
+    .product-info { padding: 8px 10px 10px; }
+    .product-name { font-size: 11px; }
+    .product-type { font-size: 8px; padding: 2px 5px; }
+    .product-price-value { font-size: 13px; }
+    .product-price-label { font-size: 9px; }
+    .product-price-sub { font-size: 10px; }
+    .btn-ebay-edit { opacity: 1; width: 24px; height: 24px; font-size: 11px; }
+
+    /* Detail modal: full screen */
+    .detail-overlay { padding: 0; align-items: stretch; }
+    .detail-modal {
+        max-width: 100%;
+        border-radius: 0;
+        min-height: 100vh;
+    }
+    .detail-banner { height: 80px; padding: 12px 16px; }
+    .detail-body { grid-template-columns: 1fr; min-height: auto; }
+    .detail-sidebar {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 16px;
+    }
+    .detail-main { padding: 16px; }
+    .detail-product-name { font-size: 15px; }
+
+    /* KPIs */
+    .kpi-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .kpi-card { padding: 12px; }
+    .kpi-value { font-size: 18px; }
+
+    /* Portfolio cards */
+    .pf-grid { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 380px) {
+    .products-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+    .product-name { font-size: 10px; }
+    .product-info { padding: 6px 8px 8px; }
 }

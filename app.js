@@ -66,6 +66,13 @@ function trendLabel(t) {
 
 const TYPE_LABELS = { etb: 'ETB', display: 'DISPLAY 36', display18: 'DISPLAY 18', tripack: 'TRIPACK', bundle: 'BUNDLE', booster: 'BOOSTER' };
 
+// ── Mobile sidebar toggle ──────────────────────────────────
+
+function toggleSidebar() {
+    document.querySelector('.sidebar').classList.toggle('open');
+    document.getElementById('sidebarOverlay').classList.toggle('open');
+}
+
 // ── eBay Map ────────────────────────────────────────────────
 
 function getEbayId(productName) {
@@ -508,6 +515,12 @@ function switchSection(section, e) {
 
     currentSection = section;
 
+    // Fermer sidebar sur mobile
+    if (window.innerWidth <= 640) {
+        document.querySelector('.sidebar').classList.remove('open');
+        document.getElementById('sidebarOverlay').classList.remove('open');
+    }
+
     // Update nav
     document.querySelectorAll('.sidebar-link').forEach(link => {
         link.classList.toggle('active', link.dataset.section === section);
@@ -660,8 +673,38 @@ async function fetchEbayPrices() {
     const ids = Object.keys(EBAY_PRODUCT_MAP);
     let updated = 0;
 
-    for (let i = 0; i < ids.length; i += 3) {
-        const batch = ids.slice(i, i + 3);
+    // Phase 1 : charger tous les prix en cache d'un coup (rapide)
+    try {
+        const bulkRes = await fetch('/api/prices');
+        const bulkData = await bulkRes.json();
+        if (bulkData.products) {
+            for (const ep of bulkData.products) {
+                const name = applyEbayPrice(ep);
+                if (name) {
+                    updated++;
+                    updateCard(name);
+                }
+            }
+        }
+    } catch {}
+
+    if (banner) {
+        banner.textContent = updated > 0 ? `${updated} prix via eBay` : 'Chargement des prix…';
+    }
+
+    // Phase 2 : charger individuellement ceux qui manquent
+    const missing = ids.filter(id => {
+        const name = EBAY_PRODUCT_MAP[id];
+        const p = products.find(pr => pr.name === name);
+        return p && p.sampleSize === undefined && !p.lastListing;
+    });
+
+    if (missing.length > 0 && banner) {
+        banner.textContent = `${updated} prix — chargement de ${missing.length} restants…`;
+    }
+
+    for (let i = 0; i < missing.length; i += 3) {
+        const batch = missing.slice(i, i + 3);
         const results = await Promise.allSettled(
             batch.map(id => fetch(`/api/price/${id}`).then(r => r.json()))
         );
@@ -677,11 +720,10 @@ async function fetchEbayPrices() {
         }
 
         if (banner) {
-            banner.textContent = `Chargement… ${updated}/${ids.length} prix`;
+            banner.textContent = `${updated} prix — chargement…`;
         }
 
-        // Pause entre les batchs pour ne pas surcharger l'API
-        if (i + 3 < ids.length) {
+        if (i + 3 < missing.length) {
             await new Promise(r => setTimeout(r, 500));
         }
     }
