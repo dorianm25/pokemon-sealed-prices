@@ -979,30 +979,10 @@ document.getElementById('authForm').addEventListener('submit', handleAuth);
 
 // ── Portfolio ────────────────────────────────────────────────
 
-const DEFAULT_HOLDINGS = {
-    'ETB Pokémon 151': { qty: 0, cost: 54.99 },
-    'Display 36 Pokémon 151': { qty: 1, cost: 575 },
-    'ETB Destinées de Paldea': { qty: 1, cost: 80 },
-    'ETB Évolutions Prismatiques': { qty: 1, cost: 54.99 },
-    'Display 36 Évolutions Prismatiques': { qty: 2, cost: 520 },
-    'Display 36 Aventures Ensemble': { qty: 2, cost: 190 },
-    'ETB Rivalités Destinées': { qty: 1, cost: 54.99 },
-    'Display 36 Rivalités Destinées': { qty: 1, cost: 215 },
-    'Display 18 Rivalités Destinées': { qty: 2, cost: 107 },
-    'ETB Foudre Noire (EV10.5)': { qty: 1, cost: 54.99 },
-    'ETB Flamme Blanche (EV10.5)': { qty: 1, cost: 54.99 },
-    'ETB Méga-Évolution': { qty: 2, cost: 54.99 },
-    'Display 36 Méga-Évolution': { qty: 1, cost: 215 },
-    'ETB Flammes Fantasmagoriques': { qty: 2, cost: 54.99 },
-    'Display 36 Flammes Fantasmagoriques': { qty: 1, cost: 215 },
-    'ETB Héros Transcendants': { qty: 7, cost: 54.99 },
-};
-
 function getDefaultPortfolio() {
     const pf = {};
     for (const p of products) {
-        const def = DEFAULT_HOLDINGS[p.name];
-        pf[p.name] = def ? { qty: def.qty, cost: def.cost } : { qty: 0, cost: 0 };
+        pf[p.name] = { qty: 0, cost: 0 };
     }
     return pf;
 }

@@ -673,6 +673,13 @@ app.post('/api/register', async (req, res) => {
     users[uid] = { username: username.trim(), salt, hash, createdAt: new Date().toISOString() };
     await writeUsers(users);
 
+    // Créer un portfolio vide pour le nouvel utilisateur
+    const emptyPortfolio = {};
+    for (const p of PRODUCTS_TO_TRACK) {
+        emptyPortfolio[p.name] = { qty: 0, cost: 0 };
+    }
+    await writePortfolio(uid, emptyPortfolio);
+
     const token = createToken(uid);
     res.json({ token, username: users[uid].username });
 });
