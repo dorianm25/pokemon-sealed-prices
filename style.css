@@ -1128,6 +1128,53 @@ body {
 /* ============================================================
    TENDANCES
    ============================================================ */
+
+/* KPIs globaux */
+.trend-kpis {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+}
+.trend-kpi {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+.trend-kpi-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+.trend-kpi-value.positive { color: var(--green-light); }
+.trend-kpi-value.negative { color: var(--red); }
+.trend-kpi-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Section titles */
+.trend-section-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 32px 0 6px;
+}
+.trend-section-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+}
+
+/* Top mouvements grid */
 .tendances-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -1167,9 +1214,7 @@ body {
     border-bottom: 1px solid var(--border);
     font-size: 13px;
 }
-
 .t-list li:last-child { border-bottom: none; }
-
 .t-list li::before {
     content: counter(rank);
     font-weight: 700;
@@ -1177,12 +1222,240 @@ body {
     color: var(--text-muted);
     min-width: 1.2em;
 }
-
-.t-list .t-name { flex: 1; color: var(--text-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-list .t-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.t-list .t-name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-list .t-serie { font-size: 10px; color: var(--text-muted); }
 .t-list .t-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .t-list .t-value.up { color: var(--green-light); }
 .t-list .t-value.down { color: var(--red); }
 .t-list .t-value.hot { color: var(--blue); }
+.t-empty { color: var(--text-muted); font-style: italic; padding: 12px 0; font-size: 12px; }
+
+/* Prix moyen par type */
+.trend-avg-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.trend-avg-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+}
+.trend-avg-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.trend-avg-icon { font-size: 18px; }
+.trend-avg-type { font-weight: 700; font-size: 14px; color: var(--text-primary); }
+.trend-avg-count { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.trend-avg-price {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 8px;
+}
+.trend-avg-range {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.trend-avg-min, .trend-avg-max { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trend-avg-bar {
+    flex: 1;
+    height: 4px;
+    background: rgba(148,163,184,0.15);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.trend-avg-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green), var(--blue));
+    border-radius: 2px;
+}
+.trend-avg-trend {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+.trend-avg-trend.positive { color: var(--green-light); }
+.trend-avg-trend.negative { color: var(--red); }
+
+/* Classement séries */
+.trend-series-ranking {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 8px;
+}
+.trend-serie-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+.trend-serie-row:last-child { border-bottom: none; }
+.trend-serie-rank {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text-muted);
+    min-width: 22px;
+    text-align: center;
+}
+.trend-serie-info { flex: 1; min-width: 0; }
+.trend-serie-name-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.trend-serie-code {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--green);
+    background: rgba(34,197,94,0.1);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+.trend-serie-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.trend-serie-bar-wrap {
+    height: 3px;
+    background: rgba(148,163,184,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.trend-serie-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green), var(--green-light));
+    border-radius: 2px;
+    transition: width 0.5s ease;
+}
+.trend-serie-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    min-width: 80px;
+}
+.trend-serie-total {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+.trend-serie-trend {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+.trend-serie-trend.positive { color: var(--green-light); }
+.trend-serie-trend.negative { color: var(--red); }
+
+/* Opportunités */
+.trend-opps {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+}
+.trend-opp-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+}
+.trend-opp-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.trend-opp-serie {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+.trend-opp-price {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--green-light);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 8px;
+}
+.trend-opp-range {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.trend-opp-gauge {
+    flex: 1;
+    height: 6px;
+    background: rgba(148,163,184,0.15);
+    border-radius: 3px;
+    position: relative;
+}
+.trend-opp-gauge-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green), var(--green-light));
+    border-radius: 3px;
+}
+.trend-opp-gauge-marker {
+    position: absolute;
+    top: -3px;
+    width: 3px;
+    height: 12px;
+    background: var(--text-primary);
+    border-radius: 2px;
+    transform: translateX(-50%);
+}
+.trend-opp-savings {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--green-light);
+}
+.t-empty-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    text-align: center;
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 13px;
+}
+
+@media (max-width: 768px) {
+    .trend-kpis { grid-template-columns: repeat(3, 1fr); }
+    .trend-avg-grid { grid-template-columns: repeat(2, 1fr); }
+    .trend-opps { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+    .trend-kpis { grid-template-columns: repeat(2, 1fr); }
+    .trend-avg-grid { grid-template-columns: 1fr; }
+    .trend-opps { grid-template-columns: 1fr; }
+}
 
 /* ============================================================
    AUTH & MODALS

@@ -145,8 +145,13 @@
             <section class="section-tendances" id="sectionTendances" style="display:none">
                 <div class="section-header">
                     <h1 class="page-title">Tendances du marché</h1>
-                    <p class="page-desc">Les mouvements de prix les plus significatifs</p>
+                    <p class="page-desc">Analyse des prix et opportunités</p>
                 </div>
+
+                <!-- KPI globaux -->
+                <div class="trend-kpis" id="trendKpis"></div>
+
+                <!-- Top mouvements -->
                 <div class="tendances-grid">
                     <div class="tendance-block">
                         <h3><span class="t-dot green"></span>Fortes hausses</h3>
@@ -154,13 +159,26 @@
                     </div>
                     <div class="tendance-block">
                         <h3><span class="t-dot red"></span>Fortes baisses</h3>
-                        <ol id="trendMid" class="t-list"></ol>
+                        <ol id="trendDown" class="t-list"></ol>
                     </div>
                     <div class="tendance-block">
                         <h3><span class="t-dot blue"></span>Plus cotés</h3>
                         <ol id="trendHot" class="t-list"></ol>
                     </div>
                 </div>
+
+                <!-- Prix moyen par type -->
+                <h2 class="trend-section-title">Prix moyen par type de produit</h2>
+                <div class="trend-avg-grid" id="trendAvgByType"></div>
+
+                <!-- Classement par série -->
+                <h2 class="trend-section-title">Classement des séries par valeur</h2>
+                <div class="trend-series-ranking" id="trendSeriesRanking"></div>
+
+                <!-- Meilleurs rapports qualité/prix -->
+                <h2 class="trend-section-title">Opportunités d'achat</h2>
+                <p class="trend-section-desc">Produits actuellement sous leur prix moyen historique</p>
+                <div class="trend-opps" id="trendOpportunities"></div>
             </section>
         </main>
     </div>

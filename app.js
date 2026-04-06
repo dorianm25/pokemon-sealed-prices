@@ -746,19 +746,158 @@ function render() {
 // ── Tendances ────────────────────────────────────────────────
 
 function renderTrends() {
-    const byTrend = [...products].sort((a, b) => b.trend - a.trend);
-    const byPrice = [...products].sort((a, b) => b.price - a.price);
-    const low = [...products].sort((a, b) => a.trend - b.trend);
+    const priced = products.filter(p => p.price > 0);
 
-    const row = (p, cls, val) =>
-        `<li><span class="t-name">${p.name}</span><span class="t-value ${cls}">${val}</span></li>`;
+    // ── KPIs globaux ──
+    const totalProducts = priced.length;
+    const avgPrice = priced.length ? priced.reduce((s, p) => s + p.price, 0) / priced.length : 0;
+    const hausse = priced.filter(p => p.trend > 0).length;
+    const baisse = priced.filter(p => p.trend < 0).length;
+    const stable = priced.filter(p => p.trend === 0).length;
+    const avgTrend = priced.length ? priced.reduce((s, p) => s + p.trend, 0) / priced.length : 0;
+    const trendClass = avgTrend > 0 ? 'positive' : avgTrend < 0 ? 'negative' : '';
+
+    document.getElementById('trendKpis').innerHTML = `
+        <div class="trend-kpi">
+            <span class="trend-kpi-value">${totalProducts}</span>
+            <span class="trend-kpi-label">Produits suivis</span>
+        </div>
+        <div class="trend-kpi">
+            <span class="trend-kpi-value">${fmt(avgPrice)}</span>
+            <span class="trend-kpi-label">Prix moyen</span>
+        </div>
+        <div class="trend-kpi">
+            <span class="trend-kpi-value ${trendClass}">${avgTrend >= 0 ? '+' : ''}${avgTrend.toFixed(1)} %</span>
+            <span class="trend-kpi-label">Tendance moyenne</span>
+        </div>
+        <div class="trend-kpi">
+            <span class="trend-kpi-value" style="color: var(--green-light)">${hausse}</span>
+            <span class="trend-kpi-label">En hausse</span>
+        </div>
+        <div class="trend-kpi">
+            <span class="trend-kpi-value" style="color: var(--red)">${baisse}</span>
+            <span class="trend-kpi-label">En baisse</span>
+        </div>
+        <div class="trend-kpi">
+            <span class="trend-kpi-value" style="color: var(--text-muted)">${stable}</span>
+            <span class="trend-kpi-label">Stables</span>
+        </div>
+    `;
+
+    // ── Top 8 mouvements ──
+    const byTrend = [...priced].sort((a, b) => b.trend - a.trend);
+    const byPrice = [...priced].sort((a, b) => b.price - a.price);
+    const byTrendLow = [...priced].sort((a, b) => a.trend - b.trend);
+
+    const row = (p, cls, val, showSerie = true) =>
+        `<li>
+            <div class="t-info">
+                <span class="t-name">${p.name}</span>
+                ${showSerie ? `<span class="t-serie">${p.ext.split(' — ')[0]}</span>` : ''}
+            </div>
+            <span class="t-value ${cls}">${val}</span>
+        </li>`;
 
     document.getElementById('trendUp').innerHTML =
-        byTrend.slice(0, 5).map(p => row(p, 'up', `+${p.trend} %`)).join('');
-    document.getElementById('trendMid').innerHTML =
-        low.slice(0, 5).map(p => row(p, 'down', `${p.trend} %`)).join('');
+        byTrend.filter(p => p.trend > 0).slice(0, 8).map(p => row(p, 'up', `+${p.trend} %`)).join('') || '<li class="t-empty">Aucune hausse</li>';
+    document.getElementById('trendDown').innerHTML =
+        byTrendLow.filter(p => p.trend < 0).slice(0, 8).map(p => row(p, 'down', `${p.trend} %`)).join('') || '<li class="t-empty">Aucune baisse</li>';
     document.getElementById('trendHot').innerHTML =
-        byPrice.slice(0, 5).map(p => row(p, 'hot', fmt(p.price))).join('');
+        byPrice.slice(0, 8).map(p => row(p, 'hot', fmt(p.price))).join('');
+
+    // ── Prix moyen par type ──
+    const types = ['etb', 'display', 'display18', 'booster', 'tripack', 'bundle'];
+    const typeLabels = { etb: 'ETB', display: 'Display 36', display18: 'Display 18', booster: 'Booster', tripack: 'Tripack', bundle: 'Bundle 6' };
+    const typeIcons = { etb: '🎁', display: '📦', display18: '📦', booster: '🃏', tripack: '🃏', bundle: '🎲' };
+
+    document.getElementById('trendAvgByType').innerHTML = types.map(t => {
+        const items = priced.filter(p => p.type === t);
+        if (!items.length) return '';
+        const avg = items.reduce((s, p) => s + p.price, 0) / items.length;
+        const min = Math.min(...items.map(p => p.price));
+        const max = Math.max(...items.map(p => p.price));
+        const avgTrend = items.reduce((s, p) => s + p.trend, 0) / items.length;
+        const tc = avgTrend > 0 ? 'positive' : avgTrend < 0 ? 'negative' : '';
+        return `<div class="trend-avg-card">
+            <div class="trend-avg-header">
+                <span class="trend-avg-icon">${typeIcons[t]}</span>
+                <span class="trend-avg-type">${typeLabels[t]}</span>
+                <span class="trend-avg-count">${items.length} produits</span>
+            </div>
+            <div class="trend-avg-price">${fmt(avg)}</div>
+            <div class="trend-avg-range">
+                <span class="trend-avg-min">${fmt(min)}</span>
+                <div class="trend-avg-bar"><div class="trend-avg-bar-fill" style="width: ${max > 0 ? ((avg - min) / (max - min) * 100) : 50}%"></div></div>
+                <span class="trend-avg-max">${fmt(max)}</span>
+            </div>
+            <div class="trend-avg-trend ${tc}">${avgTrend >= 0 ? '▲' : '▼'} ${Math.abs(avgTrend).toFixed(1)} % en moyenne</div>
+        </div>`;
+    }).join('');
+
+    // ── Classement séries par valeur totale ──
+    const seriesMap = {};
+    for (const p of priced) {
+        const code = p.ext.split(' — ')[0];
+        const name = p.ext.split(' — ')[1] || code;
+        if (!seriesMap[code]) seriesMap[code] = { code, name, total: 0, count: 0, avgTrend: 0 };
+        seriesMap[code].total += p.price;
+        seriesMap[code].count++;
+        seriesMap[code].avgTrend += p.trend;
+    }
+    const seriesList = Object.values(seriesMap).map(s => ({ ...s, avgTrend: s.avgTrend / s.count }));
+    seriesList.sort((a, b) => b.total - a.total);
+    const maxTotal = seriesList[0]?.total || 1;
+
+    document.getElementById('trendSeriesRanking').innerHTML = seriesList.map((s, i) => {
+        const tc = s.avgTrend > 0 ? 'positive' : s.avgTrend < 0 ? 'negative' : '';
+        const pct = (s.total / maxTotal * 100).toFixed(0);
+        return `<div class="trend-serie-row">
+            <span class="trend-serie-rank">${i + 1}</span>
+            <div class="trend-serie-info">
+                <div class="trend-serie-name-row">
+                    <span class="trend-serie-code">${s.code}</span>
+                    <span class="trend-serie-name">${s.name}</span>
+                </div>
+                <div class="trend-serie-bar-wrap">
+                    <div class="trend-serie-bar" style="width: ${pct}%"></div>
+                </div>
+            </div>
+            <div class="trend-serie-stats">
+                <span class="trend-serie-total">${fmt(s.total)}</span>
+                <span class="trend-serie-trend ${tc}">${s.avgTrend >= 0 ? '+' : ''}${s.avgTrend.toFixed(1)} %</span>
+            </div>
+        </div>`;
+    }).join('');
+
+    // ── Opportunités (prix < prix moyen historique, i.e. proche du low) ──
+    const opps = priced.filter(p => {
+        if (!p.low || !p.high || p.low >= p.high) return false;
+        const mid = (p.low + p.high) / 2;
+        return p.price <= mid && p.price > 0;
+    }).sort((a, b) => {
+        const ratioA = (a.price - a.low) / (a.high - a.low);
+        const ratioB = (b.price - b.low) / (b.high - b.low);
+        return ratioA - ratioB;
+    }).slice(0, 10);
+
+    document.getElementById('trendOpportunities').innerHTML = opps.length ? opps.map(p => {
+        const ratio = ((p.price - p.low) / (p.high - p.low) * 100).toFixed(0);
+        const economy = ((p.high + p.low) / 2 - p.price).toFixed(2);
+        return `<div class="trend-opp-card">
+            <div class="trend-opp-name">${p.name}</div>
+            <div class="trend-opp-serie">${p.ext.split(' — ')[0]}</div>
+            <div class="trend-opp-price">${fmt(p.price)}</div>
+            <div class="trend-opp-range">
+                <span>${fmt(p.low)}</span>
+                <div class="trend-opp-gauge">
+                    <div class="trend-opp-gauge-fill" style="width: ${ratio}%"></div>
+                    <div class="trend-opp-gauge-marker" style="left: ${ratio}%"></div>
+                </div>
+                <span>${fmt(p.high)}</span>
+            </div>
+            <div class="trend-opp-savings">~${fmt(parseFloat(economy))} sous la moyenne</div>
+        </div>`;
+    }).join('') : '<div class="t-empty-block">Aucune opportunité détectée pour le moment</div>';
 }
 
 // ── eBay API Integration ─────────────────────────────────────
