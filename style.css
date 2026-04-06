@@ -1555,6 +1555,11 @@ body {
     border-radius: 2px;
     transform: translateX(-50%);
 }
+.trend-opp-last {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
 .trend-opp-savings {
     font-size: 11px;
     font-weight: 600;

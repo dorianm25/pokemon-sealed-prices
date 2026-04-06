@@ -992,33 +992,35 @@ function renderTrends() {
         </div>`;
     }).join('');
 
-    // ── Opportunités (prix < prix moyen historique, i.e. proche du low) ──
+    // ── Opportunités (prix actuel < dernier prix connu) ──
     const opps = priced.filter(p => {
-        if (!p.low || !p.high || p.low >= p.high) return false;
-        const mid = (p.low + p.high) / 2;
-        return p.price <= mid && p.price > 0;
+        const last = p.lastPrice || p.old || 0;
+        return last > 0 && p.price < last && p.price > 0;
     }).sort((a, b) => {
-        const ratioA = (a.price - a.low) / (a.high - a.low);
-        const ratioB = (b.price - b.low) / (b.high - b.low);
-        return ratioA - ratioB;
+        const diffA = (a.lastPrice || a.old) - a.price;
+        const diffB = (b.lastPrice || b.old) - b.price;
+        return diffB - diffA;
     }).slice(0, 10);
 
     document.getElementById('trendOpportunities').innerHTML = opps.length ? opps.map(p => {
-        const ratio = ((p.price - p.low) / (p.high - p.low) * 100).toFixed(0);
-        const economy = ((p.high + p.low) / 2 - p.price).toFixed(2);
+        const last = p.lastPrice || p.old;
+        const diff = last - p.price;
+        const diffPct = ((diff / last) * 100).toFixed(1);
+        const ratio = p.low && p.high && p.high > p.low ? ((p.price - p.low) / (p.high - p.low) * 100).toFixed(0) : 50;
         return `<div class="trend-opp-card">
             <div class="trend-opp-name">${p.name}</div>
             <div class="trend-opp-serie">${p.ext.split(' — ')[0]}</div>
             <div class="trend-opp-price">${fmt(p.price)}</div>
-            <div class="trend-opp-range">
+            <div class="trend-opp-last">Dernier prix : ${fmt(last)}</div>
+            ${p.low && p.high && p.high > p.low ? `<div class="trend-opp-range">
                 <span>${fmt(p.low)}</span>
                 <div class="trend-opp-gauge">
                     <div class="trend-opp-gauge-fill" style="width: ${ratio}%"></div>
                     <div class="trend-opp-gauge-marker" style="left: ${ratio}%"></div>
                 </div>
                 <span>${fmt(p.high)}</span>
-            </div>
-            <div class="trend-opp-savings">~${fmt(parseFloat(economy))} sous la moyenne</div>
+            </div>` : ''}
+            <div class="trend-opp-savings">-${diffPct}% vs dernier prix (−${fmt(diff)})</div>
         </div>`;
     }).join('') : '<div class="t-empty-block">Aucune opportunité détectée pour le moment</div>';
 
