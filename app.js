@@ -28,7 +28,9 @@ const products = [
     ...serie('EV01', 'Écarlate et Violet', 'EV'),
     ...serie('EV02', 'Évolutions à Paldea', 'EV'),
     ...serie('EV03', 'Flammes Obsidiennes', 'EV'),
-    ...serie('EV3.5', 'Pokémon 151', 'EV', { display: { price: 1200, old: 575, low: 900, high: 1400 } }),
+    { name: 'ETB Pokémon 151', ext: 'EV3.5 — Pokémon 151', serie: 'Écarlate et Violet', type: 'etb', price: 54.99, old: 54.99, trend: 0, low: 50, high: 60 },
+    { name: 'Bundle 6 Pokémon 151', ext: 'EV3.5 — Pokémon 151', serie: 'Écarlate et Violet', type: 'bundle', price: 35, old: 35, trend: 0, low: 30, high: 40 },
+    { name: 'Booster Pokémon 151', ext: 'EV3.5 — Pokémon 151', serie: 'Écarlate et Violet', type: 'booster', price: 6.99, old: 6.99, trend: 0, low: 5, high: 8 },
     { name: 'Display Bundle Pokémon 151', ext: 'EV3.5 — Pokémon 151', serie: 'Écarlate et Violet', type: 'dispbundle', price: 0, old: 0, trend: 0, low: 0, high: 0 },
     ...serie('EV04', 'Faille Paradoxe', 'EV'),
     ...serie('EV4.5', 'Destinées de Paldea', 'EV', { etb: { price: 130, old: 80, low: 100, high: 150 } }),
@@ -41,8 +43,8 @@ const products = [
     { name: 'Display Bundle Évolutions Prismatiques', ext: 'EV8.5 — Évolutions Prismatiques', serie: 'Écarlate et Violet', type: 'dispbundle', price: 0, old: 0, trend: 0, low: 0, high: 0 },
     ...serie('EV09', 'Aventures Ensemble', 'EV', { display: { price: 200, old: 190, low: 180, high: 220 } }),
     ...serie('EV10', 'Rivalités Destinées', 'EV', { etb: { price: 130, old: 54.99, low: 100, high: 160 }, display: { price: 350, old: 215, low: 300, high: 400 }, display18: { price: 170, old: 107, low: 140, high: 200 } }),
-    ...serie('EV10.S2', 'Foudre Noire (EV10.5)', 'EV', { etb: { price: 80, old: 54.99, low: 65, high: 95 } }),
-    ...serie('EV10.5f', 'Flamme Blanche (EV10.5)', 'EV', { etb: { price: 80, old: 54.99, low: 65, high: 95 } }),
+    ...serie('EV10.5', 'Foudre Noire (EV10.5)', 'EV', { etb: { price: 80, old: 54.99, low: 65, high: 95 } }),
+    ...serie('EV10.5', 'Flamme Blanche (EV10.5)', 'EV', { etb: { price: 80, old: 54.99, low: 65, high: 95 } }),
     ...serie('ME01', 'Méga-Évolution', 'ME', { etb: { price: 85, old: 54.99, low: 70, high: 100 }, display: { price: 280, old: 215, low: 250, high: 310 }, display18: { price: 65, old: 107, low: 55, high: 75 } }),
     ...serie('ME02', 'Flammes Fantasmagoriques', 'ME', { etb: { price: 80, old: 54.99, low: 65, high: 95 }, display: { price: 250, old: 215, low: 220, high: 280 }, display18: { price: 35, old: 107, low: 30, high: 45 } }),
     ...serie('ME2.5', 'Héros Transcendants', 'ME', { etb: { price: 80, old: 54.99, low: 65, high: 95 } }),
@@ -68,6 +70,117 @@ function trendLabel(t) {
 
 const TYPE_LABELS = { etb: 'ETB', display: 'DISPLAY 36', display18: 'DISPLAY 18', tripack: 'TRIPACK', bundle: 'BUNDLE', booster: 'BOOSTER', dispbundle: 'DISPLAY BUNDLE' };
 
+// Blocs & Séries — structure pour l'accordéon sidebar
+const BLOCS_SERIES = [
+    { bloc: 'Écarlate et Violet', series: [
+        'Écarlate et Violet', 'Évolutions à Paldea', 'Flammes Obsidiennes', 'Pokémon 151',
+        'Faille Paradoxe', 'Destinées de Paldea', 'Forces Temporelles', 'Mascarade Crépusculaire',
+        'Fable Nébuleuse', 'Couronne Stellaire', 'Étincelles Déferlantes', 'Évolutions Prismatiques',
+        'Aventures Ensemble', 'Rivalités Destinées', 'Foudre Noire (EV10.5)', 'Flamme Blanche (EV10.5)',
+    ]},
+    { bloc: 'Méga-Évolution', series: [
+        'Méga-Évolution', 'Flammes Fantasmagoriques', 'Héros Transcendants', 'Équilibre Parfait',
+    ]},
+    { bloc: 'Épée et Bouclier', series: [
+        'Épée et Bouclier', 'Clash des Rebelles', 'Ténèbres Embrasées', 'La Voie du Maître',
+        'Voltage Éclatant', 'Destinées Radieuses', 'Styles de Combat', 'Règne de Glace',
+        'Évolution Céleste', 'Poing de Fusion', 'Stars Étincelantes', 'Astres Radieux',
+        'Pokémon GO', 'Origine Perdue', 'Tempête Argentée', 'Zénith Suprême',
+    ]},
+    { bloc: 'Soleil et Lune', series: [
+        'Soleil et Lune', 'Gardiens Ascendants', 'Ombres Ardentes', 'Invasion Carmin',
+        'Ultra-Prisme', 'Lumière Interdite', 'Tempête Céleste', 'Tonnerre Perdu',
+        'Team Up', 'Alliance Infaillible', 'Harmonie des Esprits', 'Éclipse Cosmique',
+        'Soleil et Lune 12',
+    ]},
+    { bloc: 'XY', series: [
+        'XY', 'Étincelles', 'Poings Furieux', 'Phantôme Forces',
+        'Primo Choc', 'Roaring Skies', 'Origines Antiques', 'Impulsion Turbo',
+        'Rupture Turbo', 'Offensive Vapeur', 'Évolutions',
+    ]},
+    { bloc: 'Noir et Blanc', series: [
+        'Noir et Blanc', 'Pouvoirs Émergents', 'Nobles Victoires', 'Destinées Futures',
+        'Explorateurs Obscurs', 'Dragons Exaltés', 'Frontières Franchies',
+        'Tempête Plasma', 'Glaciation Plasma', 'Explosion Plasma', 'Legendary Treasures',
+    ]},
+    { bloc: 'HeartGold SoulSilver', series: [
+        'HeartGold SoulSilver', 'Déchainement', 'Indomptable', 'Triomphe', 'Appel des Légendes',
+    ]},
+    { bloc: 'Platine', series: [
+        'Platine', 'Rivaux Émergeants', 'Vainqueurs Suprêmes', 'Arceus',
+    ]},
+    { bloc: 'Diamant et Perle', series: [
+        'Diamant et Perle', 'Trésors Mystérieux', 'Merveilles Secrètes',
+        'Aube Majestueuse', 'Éveil des Légendes', 'Tempête',
+    ]},
+    { bloc: 'EX', series: [
+        'Rubis & Saphir', 'Tempête de Sable', 'Dragon', 'Magma VS Aqua',
+        'Rouge Feu & Vert Feuille', 'Deoxys', 'Émeraude', 'Forces Cachées',
+        'Espèces Delta', 'Légendes Oubliées', 'Créateurs de Légendes', 'Gardiens de Cristal',
+        'Île des Dragons', 'Gardiens du Pouvoir',
+    ]},
+    { bloc: 'Wizards', series: [
+        'Set de Base', 'Jungle', 'Fossile', 'Team Rocket',
+        'Gym Heroes', 'Gym Challenge', 'Neo Genesis', 'Neo Discovery',
+        'Neo Revelation', 'Neo Destiny', 'Expedition', 'Aquapolis', 'Skyridge',
+    ]},
+];
+
+let activeBlocs = new Set(['Écarlate et Violet', 'Méga-Évolution']); // blocs cochés par défaut
+let openBloc = null; // bloc déplié (accordéon)
+let activeSerie = null;
+
+function renderBlocsAccordion() {
+    const container = document.getElementById('blocsAccordion');
+    container.innerHTML = BLOCS_SERIES.map(b => {
+        const isChecked = activeBlocs.has(b.bloc);
+        const isOpen = openBloc === b.bloc;
+        const hasProducts = products.some(p => p.serie === b.bloc);
+        return `<div class="bloc-item ${isOpen ? 'open' : ''}">
+            <div class="bloc-header" onclick="toggleOpenBloc('${b.bloc.replace(/'/g, "\\'")}')">
+                <label class="bloc-check" onclick="event.stopPropagation()">
+                    <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleBlocFilter('${b.bloc.replace(/'/g, "\\'")}', this.checked)">
+                    <span class="${hasProducts ? '' : 'bloc-empty'}">${b.bloc}</span>
+                </label>
+                <span class="bloc-chevron">${isOpen ? '▾' : '›'}</span>
+            </div>
+            ${isOpen ? `<div class="bloc-series">
+                ${b.series.map(s => {
+                    const isActive = activeSerie === s;
+                    const count = products.filter(p => p.ext?.includes(s)).length;
+                    return `<div class="serie-link ${isActive ? 'active' : ''} ${count === 0 ? 'serie-empty' : ''}"
+                        onclick="filterBySerie('${s.replace(/'/g, "\\'")}', '${b.bloc.replace(/'/g, "\\'")}')">${s}${count > 0 ? ` <span class="serie-count">${count}</span>` : ''}</div>`;
+                }).join('')}
+            </div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function toggleOpenBloc(bloc) {
+    openBloc = openBloc === bloc ? null : bloc;
+    renderBlocsAccordion();
+}
+
+function toggleBlocFilter(bloc, checked) {
+    if (checked) {
+        activeBlocs.add(bloc);
+    } else {
+        activeBlocs.delete(bloc);
+    }
+    activeSerie = null;
+    render();
+}
+
+function filterBySerie(serie, bloc) {
+    if (activeSerie === serie) {
+        activeSerie = null;
+    } else {
+        activeSerie = serie;
+    }
+    renderBlocsAccordion();
+    render();
+}
+
 // ── Mobile sidebar toggle ──────────────────────────────────
 
 function toggleSidebar() {
@@ -90,9 +203,9 @@ function buildEbayMap() {
         ['ev35', 'Pokémon 151'], ['ev04', 'Faille Paradoxe'], ['ev45', 'Destinées de Paldea'],
         ['ev05', 'Forces Temporelles'], ['ev06', 'Mascarade Crépusculaire'], ['ev65', 'Fable Nébuleuse'],
         ['ev07', 'Couronne Stellaire'], ['ev08', 'Étincelles Déferlantes'], ['ev85', 'Évolutions Prismatiques'],
-        ['ev09', 'Aventures Ensemble'], ['ev10', 'Rivalités Destinées'], ['ev10s2', 'Foudre Noire (EV10.5)'],
-        ['ev105f', 'Flamme Blanche (EV10.5)'], ['me01', 'Méga-Évolution'], ['me02', 'Flammes Fantasmagoriques'],
-        ['me25', 'Héros Transcendants'], ['me03', 'Équilibre Parfait'],
+        ['ev09', 'Aventures Ensemble'], ['ev10', 'Rivalités Destinées'], ['ev10.5fn', 'Foudre Noire (EV10.5)'],
+        ['ev10.5fb', 'Flamme Blanche (EV10.5)'], ['me01', 'Méga-Évolution'], ['me02', 'Flammes Fantasmagoriques'],
+        ['me2.5', 'Héros Transcendants'], ['me03', 'Équilibre Parfait'],
     ];
     const types = [['etb', 'ETB'], ['display', 'Display 36'], ['display18', 'Display 18'], ['tripack', 'Tripack'], ['bundle', 'Bundle 6'], ['booster', 'Booster']];
     const map = {};
@@ -555,24 +668,16 @@ function setTypeFilter(type) {
     render();
 }
 
-function getCheckedSeries() {
-    const checks = document.querySelectorAll('#filterBlocs input[type="checkbox"]');
-    const labels = ['Écarlate et Violet', 'Méga-Évolution'];
-    const result = [];
-    checks.forEach((cb, i) => { if (cb.checked) result.push(labels[i]); });
-    return result;
-}
-
 function getFiltered() {
     const q = document.getElementById('searchInput').value.toLowerCase();
     const prix = document.getElementById('filterPrix').value;
     const sort = document.getElementById('sortBy').value;
-    const checkedSeries = getCheckedSeries();
 
     let list = products.filter(p => {
         if (q && !p.name.toLowerCase().includes(q) && !p.ext.toLowerCase().includes(q)) return false;
         if (activeType && p.type !== activeType) return false;
-        if (checkedSeries.length > 0 && !checkedSeries.includes(p.serie)) return false;
+        if (activeBlocs.size > 0 && !activeBlocs.has(p.serie)) return false;
+        if (activeSerie && !p.ext?.includes(activeSerie)) return false;
         if (prix) {
             const [lo, hi] = prix.split('-').map(Number);
             if (p.price < lo || p.price > hi) return false;
@@ -943,6 +1048,12 @@ function savePortfolio(pf) {
     }
 }
 
+async function refreshPortfolio() {
+    // Forcer un snapshot et recharger le graphique
+    await fetch('/api/portfolio-snapshot', { method: 'POST' });
+    await renderPortfolio();
+}
+
 function resetPortfolio() {
     if (!confirm('Réinitialiser le portfolio avec les données par défaut ?')) return;
     const pf = getDefaultPortfolio();
@@ -956,6 +1067,25 @@ function onPortfolioInput(name, field, value) {
     pf[name][field] = parseFloat(value) || 0;
     savePortfolio(pf);
     renderPortfolioSummary(pf);
+
+    // Mettre à jour la carte en direct
+    const p = products.find(pr => pr.name === name);
+    if (p) {
+        const h = pf[name];
+        const totalInvested = h.qty * h.cost;
+        const currentVal = h.qty * p.price;
+        const pnl = currentVal - totalInvested;
+        const card = document.querySelector(`.pf-card[data-name="${name.replace(/"/g, '\\"')}"]`);
+        if (card) {
+            const results = card.querySelectorAll('.pf-result-value');
+            if (results[0]) results[0].textContent = h.qty > 0 ? fmt(totalInvested) : '—';
+            if (results[1]) results[1].textContent = h.qty > 0 ? fmt(currentVal) : '—';
+            if (results[2]) {
+                results[2].textContent = h.qty > 0 ? (pnl >= 0 ? '+' : '') + fmt(pnl) : '—';
+                results[2].className = 'pf-result-value ' + (pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : '');
+            }
+        }
+    }
 }
 
 function renderPortfolioCard(p, pf) {
@@ -966,7 +1096,7 @@ function renderPortfolioCard(p, pf) {
     const pnlPct = totalInvested > 0 ? ((pnl / totalInvested) * 100).toFixed(1) : '0';
     const pnlClass = pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : '';
 
-    return `<div class="pf-card">
+    return `<div class="pf-card" data-name="${p.name}">
     <div class="pf-card-header">
         <span class="product-type type-${p.type}">${TYPE_LABELS[p.type]}</span>
         <span style="font-size:11px;color:var(--text-muted)">${p.serie}</span>
@@ -1095,6 +1225,7 @@ document.getElementById('sortBy').addEventListener('change', render);
 // ── Init ─────────────────────────────────────────────────────
 
 initAuth();
+renderBlocsAccordion();
 render();
 renderTrends();
 

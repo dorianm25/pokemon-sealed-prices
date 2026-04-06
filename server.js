@@ -310,12 +310,12 @@ function extractPrices(ebayResponse, limits) {
 function serieProducts(id, nom, code, opts = {}) {
     const nl = opts.noLimits;
     return [
-        { id: `${id}-etb`,       query: `ETB ${nom} ${code}`,               name: `ETB ${nom}`,            minPrice: nl ? 0 : 40,   maxPrice: nl ? 99999 : 300 },
-        { id: `${id}-display`,    query: `display ${nom} ${code}`,          name: `Display 36 ${nom}`,     minPrice: nl ? 0 : 220,  maxPrice: nl ? 99999 : 400 },
-        { id: `${id}-display18`,  query: `demi display ${nom} ${code}`,     name: `Display 18 ${nom}`,     minPrice: nl ? 0 : 100,  maxPrice: nl ? 99999 : 200 },
-        { id: `${id}-tripack`,    query: `tripack ${nom} ${code}`,          name: `Tripack ${nom}`,        minPrice: nl ? 0 : 18,   maxPrice: nl ? 99999 : 45 },
-        { id: `${id}-bundle`,     query: `bundle ${nom} ${code}`,           name: `Bundle 6 ${nom}`,       minPrice: nl ? 0 : 30,   maxPrice: nl ? 99999 : 130 },
-        { id: `${id}-booster`,    query: `booster ${nom} ${code}`,          name: `Booster ${nom}`,        minPrice: nl ? 0 : 5,    maxPrice: nl ? 99999 : 23 },
+        { id: `${id}-etb`,       query: `ETB ${nom} ${code}`,               name: `ETB ${nom}`,            minPrice: nl ? 0 : 40,   maxPrice: nl ? 99999 : 10000 },
+        { id: `${id}-display`,    query: `display ${nom} ${code}`,          name: `Display 36 ${nom}`,     minPrice: nl ? 0 : 220,  maxPrice: nl ? 99999 : 10000 },
+        { id: `${id}-display18`,  query: `demi display ${nom} ${code}`,     name: `Display 18 ${nom}`,     minPrice: nl ? 0 : 100,  maxPrice: nl ? 99999 : 10000 },
+        { id: `${id}-tripack`,    query: `tripack ${nom} ${code}`,          name: `Tripack ${nom}`,        minPrice: nl ? 0 : 18,   maxPrice: nl ? 99999 : 10000 },
+        { id: `${id}-bundle`,     query: `bundle ${nom} ${code}`,           name: `Bundle 6 ${nom}`,       minPrice: nl ? 0 : 30,   maxPrice: nl ? 99999 : 10000 },
+        { id: `${id}-booster`,    query: `booster ${nom} ${code}`,          name: `Booster ${nom}`,        minPrice: nl ? 0 : 7,    maxPrice: nl ? 99999 : 10000 },
     ];
 }
 
@@ -323,8 +323,10 @@ const PRODUCTS_TO_TRACK = [
     ...serieProducts('ev01', 'Écarlate et Violet', 'EV01'),
     ...serieProducts('ev02', 'Évolutions à Paldea', 'EV02'),
     ...serieProducts('ev03', 'Flammes Obsidiennes', 'EV03'),
-    ...serieProducts('ev35', 'Pokémon 151', 'EV3.5', { noLimits: true }),
-    { id: 'ev35-dispbundle', query: 'display bundle Pokémon 151 EV3.5', name: 'Display Bundle Pokémon 151', minPrice: 0, maxPrice: 99999 },
+    { id: 'ev35-etb',        query: 'ETB Pokémon 151 EV3.5',                    name: 'ETB Pokémon 151',                    minPrice: 300, maxPrice: 10000 },
+    { id: 'ev35-bundle',     query: 'bundle Pokémon 151 EV3.5',                name: 'Bundle 6 Pokémon 151',               minPrice: 30,  maxPrice: 10000 },
+    { id: 'ev35-booster',    query: 'booster Pokémon 151 EV3.5',               name: 'Booster Pokémon 151',                minPrice: 15,  maxPrice: 10000 },
+    { id: 'ev35-dispbundle', query: 'display bundle Pokémon 151 EV3.5',        name: 'Display Bundle Pokémon 151',         minPrice: 0,   maxPrice: 99999 },
     ...serieProducts('ev04', 'Faille Paradoxe', 'EV04'),
     ...serieProducts('ev45', 'Destinées de Paldea', 'EV4.5'),
     ...serieProducts('ev05', 'Forces Temporelles', 'EV05'),
@@ -336,8 +338,8 @@ const PRODUCTS_TO_TRACK = [
     { id: 'ev85-dispbundle', query: 'display bundle Évolutions Prismatiques EV8.5', name: 'Display Bundle Évolutions Prismatiques', minPrice: 0, maxPrice: 99999 },
     ...serieProducts('ev09', 'Aventures Ensemble', 'EV09'),
     ...serieProducts('ev10', 'Rivalités Destinées', 'EV10'),
-    ...serieProducts('ev10.5', 'Foudre Noire (EV10.5)', 'EV10.5'),
-    ...serieProducts('ev10.5', 'Flamme Blanche (EV10.5)', 'EV10.5'),
+    ...serieProducts('ev10.5fn', 'Foudre Noire (EV10.5)', 'EV10.5'),
+    ...serieProducts('ev10.5fb', 'Flamme Blanche (EV10.5)', 'EV10.5'),
     ...serieProducts('me01', 'Méga-Évolution', 'ME01'),
     ...serieProducts('me02', 'Flammes Fantasmagoriques', 'ME02'),
     ...serieProducts('me2.5', 'Héros Transcendants', 'ME2.5'),
