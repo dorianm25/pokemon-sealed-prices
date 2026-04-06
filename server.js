@@ -256,6 +256,48 @@ async function searchEbaySold(query, limit = 20, priceRange = null) {
     return res.json();
 }
 
+// ── eBay Sold Items (dernières ventes) ──────────────────────
+
+async function searchEbaySoldItems(query, limit = 5, priceRange = null) {
+    const token = await getAccessToken();
+
+    const filters = ['conditionIds:{1000}'];
+    if (priceRange) {
+        filters.push(`price:[${priceRange.min}..${priceRange.max}],priceCurrency:EUR`);
+    }
+
+    const params = new URLSearchParams({
+        q: query,
+        limit: String(limit),
+        filter: filters.join(','),
+        sort: 'newlyListed',
+    });
+
+    try {
+        const res = await fetch(
+            `${EBAY_API_URL}/buy/marketplace_insights/v1_beta/item_sales/search?${params}`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'X-EBAY-C-MARKETPLACE-ID': 'EBAY_FR',
+                },
+            }
+        );
+
+        if (!res.ok) return null;
+        const data = await res.json();
+        const sales = data.itemSales || [];
+        return sales.map(s => ({
+            title: s.title || '',
+            price: parseFloat(s.lastSoldPrice?.value || 0),
+            currency: s.lastSoldPrice?.currency || 'EUR',
+            date: s.lastSoldDate || '',
+        })).filter(s => s.price > 0);
+    } catch {
+        return null;
+    }
+}
+
 function extractPrices(ebayResponse, limits) {
     const items = ebayResponse.itemSummaries || [];
 
@@ -562,6 +604,41 @@ app.post('/api/refresh/:productId', async (req, res) => {
 // API : liste des produits suivis
 app.get('/api/catalog', (_req, res) => {
     res.json(PRODUCTS_TO_TRACK.map(p => ({ id: p.id, name: p.name, query: p.query })));
+});
+
+// API : dernières ventes eBay d'un produit
+app.get('/api/sold/:productId', async (req, res) => {
+    const product = PRODUCTS_TO_TRACK.find(p => p.id === req.params.productId);
+    if (!product) return res.status(404).json({ error: 'Produit inconnu' });
+
+    try {
+        const priceRange = { min: product.minPrice, max: product.maxPrice };
+        const sales = await searchEbaySoldItems(product.query, 5, priceRange);
+        res.json(sales || []);
+    } catch (err) {
+        // Si l'API marketplace_insights n'est pas dispo, fallback sur l'historique
+        res.json([]);
+    }
+});
+
+// API : dernières ventes pour tous les produits (résumé)
+app.get('/api/last-sales', async (_req, res) => {
+    const result = {};
+    for (const p of PRODUCTS_TO_TRACK) {
+        // Utiliser l'historique de prix comme fallback
+        const history = await readHistory(p.id);
+        if (history.length >= 2) {
+            const latest = history[history.length - 1];
+            const previous = history[history.length - 2];
+            result[p.name] = {
+                lastSoldPrice: latest.lastPrice || latest.median,
+                previousPrice: previous.lastPrice || previous.median,
+                lastDate: latest.date,
+                previousDate: previous.date,
+            };
+        }
+    }
+    res.json(result);
 });
 
 // API : historique de prix d'un produit
