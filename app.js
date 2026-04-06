@@ -952,6 +952,11 @@ async function handleAuth(e) {
         currentUser = data.username;
         localStorage.setItem('pokescelle-token', authToken);
         localStorage.setItem('pokescelle-user', currentUser);
+
+        // Vider le cache portfolio local pour charger celui du serveur
+        _portfolioCache = null;
+        localStorage.removeItem('pokescelle-portfolio');
+
         updateAuthUI();
         closeAuthModal();
 
