@@ -522,17 +522,35 @@ app.get('/api/price/:productId', async (req, res) => {
             return res.json({ error: 'Aucun résultat eBay', name: product.name });
         }
 
-        // Ajouter le dernier prix de vente depuis l'historique
-        const history = await readHistory(productId);
+        // Chercher les vraies dernières ventes eBay (sold items)
         let lastSoldPrice = null, previousSoldPrice = null, lastSoldDate = null;
-        if (history.length >= 1) {
-            const latest = history[history.length - 1];
-            lastSoldPrice = latest.lastPrice || latest.median;
-            lastSoldDate = latest.date;
+        try {
+            const query = customQueries[productId]?.query || product.query;
+            const limits = { min: product.minPrice, max: product.maxPrice };
+            const soldItems = await searchEbaySoldItems(query, 5, limits);
+            if (soldItems && soldItems.length > 0) {
+                lastSoldPrice = soldItems[0].price;
+                lastSoldDate = soldItems[0].date;
+                if (soldItems.length > 1) {
+                    previousSoldPrice = soldItems[1].price;
+                }
+            }
+        } catch (err) {
+            console.log(`[Sold] Pas de ventes pour ${productId}:`, err.message);
         }
-        if (history.length >= 2) {
-            const prev = history[history.length - 2];
-            previousSoldPrice = prev.lastPrice || prev.median;
+
+        // Fallback sur l'historique si pas de ventes trouvées
+        if (!lastSoldPrice) {
+            const history = await readHistory(productId);
+            if (history.length >= 1) {
+                const latest = history[history.length - 1];
+                lastSoldPrice = latest.lastPrice || latest.median;
+                lastSoldDate = latest.date;
+            }
+            if (history.length >= 2) {
+                const prev = history[history.length - 2];
+                previousSoldPrice = prev.lastPrice || prev.median;
+            }
         }
 
         const result = { id: productId, name: product.name, ...priceData, lastSoldPrice, previousSoldPrice, lastSoldDate };
@@ -638,7 +656,17 @@ app.get('/api/sold/:productId', async (req, res) => {
 app.get('/api/last-sales', async (_req, res) => {
     const result = {};
     for (const p of PRODUCTS_TO_TRACK) {
-        // Utiliser l'historique de prix comme fallback
+        // D'abord essayer le cache (qui contient les vrais sold items)
+        const cached = await readCache(p.id);
+        if (cached?.lastSoldPrice) {
+            result[p.name] = {
+                lastSoldPrice: cached.lastSoldPrice,
+                previousPrice: cached.previousSoldPrice || null,
+                lastDate: cached.lastSoldDate || '',
+            };
+            continue;
+        }
+        // Fallback sur l'historique
         const history = await readHistory(p.id);
         if (history.length >= 2) {
             const latest = history[history.length - 1];
@@ -647,7 +675,6 @@ app.get('/api/last-sales', async (_req, res) => {
                 lastSoldPrice: latest.lastPrice || latest.median,
                 previousPrice: previous.lastPrice || previous.median,
                 lastDate: latest.date,
-                previousDate: previous.date,
             };
         }
     }
