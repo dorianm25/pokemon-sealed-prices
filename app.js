@@ -876,6 +876,92 @@ async function loadTrends7d() {
     }
 }
 
+function renderHypeMeter(priced) {
+    // Grouper par série
+    const seriesMap = {};
+    for (const p of priced) {
+        const code = p.ext.split(' — ')[0];
+        const name = p.ext.split(' — ')[1] || code;
+        if (!seriesMap[code]) seriesMap[code] = { code, name, products: [] };
+        seriesMap[code].products.push(p);
+    }
+
+    const series = Object.values(seriesMap).map(s => {
+        let hypeScore = 0;
+
+        // Factor 1 : Performance vs MSRP (40%)
+        let perfSum = 0, perfCount = 0;
+        for (const p of s.products) {
+            const msrp = MSRP[p.type];
+            if (msrp && msrp > 0) {
+                perfSum += ((p.price - msrp) / msrp) * 100;
+                perfCount++;
+            }
+        }
+        const avgPerf = perfCount > 0 ? perfSum / perfCount : 0;
+        const perfScore = Math.min(100, Math.max(0, avgPerf / 2 + 50));
+
+        // Factor 2 : Tendance 7j (30%)
+        let trend7dSum = 0, trend7dCount = 0;
+        for (const p of s.products) {
+            const t7 = trends7d[p.name];
+            if (t7) { trend7dSum += t7.change; trend7dCount++; }
+        }
+        const avgTrend7d = trend7dCount > 0 ? trend7dSum / trend7dCount : 0;
+        const trendScore = Math.min(100, Math.max(0, avgTrend7d + 50));
+
+        // Factor 3 : Prix moyen élevé = demande forte (30%)
+        const avgPrice = s.products.reduce((sum, p) => sum + p.price, 0) / s.products.length;
+        const priceScore = Math.min(100, (avgPrice / 5));
+
+        hypeScore = Math.round(perfScore * 0.40 + trendScore * 0.30 + priceScore * 0.30);
+        hypeScore = Math.min(100, Math.max(0, hypeScore));
+
+        return { ...s, hypeScore, avgPerf, avgTrend7d, avgPrice };
+    });
+
+    series.sort((a, b) => b.hypeScore - a.hypeScore);
+    const maxScore = series[0]?.hypeScore || 1;
+
+    const getHypeLabel = (score) => {
+        if (score >= 80) return { label: '🔥 Ultra Hype', cls: 'hype-fire' };
+        if (score >= 60) return { label: '📈 Hype', cls: 'hype-high' };
+        if (score >= 40) return { label: '😐 Neutre', cls: 'hype-mid' };
+        if (score >= 20) return { label: '📉 Faible', cls: 'hype-low' };
+        return { label: '❄️ Glacial', cls: 'hype-ice' };
+    };
+
+    document.getElementById('hypeMeter').innerHTML = `
+        <div class="hype-list">
+            ${series.map((s, i) => {
+                const { label, cls } = getHypeLabel(s.hypeScore);
+                const barPct = (s.hypeScore / maxScore * 100).toFixed(0);
+                const trend7dStr = s.avgTrend7d !== 0 ? `${s.avgTrend7d >= 0 ? '+' : ''}${s.avgTrend7d.toFixed(1)}%` : '—';
+                return `<div class="hype-row ${cls}">
+                    <span class="hype-rank">${i + 1}</span>
+                    <div class="hype-info">
+                        <div class="hype-name-row">
+                            <span class="hype-code">${s.code}</span>
+                            <span class="hype-name">${s.name}</span>
+                        </div>
+                        <div class="hype-bar-wrap">
+                            <div class="hype-bar ${cls}" style="width: ${barPct}%"></div>
+                        </div>
+                    </div>
+                    <div class="hype-score-wrap">
+                        <span class="hype-score ${cls}">${s.hypeScore}</span>
+                        <span class="hype-label">${label}</span>
+                    </div>
+                    <div class="hype-details">
+                        <span class="hype-detail" title="Tendance 7j">${trend7dStr} <small>7j</small></span>
+                        <span class="hype-detail" title="Prix moyen">${fmt(s.avgPrice)} <small>moy</small></span>
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+}
+
 async function renderTrends() {
     const priced = products.filter(p => p.price > 0);
 
@@ -959,6 +1045,9 @@ async function renderTrends() {
                 </div>
             </li>`;
         }).join('');
+
+    // ── Hype Meter ──
+    renderHypeMeter(priced);
 
     // ── Prix moyen par type ──
     const types = ['etb', 'display', 'display18', 'booster', 'tripack', 'bundle'];
