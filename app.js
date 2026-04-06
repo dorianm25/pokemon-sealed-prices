@@ -1021,6 +1021,201 @@ function renderTrends() {
             <div class="trend-opp-savings">~${fmt(parseFloat(economy))} sous la moyenne</div>
         </div>`;
     }).join('') : '<div class="t-empty-block">Aucune opportunité détectée pour le moment</div>';
+
+    // ── Performance depuis la sortie ──
+    renderPerfTable(priced);
+
+    // ── Séries à potentiel ──
+    renderPotential(priced);
+}
+
+// Prix de sortie officiels par type
+const MSRP = {
+    etb: 54.99,
+    display: 215,
+    display18: 107,
+    booster: 6.99,
+    tripack: 17.99,
+    bundle: 35,
+    dispbundle: 0,
+};
+
+function renderPerfTable(priced) {
+    // Grouper par série
+    const seriesMap = {};
+    for (const p of priced) {
+        const code = p.ext.split(' — ')[0];
+        const name = p.ext.split(' — ')[1] || code;
+        if (!seriesMap[code]) seriesMap[code] = { code, name, products: [] };
+        seriesMap[code].products.push(p);
+    }
+
+    const series = Object.values(seriesMap);
+
+    // Pour chaque série, calculer la perf moyenne vs MSRP
+    const seriesPerf = series.map(s => {
+        let totalMsrp = 0, totalCurrent = 0, count = 0;
+        const productPerfs = [];
+
+        for (const p of s.products) {
+            const msrp = MSRP[p.type];
+            if (!msrp || msrp <= 0) continue;
+            const perf = ((p.price - msrp) / msrp) * 100;
+            productPerfs.push({ name: p.name, type: p.type, price: p.price, msrp, perf });
+            totalMsrp += msrp;
+            totalCurrent += p.price;
+            count++;
+        }
+
+        const avgPerf = count > 0 ? ((totalCurrent - totalMsrp) / totalMsrp) * 100 : 0;
+        // Meilleur produit de la série
+        productPerfs.sort((a, b) => b.perf - a.perf);
+        const best = productPerfs[0] || null;
+        const worst = productPerfs[productPerfs.length - 1] || null;
+
+        return { ...s, avgPerf, best, worst, productPerfs, totalCurrent, totalMsrp };
+    });
+
+    // Trier par perf décroissante
+    seriesPerf.sort((a, b) => b.avgPerf - a.avgPerf);
+
+    const typeLabels = { etb: 'ETB', display: 'Display 36', display18: 'Display 18', booster: 'Booster', tripack: 'Tripack', bundle: 'Bundle 6', dispbundle: 'Display Bundle' };
+
+    document.getElementById('trendPerfTable').innerHTML = `
+        <div class="perf-table">
+            <div class="perf-table-header">
+                <span class="perf-col-rank">#</span>
+                <span class="perf-col-serie">Série</span>
+                <span class="perf-col-msrp">Prix sortie</span>
+                <span class="perf-col-now">Prix actuel</span>
+                <span class="perf-col-perf">Performance</span>
+                <span class="perf-col-best">Meilleur produit</span>
+            </div>
+            ${seriesPerf.map((s, i) => {
+                const perfClass = s.avgPerf > 50 ? 'perf-hot' : s.avgPerf > 10 ? 'perf-up' : s.avgPerf > -10 ? 'perf-neutral' : 'perf-down';
+                const perfIcon = s.avgPerf > 50 ? '🔥' : s.avgPerf > 10 ? '📈' : s.avgPerf > -10 ? '➡️' : '📉';
+                return `<div class="perf-table-row ${perfClass}">
+                    <span class="perf-col-rank">${i + 1}</span>
+                    <div class="perf-col-serie">
+                        <span class="perf-serie-code">${s.code}</span>
+                        <span class="perf-serie-name">${s.name}</span>
+                    </div>
+                    <span class="perf-col-msrp">${fmt(s.totalMsrp)}</span>
+                    <span class="perf-col-now">${fmt(s.totalCurrent)}</span>
+                    <span class="perf-col-perf">
+                        <span class="perf-badge ${perfClass}">${perfIcon} ${s.avgPerf >= 0 ? '+' : ''}${s.avgPerf.toFixed(1)}%</span>
+                    </span>
+                    <span class="perf-col-best">${s.best ? `${typeLabels[s.best.type] || s.best.type} <span class="perf-best-val">${s.best.perf >= 0 ? '+' : ''}${s.best.perf.toFixed(0)}%</span>` : '—'}</span>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+}
+
+function renderPotential(priced) {
+    // Grouper par série
+    const seriesMap = {};
+    for (const p of priced) {
+        const code = p.ext.split(' — ')[0];
+        const name = p.ext.split(' — ')[1] || code;
+        if (!seriesMap[code]) seriesMap[code] = { code, name, products: [] };
+        seriesMap[code].products.push(p);
+    }
+
+    const series = Object.values(seriesMap);
+
+    // Calculer un score de potentiel basé sur :
+    // 1. Prix proches du MSRP (pas encore monté = potentiel)
+    // 2. Série récente (codes élevés = plus récent)
+    // 3. Tendance positive naissante
+    const potentials = series.map(s => {
+        let score = 0;
+        let reasons = [];
+        let avgPerf = 0, count = 0;
+
+        for (const p of s.products) {
+            const msrp = MSRP[p.type];
+            if (!msrp || msrp <= 0) continue;
+            const perf = ((p.price - msrp) / msrp) * 100;
+            avgPerf += perf;
+            count++;
+        }
+        if (count > 0) avgPerf /= count;
+
+        // Facteur 1 : Proche du MSRP = potentiel (n'a pas encore bougé)
+        if (avgPerf < 20 && avgPerf > -20) {
+            score += 40;
+            reasons.push('Prix proche du prix de sortie');
+        } else if (avgPerf >= 20 && avgPerf < 80) {
+            score += 20;
+            reasons.push('Hausse modérée depuis la sortie');
+        }
+
+        // Facteur 2 : Tendance positive
+        const avgTrend = s.products.reduce((sum, p) => sum + p.trend, 0) / s.products.length;
+        if (avgTrend > 5) {
+            score += 30;
+            reasons.push('Tendance haussière (+' + avgTrend.toFixed(0) + '%)');
+        } else if (avgTrend > 0) {
+            score += 15;
+            reasons.push('Légère hausse récente');
+        }
+
+        // Facteur 3 : Prix bas dans le range (proche du low)
+        const withRange = s.products.filter(p => p.low && p.high && p.high > p.low);
+        if (withRange.length > 0) {
+            const avgPos = withRange.reduce((sum, p) => sum + (p.price - p.low) / (p.high - p.low), 0) / withRange.length;
+            if (avgPos < 0.4) {
+                score += 30;
+                reasons.push('Prix bas dans la fourchette historique');
+            } else if (avgPos < 0.6) {
+                score += 15;
+                reasons.push('Prix dans la moyenne');
+            }
+        }
+
+        return { ...s, score, reasons, avgPerf, avgTrend };
+    });
+
+    // Filtrer celles avec du potentiel, trier par score
+    const filtered = potentials.filter(s => s.score >= 30).sort((a, b) => b.score - a.score);
+
+    document.getElementById('trendPotential').innerHTML = filtered.length ? `
+        <div class="potential-grid">
+            ${filtered.map(s => {
+                const stars = s.score >= 70 ? '⭐⭐⭐' : s.score >= 50 ? '⭐⭐' : '⭐';
+                const potLabel = s.score >= 70 ? 'Fort potentiel' : s.score >= 50 ? 'Potentiel modéré' : 'À surveiller';
+                const potClass = s.score >= 70 ? 'pot-high' : s.score >= 50 ? 'pot-mid' : 'pot-low';
+                return `<div class="potential-card ${potClass}">
+                    <div class="potential-header">
+                        <div>
+                            <span class="potential-code">${s.code}</span>
+                            <span class="potential-name">${s.name}</span>
+                        </div>
+                        <span class="potential-stars">${stars}</span>
+                    </div>
+                    <div class="potential-label">${potLabel}</div>
+                    <div class="potential-stats">
+                        <div class="potential-stat">
+                            <span class="potential-stat-label">Perf. sortie</span>
+                            <span class="potential-stat-value ${s.avgPerf >= 0 ? 'positive' : 'negative'}">${s.avgPerf >= 0 ? '+' : ''}${s.avgPerf.toFixed(1)}%</span>
+                        </div>
+                        <div class="potential-stat">
+                            <span class="potential-stat-label">Tendance</span>
+                            <span class="potential-stat-value ${s.avgTrend >= 0 ? 'positive' : 'negative'}">${s.avgTrend >= 0 ? '+' : ''}${s.avgTrend.toFixed(1)}%</span>
+                        </div>
+                        <div class="potential-stat">
+                            <span class="potential-stat-label">Score</span>
+                            <span class="potential-stat-value">${s.score}/100</span>
+                        </div>
+                    </div>
+                    <div class="potential-reasons">
+                        ${s.reasons.map(r => `<span class="potential-reason">✓ ${r}</span>`).join('')}
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>
+    ` : '<div class="t-empty-block">Aucune série à potentiel identifiée pour le moment</div>';
 }
 
 // ── eBay API Integration ─────────────────────────────────────

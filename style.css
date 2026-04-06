@@ -1571,7 +1571,205 @@ body {
     font-size: 13px;
 }
 
+/* Performance table */
+.perf-table {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+.perf-table-header {
+    display: grid;
+    grid-template-columns: 36px 1.5fr 0.8fr 0.8fr 1fr 1.2fr;
+    gap: 8px;
+    padding: 10px 16px;
+    background: rgba(148,163,184,0.06);
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.perf-table-row {
+    display: grid;
+    grid-template-columns: 36px 1.5fr 0.8fr 0.8fr 1fr 1.2fr;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    align-items: center;
+    transition: background 0.15s;
+}
+.perf-table-row:last-child { border-bottom: none; }
+.perf-table-row:hover { background: rgba(255,255,255,0.03); }
+
+.perf-table-row.perf-hot { border-left: 3px solid #ef4444; }
+.perf-table-row.perf-up { border-left: 3px solid var(--green-light); }
+.perf-table-row.perf-neutral { border-left: 3px solid var(--text-muted); }
+.perf-table-row.perf-down { border-left: 3px solid #f97316; }
+
+.perf-col-rank {
+    font-weight: 700;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+}
+.perf-col-serie {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.perf-serie-code {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--green);
+    background: rgba(34,197,94,0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+.perf-serie-name {
+    font-weight: 600;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.perf-col-msrp, .perf-col-now {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+.perf-col-now { color: var(--text-primary); font-weight: 600; }
+.perf-col-perf { display: flex; }
+.perf-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.perf-badge.perf-hot { background: rgba(239,68,68,0.12); color: #ef4444; }
+.perf-badge.perf-up { background: rgba(34,197,94,0.12); color: var(--green-light); }
+.perf-badge.perf-neutral { background: rgba(148,163,184,0.12); color: var(--text-muted); }
+.perf-badge.perf-down { background: rgba(249,115,22,0.12); color: #f97316; }
+
+.perf-col-best {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.perf-best-val {
+    font-weight: 700;
+    color: var(--green-light);
+    margin-left: 4px;
+}
+
+/* Potential cards */
+.potential-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+}
+.potential-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+}
+.potential-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+}
+.potential-card.pot-high::before { background: linear-gradient(90deg, #22c55e, #84cc16); }
+.potential-card.pot-mid::before { background: linear-gradient(90deg, #eab308, #84cc16); }
+.potential-card.pot-low::before { background: linear-gradient(90deg, #94a3b8, #eab308); }
+
+.potential-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 6px;
+}
+.potential-code {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--green);
+    background: rgba(34,197,94,0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-right: 6px;
+}
+.potential-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.potential-stars { font-size: 14px; }
+.potential-label {
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+.pot-high .potential-label { color: var(--green-light); }
+.pot-mid .potential-label { color: #eab308; }
+.pot-low .potential-label { color: var(--text-muted); }
+
+.potential-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.potential-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.potential-stat-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+.potential-stat-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+.potential-stat-value.positive { color: var(--green-light); }
+.potential-stat-value.negative { color: var(--red); }
+
+.potential-reasons {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+}
+.potential-reason {
+    font-size: 11px;
+    color: var(--green-light);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 @media (max-width: 768px) {
+    .perf-table-header, .perf-table-row {
+        grid-template-columns: 28px 1.2fr 0.7fr 0.7fr 0.8fr;
+    }
+    .perf-col-best { display: none; }
+    .potential-grid { grid-template-columns: 1fr; }
     .trend-kpis { grid-template-columns: repeat(3, 1fr); }
     .trend-avg-grid { grid-template-columns: repeat(2, 1fr); }
     .trend-opps { grid-template-columns: repeat(2, 1fr); }
