@@ -249,8 +249,8 @@ function renderCard(p, i) {
         </div>
         <div class="product-prices">
             <div class="product-price-col">
-                <span class="product-price-label">Dernier prix</span>
-                <span class="product-price-value">${fmt(p.lastPrice || p.lastListing?.price || p.price)}</span>
+                <span class="product-price-label">Dernière vente</span>
+                <span class="product-price-value">${fmt(p.lastSoldPrice || p.lastPrice || p.price)}</span>
             </div>
             <div class="product-price-col" style="text-align:right">
                 <span class="product-price-label">résultats</span>
@@ -270,7 +270,7 @@ function updateCard(productName) {
     const priceEl = card.querySelector('.product-price-value');
     const subEl = card.querySelector('.product-price-sub');
 
-    if (priceEl) priceEl.textContent = fmt(p.lastPrice || p.lastListing?.price || p.price);
+    if (priceEl) priceEl.textContent = fmt(p.lastSoldPrice || p.lastPrice || p.price);
     if (subEl) subEl.textContent = p.sampleSize || '—';
 
     // Update image if available
@@ -341,8 +341,9 @@ function openDetail(productName) {
                             <div class="kpi-sub">${p.sampleSize || 0} résultats</div>
                         </div>
                         <div class="kpi-card">
-                            <div class="kpi-label">Dernier prix</div>
-                            <div class="kpi-value" style="color:#58a6ff">${fmt(p.lastPrice || p.lastListing?.price)}</div>
+                            <div class="kpi-label">Dernière vente</div>
+                            <div class="kpi-value" style="color:#58a6ff">${fmt(p.lastSoldPrice || p.lastPrice || p.lastListing?.price)}</div>
+                            ${p.lastSoldDate ? `<div class="kpi-sub">${p.lastSoldDate}</div>` : ''}
                         </div>
                         <div class="kpi-card">
                             <div class="kpi-label">Prix minimum</div>
@@ -1387,6 +1388,9 @@ function applyEbayPrice(ep) {
     product.old = product.price;
     product.price = ep.price;
     product.lastPrice = ep.lastPrice || ep.price;
+    product.lastSoldPrice = ep.lastSoldPrice || ep.lastPrice || ep.price;
+    product.previousSoldPrice = ep.previousSoldPrice || null;
+    product.lastSoldDate = ep.lastSoldDate || null;
     product.low = ep.low;
     product.high = ep.high;
     product.lastListing = ep.lastListing || null;
