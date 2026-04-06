@@ -570,6 +570,35 @@ app.get('/api/history/:productId', async (req, res) => {
     res.json(history);
 });
 
+// API : variations 7 jours pour tous les produits
+app.get('/api/trends-7d', async (_req, res) => {
+    const result = {};
+    for (const p of PRODUCTS_TO_TRACK) {
+        const history = await readHistory(p.id);
+        if (history.length < 2) continue;
+        const now = history[history.length - 1];
+        // Trouver l'entrée d'il y a 7 jours (ou la plus ancienne dispo)
+        const target = new Date();
+        target.setDate(target.getDate() - 7);
+        const targetStr = target.toISOString().slice(0, 10);
+        let old = history[0];
+        for (const h of history) {
+            if (h.date <= targetStr) old = h;
+        }
+        if (old.date === now.date) continue;
+        const priceBefore = old.median || old.lastPrice || 0;
+        const priceNow = now.median || now.lastPrice || 0;
+        if (priceBefore > 0 && priceNow > 0) {
+            result[p.name] = {
+                priceBefore,
+                priceNow,
+                change: Math.round(((priceNow - priceBefore) / priceBefore) * 100 * 10) / 10
+            };
+        }
+    }
+    res.json(result);
+});
+
 // API : statut
 app.get('/api/status', async (_req, res) => {
     const hasCredentials = !!(EBAY_CLIENT_ID && EBAY_CLIENT_ID !== 'your_app_id_here');

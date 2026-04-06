@@ -865,8 +865,22 @@ function renderGreedIndex(priced) {
     `;
 }
 
-function renderTrends() {
+let trends7d = {};
+
+async function loadTrends7d() {
+    try {
+        const res = await fetch('/api/trends-7d');
+        trends7d = await res.json();
+    } catch {
+        trends7d = {};
+    }
+}
+
+async function renderTrends() {
     const priced = products.filter(p => p.price > 0);
+
+    // Charger les variations 7 jours
+    await loadTrends7d();
 
     // ── Pokémon Greed Index ──
     renderGreedIndex(priced);
@@ -907,24 +921,28 @@ function renderTrends() {
         </div>
     `;
 
-    // ── Top 8 mouvements ──
-    const byTrend = [...priced].sort((a, b) => b.trend - a.trend);
+    // ── Top 8 mouvements (7 derniers jours) ──
+    const with7d = priced.map(p => ({ ...p, change7d: trends7d[p.name]?.change || 0, price7dAgo: trends7d[p.name]?.priceBefore || 0 }));
+    const byTrend7d = [...with7d].sort((a, b) => b.change7d - a.change7d);
+    const byTrendLow7d = [...with7d].sort((a, b) => a.change7d - b.change7d);
     const byPrice = [...priced].sort((a, b) => b.price - a.price);
-    const byTrendLow = [...priced].sort((a, b) => a.trend - b.trend);
 
-    const row = (p, cls, val, showSerie = true) =>
-        `<li>
+    const row7d = (p, cls) => {
+        const sign = p.change7d >= 0 ? '+' : '';
+        const priceAgo = p.price7dAgo > 0 ? `<span class="t-price-ago">${fmt(p.price7dAgo)} → ${fmt(p.price)}</span>` : '';
+        return `<li>
             <div class="t-info">
                 <span class="t-name">${p.name}</span>
-                ${showSerie ? `<span class="t-serie">${p.ext.split(' — ')[0]}</span>` : ''}
+                <span class="t-serie">${p.ext.split(' — ')[0]}${priceAgo ? ' · ' : ''}${priceAgo ? priceAgo : ''}</span>
             </div>
-            <span class="t-value ${cls}">${val}</span>
+            <span class="t-value ${cls}">${sign}${p.change7d} %</span>
         </li>`;
+    };
 
     document.getElementById('trendUp').innerHTML =
-        byTrend.filter(p => p.trend > 0).slice(0, 8).map(p => row(p, 'up', `+${p.trend} %`)).join('') || '<li class="t-empty">Aucune hausse</li>';
+        byTrend7d.filter(p => p.change7d > 0).slice(0, 8).map(p => row7d(p, 'up')).join('') || '<li class="t-empty">Aucune hausse sur 7 jours</li>';
     document.getElementById('trendDown').innerHTML =
-        byTrendLow.filter(p => p.trend < 0).slice(0, 8).map(p => row(p, 'down', `${p.trend} %`)).join('') || '<li class="t-empty">Aucune baisse</li>';
+        byTrendLow7d.filter(p => p.change7d < 0).slice(0, 8).map(p => row7d(p, 'down')).join('') || '<li class="t-empty">Aucune baisse sur 7 jours</li>';
     document.getElementById('trendHot').innerHTML =
         byPrice.slice(0, 8).map(p => {
             const last = p.lastPrice || p.old || 0;
