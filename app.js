@@ -745,8 +745,131 @@ function render() {
 
 // ── Tendances ────────────────────────────────────────────────
 
+function computeGreedIndex(priced) {
+    if (!priced.length) return 50;
+
+    // Factor 1: Momentum (30%) — % de produits en hausse vs baisse
+    const hausse = priced.filter(p => p.trend > 0).length;
+    const baisse = priced.filter(p => p.trend < 0).length;
+    const momentumScore = priced.length > 0 ? (hausse / priced.length) * 100 : 50;
+
+    // Factor 2: Amplitude des tendances (25%) — moyenne des trends, clampée [-100, +100] → [0, 100]
+    const avgTrend = priced.reduce((s, p) => s + p.trend, 0) / priced.length;
+    const amplitudeScore = Math.min(100, Math.max(0, (avgTrend + 100) / 2));
+
+    // Factor 3: Position dans le range (25%) — prix actuel vs low/high
+    const withRange = priced.filter(p => p.low && p.high && p.high > p.low);
+    let positionScore = 50;
+    if (withRange.length > 0) {
+        const avgPos = withRange.reduce((s, p) => s + (p.price - p.low) / (p.high - p.low), 0) / withRange.length;
+        positionScore = avgPos * 100;
+    }
+
+    // Factor 4: Volatilité (20%) — spread moyen (high-low)/prix, plus c'est volatile plus c'est "greed"
+    let volatilityScore = 50;
+    if (withRange.length > 0) {
+        const avgVol = withRange.reduce((s, p) => s + (p.high - p.low) / ((p.high + p.low) / 2), 0) / withRange.length;
+        volatilityScore = Math.min(100, avgVol * 100);
+    }
+
+    const index = Math.round(
+        momentumScore * 0.30 +
+        amplitudeScore * 0.25 +
+        positionScore * 0.25 +
+        volatilityScore * 0.20
+    );
+
+    return Math.min(100, Math.max(0, index));
+}
+
+function getGreedLabel(value) {
+    if (value <= 20) return { label: 'Peur extrême', emoji: '😱' };
+    if (value <= 40) return { label: 'Peur', emoji: '😰' };
+    if (value <= 55) return { label: 'Neutre', emoji: '😐' };
+    if (value <= 75) return { label: 'Avidité', emoji: '🤑' };
+    return { label: 'Avidité extrême', emoji: '🔥' };
+}
+
+function renderGreedIndex(priced) {
+    const value = computeGreedIndex(priced);
+    const { label, emoji } = getGreedLabel(value);
+
+    // Angle: 0=left (fear), 180=right (greed). Value 0-100 maps to -90° to +90°
+    const needleAngle = (value / 100) * 180 - 90;
+
+    // Color based on value
+    let gaugeColor;
+    if (value <= 20) gaugeColor = '#ef4444';
+    else if (value <= 40) gaugeColor = '#f97316';
+    else if (value <= 55) gaugeColor = '#eab308';
+    else if (value <= 75) gaugeColor = '#84cc16';
+    else gaugeColor = '#22c55e';
+
+    const wrap = document.getElementById('greedIndexWrap');
+    wrap.innerHTML = `
+        <div class="greed-index">
+            <div class="greed-index-header">
+                <h2 class="greed-index-title">Pokémon Sealed Index</h2>
+                <span class="greed-index-subtitle">Indicateur de sentiment du marché scellé</span>
+            </div>
+            <div class="greed-index-gauge-container">
+                <div class="greed-index-gauge">
+                    <svg viewBox="0 0 200 120" class="greed-svg">
+                        <!-- Arcs de fond -->
+                        <path d="M 20 100 A 80 80 0 0 1 56 36" stroke="#ef4444" stroke-width="12" fill="none" stroke-linecap="round" opacity="0.3"/>
+                        <path d="M 56 36 A 80 80 0 0 1 100 20" stroke="#f97316" stroke-width="12" fill="none" stroke-linecap="round" opacity="0.3"/>
+                        <path d="M 100 20 A 80 80 0 0 1 144 36" stroke="#eab308" stroke-width="12" fill="none" stroke-linecap="round" opacity="0.3"/>
+                        <path d="M 144 36 A 80 80 0 0 1 180 100" stroke="#22c55e" stroke-width="12" fill="none" stroke-linecap="round" opacity="0.3"/>
+
+                        <!-- Aiguille -->
+                        <g transform="rotate(${needleAngle}, 100, 100)">
+                            <line x1="100" y1="100" x2="100" y2="30" stroke="${gaugeColor}" stroke-width="3" stroke-linecap="round"/>
+                            <circle cx="100" cy="100" r="6" fill="${gaugeColor}"/>
+                            <circle cx="100" cy="100" r="3" fill="var(--bg-card)"/>
+                        </g>
+
+                        <!-- Labels -->
+                        <text x="15" y="115" fill="#ef4444" font-size="8" font-weight="600">Peur</text>
+                        <text x="155" y="115" fill="#22c55e" font-size="8" font-weight="600">Avidité</text>
+                    </svg>
+                </div>
+                <div class="greed-index-value-wrap">
+                    <span class="greed-index-emoji">${emoji}</span>
+                    <span class="greed-index-value" style="color: ${gaugeColor}">${value}</span>
+                    <span class="greed-index-label" style="color: ${gaugeColor}">${label}</span>
+                </div>
+            </div>
+            <div class="greed-index-factors">
+                <div class="greed-factor">
+                    <span class="greed-factor-label">Momentum</span>
+                    <div class="greed-factor-bar"><div class="greed-factor-fill" style="width: ${(priced.filter(p => p.trend > 0).length / priced.length * 100).toFixed(0)}%; background: ${priced.filter(p => p.trend > 0).length / priced.length > 0.5 ? '#22c55e' : '#ef4444'}"></div></div>
+                    <span class="greed-factor-val">${(priced.filter(p => p.trend > 0).length / priced.length * 100).toFixed(0)}%</span>
+                </div>
+                <div class="greed-factor">
+                    <span class="greed-factor-label">Tendance moy.</span>
+                    <div class="greed-factor-bar"><div class="greed-factor-fill" style="width: ${Math.min(100, Math.max(5, (priced.reduce((s,p) => s+p.trend, 0)/priced.length + 100)/2))}%; background: ${priced.reduce((s,p) => s+p.trend, 0)/priced.length > 0 ? '#22c55e' : '#ef4444'}"></div></div>
+                    <span class="greed-factor-val">${priced.reduce((s,p) => s+p.trend, 0)/priced.length > 0 ? '+' : ''}${(priced.reduce((s,p) => s+p.trend, 0)/priced.length).toFixed(1)}%</span>
+                </div>
+                <div class="greed-factor">
+                    <span class="greed-factor-label">Position prix</span>
+                    <div class="greed-factor-bar"><div class="greed-factor-fill" style="width: ${(() => { const wr = priced.filter(p => p.low && p.high && p.high > p.low); return wr.length ? (wr.reduce((s,p) => s+(p.price-p.low)/(p.high-p.low), 0)/wr.length*100).toFixed(0) : 50; })()}%; background: #eab308"></div></div>
+                    <span class="greed-factor-val">${(() => { const wr = priced.filter(p => p.low && p.high && p.high > p.low); return wr.length ? (wr.reduce((s,p) => s+(p.price-p.low)/(p.high-p.low), 0)/wr.length*100).toFixed(0) : 50; })()}%</span>
+                </div>
+                <div class="greed-factor">
+                    <span class="greed-factor-label">Volatilité</span>
+                    <div class="greed-factor-bar"><div class="greed-factor-fill" style="width: ${(() => { const wr = priced.filter(p => p.low && p.high && p.high > p.low); return wr.length ? Math.min(100, (wr.reduce((s,p) => s+(p.high-p.low)/((p.high+p.low)/2), 0)/wr.length*100)).toFixed(0) : 50; })()}%; background: #f97316"></div></div>
+                    <span class="greed-factor-val">${(() => { const wr = priced.filter(p => p.low && p.high && p.high > p.low); return wr.length ? Math.min(100, (wr.reduce((s,p) => s+(p.high-p.low)/((p.high+p.low)/2), 0)/wr.length*100)).toFixed(0) : 50; })()}%</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function renderTrends() {
     const priced = products.filter(p => p.price > 0);
+
+    // ── Pokémon Greed Index ──
+    renderGreedIndex(priced);
 
     // ── KPIs globaux ──
     const totalProducts = priced.length;
