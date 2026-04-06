@@ -721,26 +721,35 @@ app.put('/api/portfolio', authMiddleware, async (req, res) => {
     res.json({ ok: true });
 });
 
-// ── Portfolio History ────────────────────────────────────────
+// ── Portfolio History (par utilisateur) ──────────────────────
 
-async function readPortfolioHistory() {
+const PORTFOLIO_HISTORY_DIR = path.join(__dirname, 'data', 'portfolio-history');
+
+async function ensureHistoryDir() {
+    await fs.mkdir(PORTFOLIO_HISTORY_DIR, { recursive: true });
+}
+
+async function readPortfolioHistory(userId) {
     try {
-        const data = await fs.readFile(PORTFOLIO_HISTORY_FILE, 'utf-8');
-        return JSON.parse(data);
+        if (userId) {
+            const file = path.join(PORTFOLIO_HISTORY_DIR, `${userId}.json`);
+            return JSON.parse(await fs.readFile(file, 'utf-8'));
+        }
+        return JSON.parse(await fs.readFile(PORTFOLIO_HISTORY_FILE, 'utf-8'));
     } catch {
         return [];
     }
 }
 
-async function writePortfolioHistory(history) {
-    await ensureDataDirs();
-    await fs.writeFile(PORTFOLIO_HISTORY_FILE, JSON.stringify(history, null, 2));
+async function writePortfolioHistory(userId, history) {
+    await ensureHistoryDir();
+    const file = path.join(PORTFOLIO_HISTORY_DIR, `${userId}.json`);
+    await fs.writeFile(file, JSON.stringify(history, null, 2));
 }
 
 async function snapshotPortfolio() {
     console.log('[Portfolio] Snapshot en cours...');
     try {
-        // Lire tous les portfolios utilisateurs
         let allFiles;
         try {
             allFiles = await fs.readdir(PORTFOLIOS_DIR);
@@ -748,66 +757,75 @@ async function snapshotPortfolio() {
             allFiles = [];
         }
 
-        // Agréger: pour chaque produit, prendre le max qty trouvé (ou le premier user)
-        // Si pas de fichiers, utiliser le portfolio par défaut du frontend
-        let portfolio = {};
         for (const file of allFiles) {
             if (!file.endsWith('.json')) continue;
+            const userId = file.replace('.json', '');
             try {
-                const data = JSON.parse(await fs.readFile(path.join(PORTFOLIOS_DIR, file), 'utf-8'));
-                for (const [name, h] of Object.entries(data)) {
-                    if (h.qty > 0) {
-                        if (!portfolio[name] || h.qty > portfolio[name].qty) {
-                            portfolio[name] = h;
-                        }
-                    }
+                const portfolio = JSON.parse(await fs.readFile(path.join(PORTFOLIOS_DIR, file), 'utf-8'));
+
+                let totalInvested = 0, totalValue = 0;
+                for (const product of PRODUCTS_TO_TRACK) {
+                    const h = portfolio[product.name];
+                    if (!h || h.qty <= 0) continue;
+                    totalInvested += h.qty * h.cost;
+                    const cached = await readCache(product.id);
+                    const price = cached?.price || 0;
+                    totalValue += h.qty * price;
                 }
-            } catch {}
+
+                const today = new Date().toISOString().slice(0, 10);
+                const entry = { date: today, invested: Math.round(totalInvested * 100) / 100, value: Math.round(totalValue * 100) / 100, pnl: Math.round((totalValue - totalInvested) * 100) / 100 };
+
+                const history = await readPortfolioHistory(userId);
+                const idx = history.findIndex(h => h.date === today);
+                if (idx >= 0) history[idx] = entry;
+                else history.push(entry);
+                if (history.length > 365) history.splice(0, history.length - 365);
+
+                await writePortfolioHistory(userId, history);
+                console.log(`[Portfolio] Snapshot ${userId}: investi=${entry.invested}€, valeur=${entry.value}€, P&L=${entry.pnl}€`);
+            } catch (err) {
+                console.error(`[Portfolio] Erreur snapshot ${userId}:`, err.message);
+            }
         }
-
-        // Calculer la valeur totale avec les prix en cache
-        let totalInvested = 0, totalValue = 0;
-        for (const product of PRODUCTS_TO_TRACK) {
-            const h = portfolio[product.name];
-            if (!h || h.qty <= 0) continue;
-            totalInvested += h.qty * h.cost;
-
-            // Lire le prix en cache
-            const cached = await readCache(product.id);
-            const price = cached?.price || 0;
-            totalValue += h.qty * price;
-        }
-
-        const today = new Date().toISOString().slice(0, 10);
-        const entry = { date: today, invested: Math.round(totalInvested * 100) / 100, value: Math.round(totalValue * 100) / 100, pnl: Math.round((totalValue - totalInvested) * 100) / 100 };
-
-        const history = await readPortfolioHistory();
-        const idx = history.findIndex(h => h.date === today);
-        if (idx >= 0) {
-            history[idx] = entry;
-        } else {
-            history.push(entry);
-        }
-        // Garder max 365 jours
-        if (history.length > 365) history.splice(0, history.length - 365);
-
-        await writePortfolioHistory(history);
-        console.log(`[Portfolio] Snapshot OK: investi=${entry.invested}€, valeur=${entry.value}€, P&L=${entry.pnl}€`);
+        console.log('[Portfolio] Snapshot terminé');
     } catch (err) {
-        console.error('[Portfolio] Erreur snapshot:', err.message);
+        console.error('[Portfolio] Erreur snapshot globale:', err.message);
     }
 }
 
-// API : historique du portfolio
-app.get('/api/portfolio-history', async (_req, res) => {
-    const history = await readPortfolioHistory();
+// API : historique du portfolio (par utilisateur)
+app.get('/api/portfolio-history', authMiddleware, async (req, res) => {
+    const history = await readPortfolioHistory(req.userId);
     res.json(history);
 });
 
-// API : forcer un snapshot maintenant
-app.post('/api/portfolio-snapshot', async (_req, res) => {
-    await snapshotPortfolio();
-    const history = await readPortfolioHistory();
+// API : forcer un snapshot pour l'utilisateur connecté
+app.post('/api/portfolio-snapshot', authMiddleware, async (req, res) => {
+    const userId = req.userId;
+    const portfolio = await readPortfolio(userId);
+    if (!portfolio) return res.json({ ok: true, entries: 0 });
+
+    let totalInvested = 0, totalValue = 0;
+    for (const product of PRODUCTS_TO_TRACK) {
+        const h = portfolio[product.name];
+        if (!h || h.qty <= 0) continue;
+        totalInvested += h.qty * h.cost;
+        const cached = await readCache(product.id);
+        const price = cached?.price || 0;
+        totalValue += h.qty * price;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const entry = { date: today, invested: Math.round(totalInvested * 100) / 100, value: Math.round(totalValue * 100) / 100, pnl: Math.round((totalValue - totalInvested) * 100) / 100 };
+
+    const history = await readPortfolioHistory(userId);
+    const idx = history.findIndex(h => h.date === today);
+    if (idx >= 0) history[idx] = entry;
+    else history.push(entry);
+    if (history.length > 365) history.splice(0, history.length - 365);
+
+    await writePortfolioHistory(userId, history);
     res.json({ ok: true, entries: history.length });
 });
 

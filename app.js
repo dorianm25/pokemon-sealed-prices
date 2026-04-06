@@ -1035,7 +1035,7 @@ function savePortfolio(pf) {
 
 async function refreshPortfolio() {
     // Forcer un snapshot et recharger le graphique
-    await fetch('/api/portfolio-snapshot', { method: 'POST' });
+    await fetch('/api/portfolio-snapshot', { method: 'POST', headers: { 'Authorization': `Bearer ${authToken}` } });
     await renderPortfolio();
 }
 
@@ -1141,7 +1141,8 @@ let portfolioChartInstance = null;
 async function loadPortfolioChart() {
     const wrap = document.getElementById('portfolioChartWrap');
     try {
-        const res = await fetch('/api/portfolio-history');
+        if (!authToken) { wrap.style.display = 'none'; return; }
+        const res = await fetch('/api/portfolio-history', { headers: { 'Authorization': `Bearer ${authToken}` } });
         const history = await res.json();
         if (!history || history.length === 0) { wrap.style.display = 'none'; return; }
 
