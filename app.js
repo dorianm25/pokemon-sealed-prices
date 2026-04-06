@@ -926,7 +926,21 @@ function renderTrends() {
     document.getElementById('trendDown').innerHTML =
         byTrendLow.filter(p => p.trend < 0).slice(0, 8).map(p => row(p, 'down', `${p.trend} %`)).join('') || '<li class="t-empty">Aucune baisse</li>';
     document.getElementById('trendHot').innerHTML =
-        byPrice.slice(0, 8).map(p => row(p, 'hot', fmt(p.price))).join('');
+        byPrice.slice(0, 8).map(p => {
+            const last = p.lastPrice || p.old || 0;
+            const diff = last > 0 ? ((p.price - last) / last * 100).toFixed(1) : null;
+            const diffHtml = diff !== null ? `<span class="t-diff ${parseFloat(diff) >= 0 ? 'up' : 'down'}">${parseFloat(diff) >= 0 ? '+' : ''}${diff}%</span>` : '';
+            return `<li>
+                <div class="t-info">
+                    <span class="t-name">${p.name}</span>
+                    <span class="t-serie">${p.ext.split(' — ')[0]}</span>
+                </div>
+                <div class="t-hot-values">
+                    <span class="t-value hot">${fmt(p.price)}</span>
+                    ${diffHtml}
+                </div>
+            </li>`;
+        }).join('');
 
     // ── Prix moyen par type ──
     const types = ['etb', 'display', 'display18', 'booster', 'tripack', 'bundle'];

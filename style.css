@@ -1354,6 +1354,10 @@ body {
 .t-list .t-value.up { color: var(--green-light); }
 .t-list .t-value.down { color: var(--red); }
 .t-list .t-value.hot { color: var(--blue); }
+.t-hot-values { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.t-diff { font-size: 10px; font-weight: 600; }
+.t-diff.up { color: var(--green-light); }
+.t-diff.down { color: var(--red); }
 .t-empty { color: var(--text-muted); font-style: italic; padding: 12px 0; font-size: 12px; }
 
 /* Prix moyen par type */
