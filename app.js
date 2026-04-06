@@ -889,7 +889,7 @@ function renderHypeMeter(priced) {
     const series = Object.values(seriesMap).map(s => {
         let hypeScore = 0;
 
-        // Factor 1 : Performance vs MSRP (40%)
+        // Factor 1 : Performance vs MSRP (30%)
         let perfSum = 0, perfCount = 0;
         for (const p of s.products) {
             const msrp = MSRP[p.type];
@@ -901,7 +901,7 @@ function renderHypeMeter(priced) {
         const avgPerf = perfCount > 0 ? perfSum / perfCount : 0;
         const perfScore = Math.min(100, Math.max(0, avgPerf / 2 + 50));
 
-        // Factor 2 : Tendance 7j (30%)
+        // Factor 2 : Tendance 7j (25%)
         let trend7dSum = 0, trend7dCount = 0;
         for (const p of s.products) {
             const t7 = trends7d[p.name];
@@ -910,14 +910,20 @@ function renderHypeMeter(priced) {
         const avgTrend7d = trend7dCount > 0 ? trend7dSum / trend7dCount : 0;
         const trendScore = Math.min(100, Math.max(0, avgTrend7d + 50));
 
-        // Factor 3 : Prix moyen élevé = demande forte (30%)
+        // Factor 3 : Nombre d'annonces en ligne (25%) — plus il y en a, plus c'est hype
+        const totalListings = s.products.reduce((sum, p) => sum + (p.sampleSize || 0), 0);
+        const avgListings = totalListings / s.products.length;
+        // 10+ annonces par produit = score max
+        const listingScore = Math.min(100, (avgListings / 10) * 100);
+
+        // Factor 4 : Prix moyen élevé = demande forte (20%)
         const avgPrice = s.products.reduce((sum, p) => sum + p.price, 0) / s.products.length;
         const priceScore = Math.min(100, (avgPrice / 5));
 
-        hypeScore = Math.round(perfScore * 0.40 + trendScore * 0.30 + priceScore * 0.30);
+        hypeScore = Math.round(perfScore * 0.30 + trendScore * 0.25 + listingScore * 0.25 + priceScore * 0.20);
         hypeScore = Math.min(100, Math.max(0, hypeScore));
 
-        return { ...s, hypeScore, avgPerf, avgTrend7d, avgPrice };
+        return { ...s, hypeScore, avgPerf, avgTrend7d, avgPrice, totalListings, avgListings };
     });
 
     series.sort((a, b) => b.hypeScore - a.hypeScore);
@@ -953,8 +959,8 @@ function renderHypeMeter(priced) {
                         <span class="hype-label">${label}</span>
                     </div>
                     <div class="hype-details">
+                        <span class="hype-detail" title="Annonces en ligne">${s.totalListings} <small>annonces</small></span>
                         <span class="hype-detail" title="Tendance 7j">${trend7dStr} <small>7j</small></span>
-                        <span class="hype-detail" title="Prix moyen">${fmt(s.avgPrice)} <small>moy</small></span>
                     </div>
                 </div>`;
             }).join('')}
