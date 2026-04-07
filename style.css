@@ -1475,7 +1475,6 @@ body {
     .hype-name { font-size: 11px; }
 }
 
-.t-sale-date { font-size: 9px; color: var(--text-muted); font-style: italic; }
 .t-price-ago { font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .t-hot-values { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
 .t-diff { font-size: 10px; font-weight: 600; }

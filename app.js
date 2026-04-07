@@ -866,7 +866,6 @@ function renderGreedIndex(priced) {
 }
 
 let trends7d = {};
-let lastSales = {};
 
 async function loadTrends7d() {
     try {
@@ -874,15 +873,6 @@ async function loadTrends7d() {
         trends7d = await res.json();
     } catch {
         trends7d = {};
-    }
-}
-
-async function loadLastSales() {
-    try {
-        const res = await fetch('/api/last-sales');
-        lastSales = await res.json();
-    } catch {
-        lastSales = {};
     }
 }
 
@@ -981,8 +971,8 @@ function renderHypeMeter(priced) {
 async function renderTrends() {
     const priced = products.filter(p => p.price > 0);
 
-    // Charger les variations 7 jours et dernières ventes
-    await Promise.all([loadTrends7d(), loadLastSales()]);
+    // Charger les variations 7 jours
+    await loadTrends7d();
 
     // ── Pokémon Greed Index ──
     renderGreedIndex(priced);
@@ -1047,19 +1037,16 @@ async function renderTrends() {
         byTrendLow7d.filter(p => p.change7d < 0).slice(0, 8).map(p => row7d(p, 'down')).join('') || '<li class="t-empty">Aucune baisse sur 7 jours</li>';
     document.getElementById('trendHot').innerHTML =
         byPrice.slice(0, 8).map(p => {
-            const sale = lastSales[p.name];
-            const lastSold = sale?.lastSoldPrice || p.lastPrice || p.old || 0;
-            const prevSold = sale?.previousPrice || 0;
-            const diff = prevSold > 0 ? ((lastSold - prevSold) / prevSold * 100).toFixed(1) : null;
+            const last = p.lastPrice || p.old || 0;
+            const diff = last > 0 ? ((p.price - last) / last * 100).toFixed(1) : null;
             const diffHtml = diff !== null ? `<span class="t-diff ${parseFloat(diff) >= 0 ? 'up' : 'down'}">${parseFloat(diff) >= 0 ? '+' : ''}${diff}%</span>` : '';
-            const dateStr = sale?.lastDate || '';
             return `<li>
                 <div class="t-info">
                     <span class="t-name">${p.name}</span>
-                    <span class="t-serie">${p.ext.split(' — ')[0]}${dateStr ? ` · <span class="t-sale-date">Vente ${dateStr}</span>` : ''}</span>
+                    <span class="t-serie">${p.ext.split(' — ')[0]}</span>
                 </div>
                 <div class="t-hot-values">
-                    <span class="t-value hot">${fmt(lastSold)}</span>
+                    <span class="t-value hot">${fmt(p.price)}</span>
                     ${diffHtml}
                 </div>
             </li>`;
@@ -1132,21 +1119,18 @@ async function renderTrends() {
         </div>`;
     }).join('');
 
-    // ── Opportunités (prix actuel < dernière vente eBay) ──
+    // ── Opportunités (prix actuel < dernier prix connu) ──
     const opps = priced.filter(p => {
-        const sale = lastSales[p.name];
-        const last = sale?.lastSoldPrice || p.lastPrice || p.old || 0;
+        const last = p.lastPrice || p.old || 0;
         return last > 0 && p.price < last && p.price > 0;
     }).sort((a, b) => {
-        const lastA = lastSales[a.name]?.lastSoldPrice || a.lastPrice || a.old;
-        const lastB = lastSales[b.name]?.lastSoldPrice || b.lastPrice || b.old;
-        return (lastB - b.price) - (lastA - a.price);
+        const diffA = (a.lastPrice || a.old) - a.price;
+        const diffB = (b.lastPrice || b.old) - b.price;
+        return diffB - diffA;
     }).slice(0, 10);
 
     document.getElementById('trendOpportunities').innerHTML = opps.length ? opps.map(p => {
-        const sale = lastSales[p.name];
-        const last = sale?.lastSoldPrice || p.lastPrice || p.old;
-        const lastDate = sale?.lastDate || '';
+        const last = p.lastPrice || p.old;
         const diff = last - p.price;
         const diffPct = ((diff / last) * 100).toFixed(1);
         const ratio = p.low && p.high && p.high > p.low ? ((p.price - p.low) / (p.high - p.low) * 100).toFixed(0) : 50;
@@ -1154,7 +1138,7 @@ async function renderTrends() {
             <div class="trend-opp-name">${p.name}</div>
             <div class="trend-opp-serie">${p.ext.split(' — ')[0]}</div>
             <div class="trend-opp-price">${fmt(p.price)}</div>
-            <div class="trend-opp-last">Dernière vente : ${fmt(last)}${lastDate ? ` <span class="t-sale-date">(${lastDate})</span>` : ''}</div>
+            <div class="trend-opp-last">Dernier prix : ${fmt(last)}</div>
             ${p.low && p.high && p.high > p.low ? `<div class="trend-opp-range">
                 <span>${fmt(p.low)}</span>
                 <div class="trend-opp-gauge">
@@ -1163,7 +1147,7 @@ async function renderTrends() {
                 </div>
                 <span>${fmt(p.high)}</span>
             </div>` : ''}
-            <div class="trend-opp-savings">-${diffPct}% vs dernière vente (−${fmt(diff)})</div>
+            <div class="trend-opp-savings">-${diffPct}% vs dernier prix (−${fmt(diff)})</div>
         </div>`;
     }).join('') : '<div class="t-empty-block">Aucune opportunité détectée pour le moment</div>';
 
