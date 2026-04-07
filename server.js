@@ -298,37 +298,6 @@ async function searchEbaySoldItems(query, limit = 5, priceRange = null) {
     }
 }
 
-// Recherche les items les plus récemment listés (pas trié par prix)
-async function searchEbayRecent(query, limit = 3, priceRange = null) {
-    const token = await getAccessToken();
-
-    const filters = ['conditionIds:{1000}'];
-    if (priceRange) {
-        filters.push(`price:[${priceRange.min}..${priceRange.max}],priceCurrency:EUR`);
-    }
-
-    const params = new URLSearchParams({
-        q: query,
-        limit: String(limit),
-        filter: filters.join(','),
-        sort: 'newlyListed',
-    });
-
-    const res = await fetch(
-        `${EBAY_API_URL}/buy/browse/v1/item_summary/search?${params}`,
-        {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'X-EBAY-C-MARKETPLACE-ID': 'EBAY_FR',
-                'X-EBAY-C-ENDUSERCTX': 'contextualLocation=country=FR',
-            },
-        }
-    );
-
-    if (!res.ok) return null;
-    return res.json();
-}
-
 function extractPrices(ebayResponse, limits) {
     const items = ebayResponse.itemSummaries || [];
 
@@ -553,34 +522,35 @@ app.get('/api/price/:productId', async (req, res) => {
             return res.json({ error: 'Aucun résultat eBay', name: product.name });
         }
 
-        // Chercher le dernier item listé (trié par date, le plus récent)
+        // Chercher les vraies dernières ventes eBay (sold items)
         let lastSoldPrice = null, previousSoldPrice = null, lastSoldDate = null;
         try {
             const query = customQueries[productId]?.query || product.query;
             const limits = { min: product.minPrice, max: product.maxPrice };
-            const recentData = await searchEbayRecent(query, 3, limits);
-            if (recentData) {
-                const recentItems = recentData.itemSummaries || [];
-                const valid = recentItems.filter(item => {
-                    const val = parseFloat(item.price?.value);
-                    return !isNaN(val) && val > 0 && (!limits || (val >= limits.min && val <= limits.max));
-                });
-                if (valid.length > 0) {
-                    lastSoldPrice = parseFloat(valid[0].price.value);
-                    lastSoldDate = new Date().toISOString().slice(0, 10);
-                }
-                if (valid.length > 1) {
-                    previousSoldPrice = parseFloat(valid[1].price.value);
+            const soldItems = await searchEbaySoldItems(query, 5, limits);
+            if (soldItems && soldItems.length > 0) {
+                lastSoldPrice = soldItems[0].price;
+                lastSoldDate = soldItems[0].date;
+                if (soldItems.length > 1) {
+                    previousSoldPrice = soldItems[1].price;
                 }
             }
         } catch (err) {
-            console.log(`[Recent] Erreur pour ${productId}:`, err.message);
+            console.log(`[Sold] Pas de ventes pour ${productId}:`, err.message);
         }
 
-        // Fallback sur le prix médian si pas de résultat récent
+        // Fallback sur l'historique si pas de ventes trouvées
         if (!lastSoldPrice) {
-            lastSoldPrice = priceData.lastPrice || priceData.price;
-            lastSoldDate = new Date().toISOString().slice(0, 10);
+            const history = await readHistory(productId);
+            if (history.length >= 1) {
+                const latest = history[history.length - 1];
+                lastSoldPrice = latest.lastPrice || latest.median;
+                lastSoldDate = latest.date;
+            }
+            if (history.length >= 2) {
+                const prev = history[history.length - 2];
+                previousSoldPrice = prev.lastPrice || prev.median;
+            }
         }
 
         const result = { id: productId, name: product.name, ...priceData, lastSoldPrice, previousSoldPrice, lastSoldDate };

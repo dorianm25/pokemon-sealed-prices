@@ -28,17 +28,5 @@
     "salt": "a040c1759824142bc10da1f511be70a9",
     "hash": "d40aa7f06f60ba9e6255a71c8f784430ee7757ea11395c1fe1d1c21d26549b0833c080d7fd1c6204ce7d04326ba539bcae36b9fb460f230f6afcc6d5b522b865",
     "createdAt": "2026-04-04T00:13:27.223Z"
-  },
-  "dfgh": {
-    "username": "dfgh",
-    "salt": "b15df7e7397627669ccaa168cf7ce8a6",
-    "hash": "4683fdf7562ddb860de42a7c585b820c9e7da15817528582a0652fe1c879bc236d504d0ce88f32b1046b78bb5baea75e9512ee1ec34e9de878095e0bdf093bb0",
-    "createdAt": "2026-04-06T09:44:08.289Z"
-  },
-  "jklm": {
-    "username": "jklm",
-    "salt": "45b8e0d1463336d10ef2c7031304841d",
-    "hash": "4879b83d53dae4760d683b9c9f3710bbecd7fefd277aaa280a40f59bbe6ac35809e00322bac485cd0054e6e17801beb7569f0747b016e7de173795473a39e253",
-    "createdAt": "2026-04-06T09:45:38.587Z"
   }
 }
