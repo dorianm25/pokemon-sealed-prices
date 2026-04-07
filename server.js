@@ -522,20 +522,7 @@ app.get('/api/price/:productId', async (req, res) => {
             return res.json({ error: 'Aucun résultat eBay', name: product.name });
         }
 
-        // Ajouter le dernier prix de vente depuis l'historique
-        const history = await readHistory(productId);
-        let lastSoldPrice = null, previousSoldPrice = null, lastSoldDate = null;
-        if (history.length >= 1) {
-            const latest = history[history.length - 1];
-            lastSoldPrice = latest.lastPrice || latest.median;
-            lastSoldDate = latest.date;
-        }
-        if (history.length >= 2) {
-            const prev = history[history.length - 2];
-            previousSoldPrice = prev.lastPrice || prev.median;
-        }
-
-        const result = { id: productId, name: product.name, ...priceData, lastSoldPrice, previousSoldPrice, lastSoldDate };
+        const result = { id: productId, name: product.name, ...priceData };
         await writeCache(productId, result);
         appendHistory(productId, priceData).catch(() => {});
 
