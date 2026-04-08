@@ -116,7 +116,7 @@ const EBAY_API_URL = IS_SANDBOX
 // ── Cache ────────────────────────────────────────────────────
 
 const CACHE_DIR = path.join(__dirname, 'cache');
-const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 heures
+const CACHE_TTL = 1 * 60 * 60 * 1000; // 1 heure
 const HISTORY_DIR = path.join(__dirname, 'data', 'history');
 
 async function ensureCacheDir() {
