@@ -103,6 +103,17 @@ async function writePortfolio(userId, portfolio) {
 
 const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID;
 const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET;
+const EBAY_AFFILIATE_CAMPAIGN_ID = process.env.EBAY_AFFILIATE_CAMPAIGN_ID || '';
+
+function toAffiliateUrl(url) {
+    if (!url || !EBAY_AFFILIATE_CAMPAIGN_ID) return url;
+    try {
+        const encoded = encodeURIComponent(url);
+        return `https://rover.ebay.com/rover/1/709-53476-19255-0/1?mpre=${encoded}&campid=${EBAY_AFFILIATE_CAMPAIGN_ID}&toolid=10001`;
+    } catch {
+        return url;
+    }
+}
 const IS_SANDBOX = process.env.EBAY_ENV === 'sandbox';
 
 const EBAY_AUTH_URL = IS_SANDBOX
@@ -288,9 +299,12 @@ function extractPrices(ebayResponse, limits) {
         title: cheapest.title || '',
         price: cheapestPrice,
         currency: cheapest.price?.currency || 'EUR',
-        url: cheapest.itemWebUrl || '',
+        url: toAffiliateUrl(cheapest.itemWebUrl || ''),
         image: cheapest.image?.imageUrl || cheapest.thumbnailImages?.[0]?.imageUrl || '',
     };
+
+    // Lien de recherche affilié
+    const searchUrl = toAffiliateUrl(`https://www.ebay.fr/sch/i.html?_nkw=${encodeURIComponent(query)}&_sop=15&LH_BIN=1`);
 
     return {
         price: Math.round(medianPrice * 100) / 100,
@@ -300,6 +314,7 @@ function extractPrices(ebayResponse, limits) {
         sampleSize: validItems.length,
         lastUpdated: new Date().toISOString(),
         lastListing,
+        searchUrl,
     };
 }
 
@@ -391,7 +406,7 @@ function extractItemPrice(item) {
             title: item.title || '',
             price,
             currency: item.price?.currency || 'EUR',
-            url: item.itemWebUrl || '',
+            url: toAffiliateUrl(item.itemWebUrl || ''),
             image: item.image?.imageUrl || '',
         },
         linkedItem: true,

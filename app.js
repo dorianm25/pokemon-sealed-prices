@@ -268,6 +268,10 @@ function renderCard(p, i) {
                 <span class="${subClass}">${p.sampleSize || '—'}</span>
             </div>
         </div>
+        ${(p.lastListing?.url || p.searchUrl) ? `<a class="btn-buy-ebay" href="${p.lastListing?.url || p.searchUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Acheter sur eBay
+        </a>` : ''}
     </div>
 </article>`;
 }
@@ -303,6 +307,15 @@ function updateCard(productName) {
         imgArea.insertAdjacentHTML('beforeend', `<span class="product-trend-badge badge-down">${trendVal}%</span>`);
     } else {
         imgArea.insertAdjacentHTML('beforeend', `<span class="product-trend-badge badge-stable">→ 0%</span>`);
+    }
+
+    // Update buy button
+    const infoArea = card.querySelector('.product-info');
+    if (!infoArea.querySelector('.btn-buy-ebay') && (p.lastListing?.url || p.searchUrl)) {
+        infoArea.insertAdjacentHTML('beforeend', `<a class="btn-buy-ebay" href="${p.lastListing?.url || p.searchUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Acheter sur eBay
+        </a>`);
     }
 
     // Update image if available
@@ -349,6 +362,7 @@ function openDetail(productName) {
                     <div class="detail-nav">
                         <button class="detail-nav-link active">📊 Aperçu Global</button>
                         ${p.lastListing?.url ? `<a class="detail-nav-link" href="${p.lastListing.url}" target="_blank" rel="noopener">🔗 Voir sur eBay</a>` : ''}
+                        ${p.searchUrl ? `<a class="detail-nav-link" href="${p.searchUrl}" target="_blank" rel="noopener">🛒 Rechercher sur eBay</a>` : ''}
                         ${ebayId ? `<button class="detail-nav-link" onclick="document.getElementById('detailOverlay').remove();openQueryEditor('${ebayId}','${p.name.replace(/'/g, "\\'")}')">⚙ Modifier la source</button>` : ''}
                     </div>
                     ${p.lastListing ? `
@@ -1406,6 +1420,7 @@ function applyEbayPrice(ep) {
     product.high = ep.high;
     product.lastListing = ep.lastListing || null;
     product.sampleSize = ep.sampleSize || 0;
+    product.searchUrl = ep.searchUrl || '';
     product._ebayLoaded = true;
 
     if (product.old > 0) {
