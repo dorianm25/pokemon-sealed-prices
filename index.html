@@ -34,6 +34,7 @@
                     <a href="#" class="sidebar-link" data-section="portfolio" onclick="switchSection('portfolio', event)">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 000 4h4v-4h-4z"/></svg>
                         Portfolio
+                        <span class="sidebar-badge" id="portfolioBadge"></span>
                     </a>
                     <a href="#" class="sidebar-link" data-section="tendances" onclick="switchSection('tendances', event)">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -223,6 +224,14 @@
             </form>
         </div>
     </div>
+
+    <!-- Toast notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Scroll to top -->
+    <button class="scroll-top-btn" id="scrollTopBtn" onclick="scrollToTop()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+    </button>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
     <script src="app.js"></script>

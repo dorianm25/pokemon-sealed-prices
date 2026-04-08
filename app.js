@@ -235,12 +235,23 @@ function renderCard(p, i) {
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
            </div>`;
 
-    const lastDate = p.lastListing?.url ? new Date().toISOString().slice(0, 10) : '';
+    // Trend badge
+    const trendVal = p.trend || 0;
+    let badgeHtml = '';
+    if (trendVal > 5) badgeHtml = `<span class="product-trend-badge badge-up">+${trendVal}%</span>`;
+    else if (trendVal < -5) badgeHtml = `<span class="product-trend-badge badge-down">${trendVal}%</span>`;
+    else if (p._ebayLoaded) badgeHtml = `<span class="product-trend-badge badge-stable">→ 0%</span>`;
+
+    // Skeleton state while eBay prices load
+    const isLoading = !p._ebayLoaded;
+    const priceClass = isLoading ? 'product-price-value skeleton' : 'product-price-value';
+    const subClass = isLoading ? 'product-price-sub skeleton' : 'product-price-sub';
 
     return `<article class="product" data-product-name="${p.name.replace(/"/g, '&quot;')}" style="--i:${i}" onclick="openDetail('${p.name.replace(/'/g, "\\'")}')">
     <div class="product-img">
         ${imgHtml}
         ${editBtn}
+        ${badgeHtml}
     </div>
     <div class="product-info">
         <div class="product-name-row">
@@ -250,11 +261,11 @@ function renderCard(p, i) {
         <div class="product-prices">
             <div class="product-price-col">
                 <span class="product-price-label">Dernier prix</span>
-                <span class="product-price-value">${fmt(p.lastPrice || p.lastListing?.price || p.price)}</span>
+                <span class="${priceClass}">${fmt(p.lastPrice || p.lastListing?.price || p.price)}</span>
             </div>
             <div class="product-price-col" style="text-align:right">
                 <span class="product-price-label">résultats</span>
-                <span class="product-price-sub">${p.sampleSize || '—'}</span>
+                <span class="${subClass}">${p.sampleSize || '—'}</span>
             </div>
         </div>
     </div>
@@ -270,12 +281,32 @@ function updateCard(productName) {
     const priceEl = card.querySelector('.product-price-value');
     const subEl = card.querySelector('.product-price-sub');
 
-    if (priceEl) priceEl.textContent = fmt(p.lastPrice || p.lastListing?.price || p.price);
-    if (subEl) subEl.textContent = p.sampleSize || '—';
+    if (priceEl) {
+        priceEl.classList.remove('skeleton');
+        priceEl.textContent = fmt(p.lastPrice || p.lastListing?.price || p.price);
+        priceEl.classList.add('price-updated');
+        setTimeout(() => priceEl.classList.remove('price-updated'), 1200);
+    }
+    if (subEl) {
+        subEl.classList.remove('skeleton');
+        subEl.textContent = p.sampleSize || '—';
+    }
+
+    // Update trend badge
+    const imgArea = card.querySelector('.product-img');
+    const oldBadge = imgArea.querySelector('.product-trend-badge');
+    if (oldBadge) oldBadge.remove();
+    const trendVal = p.trend || 0;
+    if (trendVal > 5) {
+        imgArea.insertAdjacentHTML('beforeend', `<span class="product-trend-badge badge-up">+${trendVal}%</span>`);
+    } else if (trendVal < -5) {
+        imgArea.insertAdjacentHTML('beforeend', `<span class="product-trend-badge badge-down">${trendVal}%</span>`);
+    } else {
+        imgArea.insertAdjacentHTML('beforeend', `<span class="product-trend-badge badge-stable">→ 0%</span>`);
+    }
 
     // Update image if available
     if (p.lastListing?.image) {
-        const imgArea = card.querySelector('.product-img');
         const existingImg = imgArea.querySelector('img');
         if (!existingImg) {
             const placeholder = imgArea.querySelector('.product-img-placeholder');
@@ -1375,6 +1406,7 @@ function applyEbayPrice(ep) {
     product.high = ep.high;
     product.lastListing = ep.lastListing || null;
     product.sampleSize = ep.sampleSize || 0;
+    product._ebayLoaded = true;
 
     if (product.old > 0) {
         product.trend = Math.round(((product.price - product.old) / product.old) * 100);
@@ -1430,11 +1462,14 @@ async function fetchEbayPrices() {
     }
 
     if (banner) {
-        banner.textContent = `${updated} prix via eBay`;
-        banner.classList.add('visible');
+        banner.textContent = '';
+        banner.classList.remove('visible');
     }
 
+    showToast('✅', `${updated} prix mis à jour`, 'Données eBay actualisées');
+
     renderTrends();
+    updatePortfolioBadge();
 }
 
 // ── Auth ────────────────────────────────────────────────────
@@ -1607,6 +1642,7 @@ let _saveTimer = null;
 function savePortfolio(pf) {
     _portfolioCache = pf;
     localStorage.setItem('pokescelle-portfolio', JSON.stringify(pf));
+    updatePortfolioBadge();
     if (authToken) {
         clearTimeout(_saveTimer);
         _saveTimer = setTimeout(() => {
@@ -1788,6 +1824,49 @@ async function renderPortfolio() {
     loadPortfolioChart();
 }
 
+// ── Toast Notifications ─────────────────────────────────────
+
+function showToast(icon, message, sub = '') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.innerHTML = `
+        <span class="toast-icon">${icon}</span>
+        <div class="toast-text">${message}${sub ? `<small>${sub}</small>` : ''}</div>
+    `;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.add('toast-out');
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
+
+// ── Scroll to Top ───────────────────────────────────────────
+
+function scrollToTop() {
+    const section = document.querySelector('.section-catalogue:not([style*="none"]), .section-portfolio:not([style*="none"]), .section-tendances:not([style*="none"])');
+    if (section) section.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function initScrollTopBtn() {
+    const btn = document.getElementById('scrollTopBtn');
+    ['sectionCatalogue', 'sectionPortfolio', 'sectionTendances'].forEach(id => {
+        document.getElementById(id).addEventListener('scroll', function() {
+            btn.classList.toggle('visible', this.scrollTop > 300);
+        });
+    });
+}
+
+// ── Portfolio Badge ─────────────────────────────────────────
+
+function updatePortfolioBadge() {
+    const badge = document.getElementById('portfolioBadge');
+    if (!badge) return;
+    const pf = loadPortfolioSync();
+    const count = Object.values(pf).filter(h => h.qty > 0).length;
+    badge.textContent = count > 0 ? count : '';
+}
+
 // ── Events ───────────────────────────────────────────────────
 
 document.getElementById('searchInput').addEventListener('input', render);
@@ -1800,6 +1879,8 @@ initAuth();
 renderBlocsAccordion();
 render();
 renderTrends();
+initScrollTopBtn();
+updatePortfolioBadge();
 
 fetchEbayPrices().then(() => {
     if (currentSection === 'portfolio') renderPortfolio();
