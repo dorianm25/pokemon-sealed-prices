@@ -40,6 +40,10 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                         Tendances
                     </a>
+                    <a href="#" class="sidebar-link" data-section="simulation" onclick="switchSection('simulation', event)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        Simulation
+                    </a>
                 </nav>
 
                 <!-- Filters -->
@@ -203,6 +207,40 @@
                 <h2 class="trend-section-title">Opportunités d'achat</h2>
                 <p class="trend-section-desc">Produits dont le prix actuel est inférieur au dernier prix connu</p>
                 <div class="trend-opps" id="trendOpportunities"></div>
+            </section>
+
+            <!-- ═══ SIMULATION ═══ -->
+            <section class="section-simulation" id="sectionSimulation" style="display:none">
+                <h1 class="section-title">Simulation de prix</h1>
+                <p class="section-subtitle">Projection de la valeur de vos produits scellés dans 5, 10 et 20 ans</p>
+
+                <!-- Scenario selector -->
+                <div class="sim-controls">
+                    <div class="sim-scenario-bar">
+                        <button class="sim-scenario-btn active" data-scenario="conservative" onclick="setSimScenario('conservative')">🐢 Conservateur</button>
+                        <button class="sim-scenario-btn" data-scenario="moderate" onclick="setSimScenario('moderate')">📊 Modéré</button>
+                        <button class="sim-scenario-btn" data-scenario="optimistic" onclick="setSimScenario('optimistic')">🚀 Optimiste</button>
+                    </div>
+                    <div class="sim-info-bar" id="simInfoBar"></div>
+                </div>
+
+                <!-- Global projection -->
+                <div class="sim-global" id="simGlobal"></div>
+
+                <!-- Series projections -->
+                <h2 class="trend-section-title">Projections par série</h2>
+                <p class="trend-section-desc">Estimation de la valeur future de chaque série complète</p>
+                <div id="simSeriesGrid"></div>
+
+                <!-- Product projections table -->
+                <h2 class="trend-section-title">Détail par produit</h2>
+                <p class="trend-section-desc">Projection de chaque produit avec multiplicateur estimé</p>
+                <div id="simProductTable"></div>
+
+                <!-- Disclaimer -->
+                <div class="sim-disclaimer">
+                    ⚠️ Ces projections sont purement indicatives et basées sur les tendances actuelles. Le marché du Pokémon scellé est volatile et les performances passées ne garantissent pas les résultats futurs.
+                </div>
             </section>
         </main>
     </div>

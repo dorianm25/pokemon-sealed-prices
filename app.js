@@ -698,12 +698,14 @@ function switchSection(section, e) {
     document.getElementById('sectionCatalogue').style.display = section === 'catalogue' ? 'block' : 'none';
     document.getElementById('sectionPortfolio').style.display = section === 'portfolio' ? 'block' : 'none';
     document.getElementById('sectionTendances').style.display = section === 'tendances' ? 'block' : 'none';
+    document.getElementById('sectionSimulation').style.display = section === 'simulation' ? 'block' : 'none';
 
     // Show/hide sidebar filters
     document.getElementById('sidebarFilters').style.display = section === 'catalogue' ? 'block' : 'none';
 
     if (section === 'portfolio') renderPortfolio();
     if (section === 'tendances') renderTrends();
+    if (section === 'simulation') renderSimulation();
 }
 
 // ── Filter / Sort ────────────────────────────────────────────
@@ -2168,7 +2170,7 @@ function scrollToTop() {
 
 function initScrollTopBtn() {
     const btn = document.getElementById('scrollTopBtn');
-    ['sectionCatalogue', 'sectionPortfolio', 'sectionTendances'].forEach(id => {
+    ['sectionCatalogue', 'sectionPortfolio', 'sectionTendances', 'sectionSimulation'].forEach(id => {
         document.getElementById(id).addEventListener('scroll', function() {
             btn.classList.toggle('visible', this.scrollTop > 300);
         });
@@ -2183,6 +2185,212 @@ function updatePortfolioBadge() {
     const pf = loadPortfolioSync();
     const count = Object.values(pf).filter(h => h.qty > 0).length;
     badge.textContent = count > 0 ? count : '';
+}
+
+// ── Simulation ──────────────────────────────────────────────
+
+let simScenario = 'moderate';
+
+function setSimScenario(scenario) {
+    simScenario = scenario;
+    document.querySelectorAll('.sim-scenario-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.scenario === scenario);
+    });
+    renderSimulation();
+}
+
+// Taux de croissance annuel estimé selon le scénario et le type de produit
+function getGrowthRate(type, scenario, seriesAge) {
+    // Base rates par type (les ETB et displays prennent plus de valeur)
+    const baseRates = {
+        conservative: { etb: 0.06, display: 0.08, display18: 0.05, booster: 0.10, tripack: 0.04, bundle: 0.05, dispbundle: 0.07 },
+        moderate:     { etb: 0.10, display: 0.12, display18: 0.08, booster: 0.15, tripack: 0.06, bundle: 0.08, dispbundle: 0.10 },
+        optimistic:   { etb: 0.15, display: 0.18, display18: 0.12, booster: 0.22, tripack: 0.10, bundle: 0.12, dispbundle: 0.15 },
+    };
+    let rate = baseRates[scenario]?.[type] || baseRates[scenario]?.etb || 0.08;
+
+    // Bonus d'âge : les séries plus anciennes ont prouvé leur valeur
+    if (seriesAge >= 5) rate *= 1.15;
+    if (seriesAge >= 10) rate *= 1.10;
+
+    return rate;
+}
+
+// Estimation de l'âge de la série basée sur le code
+function getSeriesAge(code) {
+    // Épée et Bouclier : 2022-2023
+    if (code.startsWith('EB') || code.startsWith('SWSH')) return 3;
+    // EV01-EV03 : 2023
+    if (['EV01', 'EV02', 'EV03'].includes(code)) return 3;
+    // EV3.5 (151) : 2023
+    if (code === 'EV3.5') return 3;
+    // EV04-EV06 : 2024
+    if (['EV04', 'EV4.5', 'EV05', 'EV06', 'EV6.5'].includes(code)) return 2;
+    // EV07+ : 2024-2025
+    if (code.startsWith('EV')) return 1;
+    // ME : 2025-2026
+    if (code.startsWith('ME')) return 0.5;
+    return 1;
+}
+
+function projectPrice(currentPrice, type, years, scenario, seriesAge) {
+    const rate = getGrowthRate(type, scenario, seriesAge);
+    // Croissance composée avec légère décélération sur le long terme
+    const deceleration = years > 10 ? 0.85 : years > 5 ? 0.92 : 1;
+    return currentPrice * Math.pow(1 + rate * deceleration, years);
+}
+
+function renderSimulation() {
+    const scenarioLabels = {
+        conservative: { label: 'Conservateur', desc: 'Croissance lente et stable, similaire aux placements classiques. Hypothèse : le marché Pokémon continue mais ralentit.', color: 'var(--blue)' },
+        moderate:     { label: 'Modéré', desc: 'Croissance soutenue basée sur les tendances actuelles du marché scellé Pokémon. Hypothèse : la demande reste forte.', color: 'var(--orange)' },
+        optimistic:   { label: 'Optimiste', desc: 'Forte croissance portée par la nostalgie grandissante et la raréfaction des produits scellés. Hypothèse : boom du marché.', color: 'var(--green-light)' },
+    };
+
+    const info = scenarioLabels[simScenario];
+    document.getElementById('simInfoBar').innerHTML = `
+        <span class="sim-info-label" style="color:${info.color}">📋 ${info.label}</span>
+        <span class="sim-info-desc">${info.desc}</span>
+    `;
+
+    // Grouper par série
+    const seriesMap = {};
+    for (const p of products) {
+        if (!p._ebayLoaded && p.price <= 0) continue;
+        const code = p.ext?.split(' — ')[0] || '';
+        const name = p.ext?.split(' — ')[1] || '';
+        if (!code) continue;
+        if (!seriesMap[code]) seriesMap[code] = { code, name, products: [] };
+        seriesMap[code].products.push(p);
+    }
+    const series = Object.values(seriesMap);
+
+    // Calcul des projections globales
+    let totalNow = 0, total5 = 0, total10 = 0, total20 = 0;
+    const seriesProjections = series.map(s => {
+        const age = getSeriesAge(s.code);
+        let setNow = 0, set5 = 0, set10 = 0, set20 = 0;
+        const prodProj = s.products.map(p => {
+            const msrp = MSRP[p.type] || 0;
+            const price = p.price > 0 ? p.price : msrp;
+            if (price <= 0) return null;
+            const p5 = projectPrice(price, p.type, 5, simScenario, age);
+            const p10 = projectPrice(price, p.type, 10, simScenario, age);
+            const p20 = projectPrice(price, p.type, 20, simScenario, age);
+            setNow += price; set5 += p5; set10 += p10; set20 += p20;
+            return { ...p, msrp, projected5: p5, projected10: p10, projected20: p20 };
+        }).filter(Boolean);
+
+        totalNow += setNow; total5 += set5; total10 += set10; total20 += set20;
+        return { ...s, setNow, set5, set10, set20, prodProj, age };
+    });
+
+    // Render global KPIs
+    const mult5 = totalNow > 0 ? total5 / totalNow : 0;
+    const mult10 = totalNow > 0 ? total10 / totalNow : 0;
+    const mult20 = totalNow > 0 ? total20 / totalNow : 0;
+
+    document.getElementById('simGlobal').innerHTML = `
+        <div class="sim-kpi-grid">
+            <div class="sim-kpi sim-kpi-now">
+                <div class="sim-kpi-label">Valeur actuelle</div>
+                <div class="sim-kpi-value">${fmt(totalNow)}</div>
+                <div class="sim-kpi-sub">Tous les sets combinés</div>
+            </div>
+            <div class="sim-kpi sim-kpi-5">
+                <div class="sim-kpi-label">Dans 5 ans</div>
+                <div class="sim-kpi-value">${fmt(Math.round(total5))}</div>
+                <div class="sim-kpi-sub">×${mult5.toFixed(1)} · +${((mult5 - 1) * 100).toFixed(0)}%</div>
+            </div>
+            <div class="sim-kpi sim-kpi-10">
+                <div class="sim-kpi-label">Dans 10 ans</div>
+                <div class="sim-kpi-value">${fmt(Math.round(total10))}</div>
+                <div class="sim-kpi-sub">×${mult10.toFixed(1)} · +${((mult10 - 1) * 100).toFixed(0)}%</div>
+            </div>
+            <div class="sim-kpi sim-kpi-20">
+                <div class="sim-kpi-label">Dans 20 ans</div>
+                <div class="sim-kpi-value">${fmt(Math.round(total20))}</div>
+                <div class="sim-kpi-sub">×${mult20.toFixed(1)} · +${((mult20 - 1) * 100).toFixed(0)}%</div>
+            </div>
+        </div>
+    `;
+
+    // Render series projections
+    seriesProjections.sort((a, b) => b.set20 - a.set20);
+    document.getElementById('simSeriesGrid').innerHTML = `
+        <div class="sim-series-grid">
+            ${seriesProjections.map(s => {
+                const m5 = s.setNow > 0 ? s.set5 / s.setNow : 0;
+                const m10 = s.setNow > 0 ? s.set10 / s.setNow : 0;
+                const m20 = s.setNow > 0 ? s.set20 / s.setNow : 0;
+                const heatClass = m20 >= 8 ? 'sim-heat-fire' : m20 >= 4 ? 'sim-heat-hot' : m20 >= 2.5 ? 'sim-heat-warm' : 'sim-heat-cool';
+                return `<div class="sim-series-card ${heatClass}">
+                    <div class="sim-series-header">
+                        <span class="sim-series-code">${s.code}</span>
+                        <span class="sim-series-name">${s.name}</span>
+                    </div>
+                    <div class="sim-series-bar">
+                        <div class="sim-bar-segment sim-bar-now" style="flex:1">
+                            <span class="sim-bar-label">Actuel</span>
+                            <span class="sim-bar-value">${fmt(Math.round(s.setNow))}</span>
+                        </div>
+                        <div class="sim-bar-segment sim-bar-5" style="flex:${m5.toFixed(1)}">
+                            <span class="sim-bar-label">5 ans</span>
+                            <span class="sim-bar-value">${fmt(Math.round(s.set5))}</span>
+                        </div>
+                        <div class="sim-bar-segment sim-bar-10" style="flex:${Math.min(m10, 6).toFixed(1)}">
+                            <span class="sim-bar-label">10 ans</span>
+                            <span class="sim-bar-value">${fmt(Math.round(s.set10))}</span>
+                        </div>
+                        <div class="sim-bar-segment sim-bar-20" style="flex:${Math.min(m20, 10).toFixed(1)}">
+                            <span class="sim-bar-label">20 ans</span>
+                            <span class="sim-bar-value">${fmt(Math.round(s.set20))}</span>
+                        </div>
+                    </div>
+                    <div class="sim-series-mults">
+                        <span>×${m5.toFixed(1)} à 5 ans</span>
+                        <span>×${m10.toFixed(1)} à 10 ans</span>
+                        <span class="sim-mult-main">×${m20.toFixed(1)} à 20 ans</span>
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+
+    // Render product table — top 30 best performers at 20y
+    const allProds = seriesProjections.flatMap(s => s.prodProj.map(p => ({ ...p, seriesCode: s.code, seriesName: s.name })));
+    allProds.sort((a, b) => (b.projected20 / b.price) - (a.projected20 / a.price));
+    const top = allProds.slice(0, 30);
+
+    document.getElementById('simProductTable').innerHTML = `
+        <div class="sim-prod-table">
+            <div class="sim-prod-header">
+                <span class="sim-col-rank">#</span>
+                <span class="sim-col-name">Produit</span>
+                <span class="sim-col-now">Prix actuel</span>
+                <span class="sim-col-5">5 ans</span>
+                <span class="sim-col-10">10 ans</span>
+                <span class="sim-col-20">20 ans</span>
+                <span class="sim-col-mult">×Multi</span>
+            </div>
+            ${top.map((p, i) => {
+                const mult = p.price > 0 ? p.projected20 / p.price : 0;
+                const multClass = mult >= 10 ? 'sim-mult-fire' : mult >= 5 ? 'sim-mult-hot' : mult >= 3 ? 'sim-mult-warm' : '';
+                return `<div class="sim-prod-row">
+                    <span class="sim-col-rank">${i + 1}</span>
+                    <div class="sim-col-name">
+                        <span class="sim-prod-name">${p.name}</span>
+                        <span class="sim-prod-series">${p.seriesCode}</span>
+                    </div>
+                    <span class="sim-col-now">${fmt(p.price)}</span>
+                    <span class="sim-col-5">${fmt(Math.round(p.projected5))}</span>
+                    <span class="sim-col-10">${fmt(Math.round(p.projected10))}</span>
+                    <span class="sim-col-20">${fmt(Math.round(p.projected20))}</span>
+                    <span class="sim-col-mult ${multClass}">×${mult.toFixed(1)}</span>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
 }
 
 // ── Events ───────────────────────────────────────────────────

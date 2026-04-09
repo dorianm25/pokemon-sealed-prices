@@ -2464,6 +2464,330 @@ body {
     .pf-grid { grid-template-columns: 1fr !important; }
 }
 
+/* ---- Simulation ---- */
+.section-simulation {
+    padding: 24px;
+    overflow-y: auto;
+    max-height: calc(100vh - var(--topbar-h));
+}
+
+.section-title {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.section-subtitle {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+}
+
+.sim-controls {
+    margin-bottom: 24px;
+}
+
+.sim-scenario-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.sim-scenario-btn {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--dur-mid);
+    font-family: inherit;
+}
+
+.sim-scenario-btn:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+}
+
+.sim-scenario-btn.active {
+    border-color: var(--green);
+    background: var(--green-bg);
+    color: var(--green-light);
+}
+
+.sim-info-bar {
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sim-info-label {
+    font-weight: 700;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.sim-info-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+/* KPI Grid */
+.sim-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 32px;
+}
+
+.sim-kpi {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    text-align: center;
+}
+
+.sim-kpi-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
+.sim-kpi-value {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.sim-kpi-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.sim-kpi-now { border-top: 3px solid var(--text-muted); }
+.sim-kpi-5 { border-top: 3px solid var(--blue); }
+.sim-kpi-5 .sim-kpi-value { color: var(--blue); }
+.sim-kpi-10 { border-top: 3px solid var(--orange); }
+.sim-kpi-10 .sim-kpi-value { color: var(--orange); }
+.sim-kpi-20 { border-top: 3px solid var(--green-light); }
+.sim-kpi-20 .sim-kpi-value { color: var(--green-light); }
+
+/* Series grid */
+.sim-series-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 32px;
+}
+
+.sim-series-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    transition: border-color var(--dur-mid);
+}
+
+.sim-series-card:hover {
+    border-color: var(--border-hover);
+}
+
+.sim-heat-fire { border-left: 3px solid #ff4500; }
+.sim-heat-hot { border-left: 3px solid var(--orange); }
+.sim-heat-warm { border-left: 3px solid var(--green); }
+.sim-heat-cool { border-left: 3px solid var(--blue); }
+
+.sim-series-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.sim-series-code {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.05);
+    padding: 2px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+}
+
+.sim-series-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.sim-series-bar {
+    display: flex;
+    gap: 3px;
+    height: 36px;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.sim-bar-segment {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 60px;
+    border-radius: 4px;
+    transition: flex var(--dur-mid);
+}
+
+.sim-bar-label {
+    font-size: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.8;
+}
+
+.sim-bar-value {
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.sim-bar-now { background: rgba(255,255,255,0.06); color: var(--text-secondary); }
+.sim-bar-5 { background: rgba(88,166,255,0.15); color: var(--blue); }
+.sim-bar-10 { background: rgba(210,153,34,0.15); color: var(--orange); }
+.sim-bar-20 { background: var(--green-bg); color: var(--green-light); }
+
+.sim-series-mults {
+    display: flex;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.sim-mult-main {
+    color: var(--green-light);
+    font-weight: 700;
+}
+
+/* Product table */
+.sim-prod-table {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 24px;
+}
+
+.sim-prod-header {
+    display: grid;
+    grid-template-columns: 40px 1fr 90px 90px 90px 100px 70px;
+    padding: 10px 16px;
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.sim-prod-row {
+    display: grid;
+    grid-template-columns: 40px 1fr 90px 90px 90px 100px 70px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    font-size: 13px;
+    transition: background var(--dur-fast);
+}
+
+.sim-prod-row:last-child { border-bottom: none; }
+.sim-prod-row:hover { background: rgba(255,255,255,0.02); }
+
+.sim-col-rank {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.sim-col-name { overflow: hidden; }
+
+.sim-prod-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 12px;
+}
+
+.sim-prod-series {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.sim-col-now { color: var(--text-secondary); text-align: right; }
+.sim-col-5 { color: var(--blue); text-align: right; font-weight: 500; }
+.sim-col-10 { color: var(--orange); text-align: right; font-weight: 500; }
+.sim-col-20 { color: var(--green-light); text-align: right; font-weight: 600; }
+
+.sim-col-mult {
+    text-align: right;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.sim-mult-fire { color: #ff4500; }
+.sim-mult-hot { color: var(--orange); }
+.sim-mult-warm { color: var(--green-light); }
+
+/* Disclaimer */
+.sim-disclaimer {
+    padding: 16px;
+    background: rgba(210,153,34,0.08);
+    border: 1px solid rgba(210,153,34,0.2);
+    border-radius: var(--radius);
+    font-size: 12px;
+    color: var(--orange);
+    line-height: 1.5;
+    margin-top: 8px;
+}
+
+@media (max-width: 768px) {
+    .sim-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .sim-scenario-bar { flex-wrap: wrap; }
+    .sim-prod-header, .sim-prod-row {
+        grid-template-columns: 30px 1fr 70px 70px 80px 60px;
+    }
+    .sim-col-5 { display: none; }
+    .sim-info-bar { flex-direction: column; gap: 4px; }
+}
+
+@media (max-width: 480px) {
+    .sim-kpi-grid { grid-template-columns: 1fr 1fr; }
+    .sim-prod-header, .sim-prod-row {
+        grid-template-columns: 25px 1fr 65px 75px 55px;
+    }
+    .sim-col-5, .sim-col-10 { display: none; }
+    .sim-series-bar { height: 28px; }
+    .sim-bar-label { display: none; }
+}
+
 /* ---- Series Analysis (ADN) ---- */
 .analysis-wrap {
     display: flex;
