@@ -1317,9 +1317,8 @@ function renderPotential(priced) {
         }
         if (count > 0) avgPerf /= count;
 
-        // Produit le plus cher de la série
-        const topProduct = [...s.products].sort((a, b) => b.price - a.price)[0];
-        const topPrice = topProduct?.price || 0;
+        // Prix total du set (somme de tous les produits de la série)
+        const setTotal = s.products.reduce((sum, p) => sum + p.price, 0);
 
         // Facteur 1 : Proche du MSRP = potentiel (n'a pas encore bougé) — 25pts max
         if (avgPerf < 20 && avgPerf > -20) {
@@ -1353,24 +1352,24 @@ function renderPotential(priced) {
             }
         }
 
-        // Facteur 4 : Carte la plus chère = potentiel scellé — 35pts max
-        // Plus le produit le plus cher est élevé, plus les scellés ont du potentiel
-        // (cartes chase chères = gens ouvrent des boosters = scellés deviennent rares)
-        if (topPrice >= 500) {
+        // Facteur 4 : Valeur totale du set — 35pts max
+        // Plus le set complet est cher, plus la série a du potentiel
+        // (forte demande = prix élevés = scellés deviennent rares)
+        if (setTotal >= 1500) {
             score += 35;
-            reasons.push(`Produit star à ${fmt(topPrice)} — très forte demande`);
-        } else if (topPrice >= 300) {
+            reasons.push(`Set complet à ${fmt(setTotal)} — très forte demande`);
+        } else if (setTotal >= 800) {
             score += 28;
-            reasons.push(`Produit star à ${fmt(topPrice)} — forte demande`);
-        } else if (topPrice >= 150) {
+            reasons.push(`Set complet à ${fmt(setTotal)} — forte demande`);
+        } else if (setTotal >= 500) {
             score += 18;
-            reasons.push(`Produit star à ${fmt(topPrice)} — demande correcte`);
-        } else if (topPrice >= 80) {
+            reasons.push(`Set complet à ${fmt(setTotal)} — demande correcte`);
+        } else if (setTotal >= 300) {
             score += 8;
-            reasons.push(`Produit star à ${fmt(topPrice)} — demande modérée`);
+            reasons.push(`Set complet à ${fmt(setTotal)} — demande modérée`);
         }
 
-        return { ...s, score, reasons, avgPerf, avgTrend, topPrice, topProduct };
+        return { ...s, score, reasons, avgPerf, avgTrend, setTotal };
     });
 
     // Filtrer celles avec du potentiel, trier par score
@@ -1393,8 +1392,8 @@ function renderPotential(priced) {
                     <div class="potential-label">${potLabel}</div>
                     <div class="potential-stats">
                         <div class="potential-stat">
-                            <span class="potential-stat-label">Produit star</span>
-                            <span class="potential-stat-value" style="color:var(--orange)">${fmt(s.topPrice)}</span>
+                            <span class="potential-stat-label">Valeur du set</span>
+                            <span class="potential-stat-value" style="color:var(--orange)">${fmt(s.setTotal)}</span>
                         </div>
                         <div class="potential-stat">
                             <span class="potential-stat-label">Perf. sortie</span>
