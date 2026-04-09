@@ -1300,8 +1300,9 @@ function renderPotential(priced) {
 
     // Calculer un score de potentiel basé sur :
     // 1. Prix proches du MSRP (pas encore monté = potentiel)
-    // 2. Série récente (codes élevés = plus récent)
-    // 3. Tendance positive naissante
+    // 2. Tendance positive naissante
+    // 3. Prix bas dans le range
+    // 4. Carte la plus chère de la série (carte chase = potentiel scellé)
     const potentials = series.map(s => {
         let score = 0;
         let reasons = [];
@@ -1316,39 +1317,60 @@ function renderPotential(priced) {
         }
         if (count > 0) avgPerf /= count;
 
-        // Facteur 1 : Proche du MSRP = potentiel (n'a pas encore bougé)
+        // Produit le plus cher de la série
+        const topProduct = [...s.products].sort((a, b) => b.price - a.price)[0];
+        const topPrice = topProduct?.price || 0;
+
+        // Facteur 1 : Proche du MSRP = potentiel (n'a pas encore bougé) — 25pts max
         if (avgPerf < 20 && avgPerf > -20) {
-            score += 40;
+            score += 25;
             reasons.push('Prix proche du prix de sortie');
         } else if (avgPerf >= 20 && avgPerf < 80) {
-            score += 20;
+            score += 12;
             reasons.push('Hausse modérée depuis la sortie');
         }
 
-        // Facteur 2 : Tendance positive
+        // Facteur 2 : Tendance positive — 20pts max
         const avgTrend = s.products.reduce((sum, p) => sum + p.trend, 0) / s.products.length;
         if (avgTrend > 5) {
-            score += 30;
+            score += 20;
             reasons.push('Tendance haussière (+' + avgTrend.toFixed(0) + '%)');
         } else if (avgTrend > 0) {
-            score += 15;
+            score += 10;
             reasons.push('Légère hausse récente');
         }
 
-        // Facteur 3 : Prix bas dans le range (proche du low)
+        // Facteur 3 : Prix bas dans le range (proche du low) — 20pts max
         const withRange = s.products.filter(p => p.low && p.high && p.high > p.low);
         if (withRange.length > 0) {
             const avgPos = withRange.reduce((sum, p) => sum + (p.price - p.low) / (p.high - p.low), 0) / withRange.length;
             if (avgPos < 0.4) {
-                score += 30;
+                score += 20;
                 reasons.push('Prix bas dans la fourchette historique');
             } else if (avgPos < 0.6) {
-                score += 15;
+                score += 10;
                 reasons.push('Prix dans la moyenne');
             }
         }
 
-        return { ...s, score, reasons, avgPerf, avgTrend };
+        // Facteur 4 : Carte la plus chère = potentiel scellé — 35pts max
+        // Plus le produit le plus cher est élevé, plus les scellés ont du potentiel
+        // (cartes chase chères = gens ouvrent des boosters = scellés deviennent rares)
+        if (topPrice >= 500) {
+            score += 35;
+            reasons.push(`Produit star à ${fmt(topPrice)} — très forte demande`);
+        } else if (topPrice >= 300) {
+            score += 28;
+            reasons.push(`Produit star à ${fmt(topPrice)} — forte demande`);
+        } else if (topPrice >= 150) {
+            score += 18;
+            reasons.push(`Produit star à ${fmt(topPrice)} — demande correcte`);
+        } else if (topPrice >= 80) {
+            score += 8;
+            reasons.push(`Produit star à ${fmt(topPrice)} — demande modérée`);
+        }
+
+        return { ...s, score, reasons, avgPerf, avgTrend, topPrice, topProduct };
     });
 
     // Filtrer celles avec du potentiel, trier par score
@@ -1370,6 +1392,10 @@ function renderPotential(priced) {
                     </div>
                     <div class="potential-label">${potLabel}</div>
                     <div class="potential-stats">
+                        <div class="potential-stat">
+                            <span class="potential-stat-label">Produit star</span>
+                            <span class="potential-stat-value" style="color:var(--orange)">${fmt(s.topPrice)}</span>
+                        </div>
                         <div class="potential-stat">
                             <span class="potential-stat-label">Perf. sortie</span>
                             <span class="potential-stat-value ${s.avgPerf >= 0 ? 'positive' : 'negative'}">${s.avgPerf >= 0 ? '+' : ''}${s.avgPerf.toFixed(1)}%</span>
