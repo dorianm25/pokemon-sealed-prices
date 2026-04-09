@@ -2190,6 +2190,9 @@ function updatePortfolioBadge() {
 // ── Simulation ──────────────────────────────────────────────
 
 let simScenario = 'moderate';
+let simFilterType = '';
+let simFilterSeries = '';
+let simSort = 'mult20';
 
 function setSimScenario(scenario) {
     simScenario = scenario;
@@ -2197,6 +2200,21 @@ function setSimScenario(scenario) {
         b.classList.toggle('active', b.dataset.scenario === scenario);
     });
     renderSimulation();
+}
+
+function setSimFilterType(type) {
+    simFilterType = simFilterType === type ? '' : type;
+    renderSimProductTable();
+}
+
+function setSimFilterSeries(code) {
+    simFilterSeries = code;
+    renderSimProductTable();
+}
+
+function setSimSort(sort) {
+    simSort = sort;
+    renderSimProductTable();
 }
 
 // Taux de croissance annuel estimé selon le scénario et le type de produit
@@ -2357,12 +2375,70 @@ function renderSimulation() {
         </div>
     `;
 
-    // Render product table — top 30 best performers at 20y
-    const allProds = seriesProjections.flatMap(s => s.prodProj.map(p => ({ ...p, seriesCode: s.code, seriesName: s.name })));
-    allProds.sort((a, b) => (b.projected20 / b.price) - (a.projected20 / a.price));
-    const top = allProds.slice(0, 30);
+    // Store all products globally for filtering
+    window._simAllProds = seriesProjections.flatMap(s => s.prodProj.map(p => ({ ...p, seriesCode: s.code, seriesName: s.name })));
+    window._simSeriesList = seriesProjections.map(s => ({ code: s.code, name: s.name }));
 
-    document.getElementById('simProductTable').innerHTML = `
+    renderSimProductTable();
+}
+
+function renderSimProductTable() {
+    const allProds = window._simAllProds || [];
+    const seriesList = window._simSeriesList || [];
+    if (!allProds.length) return;
+
+    // Collect available types
+    const types = [...new Set(allProds.map(p => p.type))];
+    const typeLabels = { etb: 'ETB', display: 'Display 36', display18: 'Display 18', tripack: 'Tripack', bundle: 'Bundle 6', booster: 'Booster', dispbundle: 'Disp. Bundle' };
+
+    // Filter
+    let filtered = allProds;
+    if (simFilterType) filtered = filtered.filter(p => p.type === simFilterType);
+    if (simFilterSeries) filtered = filtered.filter(p => p.seriesCode === simFilterSeries);
+
+    // Sort
+    const sortFns = {
+        mult20: (a, b) => (b.projected20 / b.price) - (a.projected20 / a.price),
+        mult5: (a, b) => (b.projected5 / b.price) - (a.projected5 / a.price),
+        price_asc: (a, b) => a.price - b.price,
+        price_desc: (a, b) => b.price - a.price,
+        val20_desc: (a, b) => b.projected20 - a.projected20,
+        name: (a, b) => a.name.localeCompare(b.name),
+    };
+    filtered.sort(sortFns[simSort] || sortFns.mult20);
+
+    const wrap = document.getElementById('simProductTable');
+    wrap.innerHTML = `
+        <div class="sim-filters">
+            <div class="sim-filter-row">
+                <div class="sim-filter-group">
+                    <span class="sim-filter-label">Type</span>
+                    <div class="sim-filter-chips">
+                        <button class="sim-chip ${simFilterType === '' ? 'active' : ''}" onclick="setSimFilterType('')">Tous</button>
+                        ${types.map(t => `<button class="sim-chip ${simFilterType === t ? 'active' : ''}" onclick="setSimFilterType('${t}')">${typeLabels[t] || t}</button>`).join('')}
+                    </div>
+                </div>
+                <div class="sim-filter-group">
+                    <span class="sim-filter-label">Série</span>
+                    <select class="sim-filter-select" onchange="setSimFilterSeries(this.value)">
+                        <option value="" ${simFilterSeries === '' ? 'selected' : ''}>Toutes les séries</option>
+                        ${seriesList.map(s => `<option value="${s.code}" ${simFilterSeries === s.code ? 'selected' : ''}>${s.code} — ${s.name}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="sim-filter-group">
+                    <span class="sim-filter-label">Trier par</span>
+                    <select class="sim-filter-select" onchange="setSimSort(this.value)">
+                        <option value="mult20" ${simSort === 'mult20' ? 'selected' : ''}>×Multi 20 ans ↓</option>
+                        <option value="mult5" ${simSort === 'mult5' ? 'selected' : ''}>×Multi 5 ans ↓</option>
+                        <option value="val20_desc" ${simSort === 'val20_desc' ? 'selected' : ''}>Valeur 20 ans ↓</option>
+                        <option value="price_desc" ${simSort === 'price_desc' ? 'selected' : ''}>Prix actuel ↓</option>
+                        <option value="price_asc" ${simSort === 'price_asc' ? 'selected' : ''}>Prix actuel ↑</option>
+                        <option value="name" ${simSort === 'name' ? 'selected' : ''}>Nom A→Z</option>
+                    </select>
+                </div>
+            </div>
+            <div class="sim-filter-count">${filtered.length} produit${filtered.length > 1 ? 's' : ''}</div>
+        </div>
         <div class="sim-prod-table">
             <div class="sim-prod-header">
                 <span class="sim-col-rank">#</span>
@@ -2373,7 +2449,7 @@ function renderSimulation() {
                 <span class="sim-col-20">20 ans</span>
                 <span class="sim-col-mult">×Multi</span>
             </div>
-            ${top.map((p, i) => {
+            ${filtered.map((p, i) => {
                 const mult = p.price > 0 ? p.projected20 / p.price : 0;
                 const multClass = mult >= 10 ? 'sim-mult-fire' : mult >= 5 ? 'sim-mult-hot' : mult >= 3 ? 'sim-mult-warm' : '';
                 return `<div class="sim-prod-row">

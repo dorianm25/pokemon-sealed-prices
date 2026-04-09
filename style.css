@@ -2683,7 +2683,96 @@ body {
     font-weight: 700;
 }
 
+/* Filters */
+.sim-filters {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding: 16px;
+    border-bottom: none;
+}
+
+.sim-filter-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.sim-filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sim-filter-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.sim-filter-chips {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.sim-chip {
+    padding: 5px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--dur-fast);
+    font-family: inherit;
+    white-space: nowrap;
+}
+
+.sim-chip:hover {
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+}
+
+.sim-chip.active {
+    background: var(--green-bg);
+    border-color: var(--green);
+    color: var(--green-light);
+    font-weight: 600;
+}
+
+.sim-filter-select {
+    padding: 5px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    min-width: 160px;
+}
+
+.sim-filter-select:focus {
+    outline: none;
+    border-color: var(--green);
+}
+
+.sim-filter-count {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
 /* Product table */
+.sim-filters + .sim-prod-table {
+    border-radius: 0 0 var(--radius) var(--radius);
+}
+
 .sim-prod-table {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -2776,6 +2865,8 @@ body {
     }
     .sim-col-5 { display: none; }
     .sim-info-bar { flex-direction: column; gap: 4px; }
+    .sim-filter-row { flex-direction: column; gap: 10px; }
+    .sim-filter-select { width: 100%; }
 }
 
 @media (max-width: 480px) {
