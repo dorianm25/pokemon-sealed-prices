@@ -922,8 +922,12 @@ async function loadTrends7d() {
 }
 
 // Calcul du hype score pour une série (réutilisé par Hype Meter et Potentiel)
+// 8 facteurs pondérés pour un score complet sur 100
 function computeHypeScore(s) {
-    // Factor 1 : Performance vs MSRP (30%)
+    const factors = {};
+
+    // ── 1. Performance vs MSRP (15%) ──
+    // Combien le prix a monté par rapport au prix de sortie officiel
     let perfSum = 0, perfCount = 0;
     for (const p of s.products) {
         const msrp = MSRP[p.type];
@@ -933,30 +937,82 @@ function computeHypeScore(s) {
         }
     }
     const avgPerf = perfCount > 0 ? perfSum / perfCount : 0;
-    const perfScore = Math.min(100, Math.max(0, avgPerf / 2 + 50));
+    factors.perf = { score: Math.min(100, Math.max(0, avgPerf / 2 + 50)), label: 'Performance MSRP', value: `${avgPerf >= 0 ? '+' : ''}${avgPerf.toFixed(0)}%` };
 
-    // Factor 2 : Tendance 7j (25%)
+    // ── 2. Tendance 7 jours (15%) ──
+    // Variation des prix sur la dernière semaine
     let trend7dSum = 0, trend7dCount = 0;
     for (const p of s.products) {
         const t7 = trends7d[p.name];
         if (t7) { trend7dSum += t7.change; trend7dCount++; }
     }
     const avgTrend7d = trend7dCount > 0 ? trend7dSum / trend7dCount : 0;
-    const trendScore = Math.min(100, Math.max(0, avgTrend7d + 50));
+    factors.trend7d = { score: Math.min(100, Math.max(0, avgTrend7d * 2 + 50)), label: 'Tendance 7j', value: `${avgTrend7d >= 0 ? '+' : ''}${avgTrend7d.toFixed(1)}%` };
 
-    // Factor 3 : Nombre d'annonces en ligne (25%)
+    // ── 3. Volume d'annonces (15%) ──
+    // Nombre d'annonces en ligne = activité du marché
     const totalListings = s.products.reduce((sum, p) => sum + (p.sampleSize || 0), 0);
     const avgListings = totalListings / s.products.length;
-    const listingScore = Math.min(100, (avgListings / 10) * 100);
+    factors.listings = { score: Math.min(100, (avgListings / 10) * 100), label: 'Volume annonces', value: `${totalListings} total` };
 
-    // Factor 4 : Prix moyen élevé = demande forte (20%)
-    const avgPrice = s.products.reduce((sum, p) => sum + p.price, 0) / s.products.length;
-    const priceScore = Math.min(100, (avgPrice / 5));
+    // ── 4. Valeur totale du set (10%) ──
+    // Somme de tous les produits = demande globale
+    const setTotal = s.products.reduce((sum, p) => sum + p.price, 0);
+    factors.setValue = { score: Math.min(100, (setTotal / 20)), label: 'Valeur du set', value: fmt(setTotal) };
 
-    let hypeScore = Math.round(perfScore * 0.30 + trendScore * 0.25 + listingScore * 0.25 + priceScore * 0.20);
+    // ── 5. Produits au-dessus du MSRP (15%) ──
+    // % de produits dont le prix dépasse le prix de sortie = demande large
+    let aboveMsrp = 0, msrpTotal = 0;
+    for (const p of s.products) {
+        const msrp = MSRP[p.type];
+        if (msrp && msrp > 0) {
+            msrpTotal++;
+            if (p.price > msrp * 1.05) aboveMsrp++;
+        }
+    }
+    const abovePct = msrpTotal > 0 ? (aboveMsrp / msrpTotal) * 100 : 0;
+    factors.aboveMsrp = { score: abovePct, label: 'Produits > MSRP', value: `${aboveMsrp}/${msrpTotal}` };
+
+    // ── 6. Volatilité (10%) ──
+    // Écart moyen entre low et high — marché actif = volatilité haute
+    const withRange = s.products.filter(p => p.low && p.high && p.high > p.low);
+    let volatility = 0;
+    if (withRange.length > 0) {
+        volatility = withRange.reduce((sum, p) => sum + (p.high - p.low) / ((p.high + p.low) / 2), 0) / withRange.length;
+    }
+    factors.volatility = { score: Math.min(100, volatility * 200), label: 'Volatilité', value: `${(volatility * 100).toFixed(0)}%` };
+
+    // ── 7. Position dans le range (10%) ──
+    // Prix proche du high = forte demande actuelle
+    let avgPos = 0.5;
+    if (withRange.length > 0) {
+        avgPos = withRange.reduce((sum, p) => sum + (p.price - p.low) / (p.high - p.low), 0) / withRange.length;
+    }
+    factors.position = { score: avgPos * 100, label: 'Position prix', value: `${(avgPos * 100).toFixed(0)}%` };
+
+    // ── 8. Consistance (10%) ──
+    // Est-ce que TOUS les produits montent, ou juste 1-2 ?
+    // Plus le % de produits en hausse est élevé, plus la hype est réelle
+    const hausse = s.products.filter(p => p.trend > 0).length;
+    const consistPct = s.products.length > 0 ? (hausse / s.products.length) * 100 : 0;
+    factors.consistency = { score: consistPct, label: 'Consistance', value: `${hausse}/${s.products.length} en hausse` };
+
+    // ── Score final pondéré ──
+    let hypeScore = Math.round(
+        factors.perf.score * 0.15 +
+        factors.trend7d.score * 0.15 +
+        factors.listings.score * 0.15 +
+        factors.setValue.score * 0.10 +
+        factors.aboveMsrp.score * 0.15 +
+        factors.volatility.score * 0.10 +
+        factors.position.score * 0.10 +
+        factors.consistency.score * 0.10
+    );
     hypeScore = Math.min(100, Math.max(0, hypeScore));
 
-    return { hypeScore, avgPerf, avgTrend7d, totalListings, avgListings, avgPrice };
+    const avgPrice = s.products.reduce((sum, p) => sum + p.price, 0) / s.products.length;
+
+    return { hypeScore, avgPerf, avgTrend7d, totalListings, avgListings, avgPrice, setTotal, factors };
 }
 
 function renderHypeMeter(priced) {
@@ -972,7 +1028,7 @@ function renderHypeMeter(priced) {
     const series = Object.values(seriesMap).map(s => {
         const hype = computeHypeScore(s);
 
-        return { ...s, hypeScore: hype.hypeScore, avgPerf: hype.avgPerf, avgTrend7d: hype.avgTrend7d, avgPrice: hype.avgPrice, totalListings: hype.totalListings, avgListings: hype.avgListings };
+        return { ...s, ...hype };
     });
 
     series.sort((a, b) => b.hypeScore - a.hypeScore);
@@ -1008,8 +1064,10 @@ function renderHypeMeter(priced) {
                         <span class="hype-label">${label}</span>
                     </div>
                     <div class="hype-details">
-                        <span class="hype-detail" title="Annonces en ligne">${s.totalListings} <small>annonces</small></span>
-                        <span class="hype-detail" title="Tendance 7j">${trend7dStr} <small>7j</small></span>
+                        <span class="hype-detail" title="Annonces en ligne">📦 ${s.totalListings} <small>annonces</small></span>
+                        <span class="hype-detail" title="Tendance 7j">📊 ${trend7dStr} <small>7j</small></span>
+                        <span class="hype-detail" title="Valeur du set">💰 ${fmt(s.setTotal)} <small>set</small></span>
+                        <span class="hype-detail" title="Produits au-dessus du MSRP">🎯 ${s.factors.aboveMsrp.value} <small>> MSRP</small></span>
                     </div>
                 </div>`;
             }).join('')}

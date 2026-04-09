@@ -1365,7 +1365,7 @@ body {
 }
 .hype-row {
     display: grid;
-    grid-template-columns: 30px 1fr 90px 140px;
+    grid-template-columns: 30px 1fr 90px 200px;
     gap: 12px;
     align-items: center;
     padding: 12px 0;
@@ -1448,9 +1448,9 @@ body {
     white-space: nowrap;
 }
 .hype-details {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px 10px;
 }
 .hype-detail {
     font-size: 12px;
