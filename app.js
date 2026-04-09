@@ -5,7 +5,7 @@
 
 // Helper : génère les 6 produits pour une série
 function serie(code, nom, bloc, overrides = {}) {
-    const b = bloc === 'EV' ? 'Écarlate et Violet' : 'Méga-Évolution';
+    const b = bloc === 'EV' ? 'Écarlate et Violet' : bloc === 'ME' ? 'Méga-Évolution' : bloc === 'EB' ? 'Épée et Bouclier' : bloc;
     const base = [
         { name: `ETB ${nom}`,           ext: `${code} — ${nom}`, serie: b, type: 'etb',       price: 54.99, old: 54.99, trend: 0, low: 50, high: 60 },
         { name: `Display 36 ${nom}`,    ext: `${code} — ${nom}`, serie: b, type: 'display',   price: 215,   old: 215,   trend: 0, low: 200, high: 230 },
@@ -49,6 +49,10 @@ const products = [
     ...serie('ME02', 'Flammes Fantasmagoriques', 'ME', { etb: { price: 80, old: 54.99, low: 65, high: 95 }, display: { price: 250, old: 215, low: 220, high: 280 }, display18: { price: 35, old: 107, low: 30, high: 45 } }),
     ...serie('ME2.5', 'Héros Transcendants', 'ME', { etb: { price: 80, old: 54.99, low: 65, high: 95 } }),
     ...serie('ME03', 'Équilibre Parfait', 'ME'),
+    // Épée et Bouclier
+    ...serie('EB11', 'Origine Perdue', 'EB', { etb: { price: 350, old: 54.99, low: 280, high: 400 }, display: { price: 550, old: 215, low: 250, high: 850 }, tripack: { price: 40, old: 17.99, low: 35, high: 80 }, bundle: { price: 90, old: 35, low: 70, high: 120 }, booster: { price: 15, old: 6.99, low: 10, high: 40 } }),
+    ...serie('EB12', 'Tempête Argentée', 'EB', { etb: { price: 310, old: 54.99, low: 200, high: 400 }, display: { price: 400, old: 215, low: 330, high: 470 }, tripack: { price: 44, old: 17.99, low: 40, high: 50 }, bundle: { price: 75, old: 35, low: 60, high: 100 }, booster: { price: 15, old: 6.99, low: 10, high: 40 } }),
+    ...serie('EB12.5', 'Zénith Suprême', 'EB', { etb: { price: 320, old: 54.99, low: 299, high: 500 }, display: { price: 500, old: 215, low: 400, high: 700 }, tripack: { price: 60, old: 17.99, low: 50, high: 80 }, booster: { price: 25, old: 6.99, low: 19, high: 40 } }),
 ];
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -126,7 +130,7 @@ const BLOCS_SERIES = [
     ]},
 ];
 
-let activeBlocs = new Set(['Écarlate et Violet', 'Méga-Évolution']); // blocs cochés par défaut
+let activeBlocs = new Set(['Écarlate et Violet', 'Méga-Évolution', 'Épée et Bouclier']); // blocs cochés par défaut
 let openBloc = null; // bloc déplié (accordéon)
 let activeSerie = null;
 
@@ -206,6 +210,7 @@ function buildEbayMap() {
         ['ev09', 'Aventures Ensemble'], ['ev10', 'Rivalités Destinées'], ['ev10.5fn', 'Foudre Noire (EV10.5)'],
         ['ev10.5fb', 'Flamme Blanche (EV10.5)'], ['me01', 'Méga-Évolution'], ['me02', 'Flammes Fantasmagoriques'],
         ['me2.5', 'Héros Transcendants'], ['me03', 'Équilibre Parfait'],
+        ['swsh11', 'Origine Perdue'], ['swsh12', 'Tempête Argentée'], ['swsh12.5', 'Zénith Suprême'],
     ];
     const types = [['etb', 'ETB'], ['display', 'Display 36'], ['display18', 'Display 18'], ['tripack', 'Tripack'], ['bundle', 'Bundle 6'], ['booster', 'Booster']];
     const map = {};
@@ -1162,6 +1167,9 @@ async function renderTrends() {
     // ── Hype Meter ──
     renderHypeMeter(priced);
 
+    // ── ADN des séries gagnantes ──
+    renderSeriesAnalysis(priced);
+
     // ── Prix moyen par type ──
     const types = ['etb', 'display', 'display18', 'booster', 'tripack', 'bundle'];
     const typeLabels = { etb: 'ETB', display: 'Display 36', display18: 'Display 18', booster: 'Booster', tripack: 'Tripack', bundle: 'Bundle 6' };
@@ -1275,6 +1283,179 @@ const MSRP = {
     bundle: 35,
     dispbundle: 0,
 };
+
+function renderSeriesAnalysis(priced) {
+    // Grouper par série
+    const seriesMap = {};
+    for (const p of priced) {
+        const code = p.ext.split(' — ')[0];
+        const name = p.ext.split(' — ')[1] || code;
+        if (!seriesMap[code]) seriesMap[code] = { code, name, products: [] };
+        seriesMap[code].products.push(p);
+    }
+
+    const series = Object.values(seriesMap).map(s => {
+        const hype = computeHypeScore(s);
+
+        // Métriques détaillées par type de produit
+        const byType = {};
+        for (const p of s.products) {
+            const msrp = MSRP[p.type];
+            if (!msrp || msrp <= 0) continue;
+            byType[p.type] = {
+                price: p.price,
+                msrp,
+                premium: ((p.price - msrp) / msrp * 100),
+                trend: p.trend,
+            };
+        }
+
+        // Premium du Display (indicateur clé : si le display est cher → set demandé)
+        const displayPremium = byType.display?.premium || 0;
+        // Premium de l'ETB (produit le plus populaire chez les collectionneurs)
+        const etbPremium = byType.etb?.premium || 0;
+        // Premium du Booster (si le booster est cher → cartes chase recherchées)
+        const boosterPremium = byType.booster?.premium || 0;
+
+        // Ratio Display/ETB — si display >> ETB = spéculation, si ETB >> display = collection
+        const displayPrice = byType.display?.price || 0;
+        const etbPrice = byType.etb?.price || 0;
+        const displayEtbRatio = etbPrice > 0 ? displayPrice / etbPrice : 0;
+
+        // Score de "profil gagnant" basé sur les patterns des séries qui marchent
+        let winnerScore = 0;
+        const winnerTraits = [];
+
+        // Trait 1 : ETB premium élevé = collectionneurs veulent la série
+        if (etbPremium > 50) { winnerScore += 25; winnerTraits.push({ trait: 'ETB très demandé', value: `+${etbPremium.toFixed(0)}%`, positive: true }); }
+        else if (etbPremium > 20) { winnerScore += 15; winnerTraits.push({ trait: 'ETB au-dessus du MSRP', value: `+${etbPremium.toFixed(0)}%`, positive: true }); }
+        else if (etbPremium < -10) { winnerTraits.push({ trait: 'ETB sous le MSRP', value: `${etbPremium.toFixed(0)}%`, positive: false }); }
+
+        // Trait 2 : Display premium = ouverture rentable
+        if (displayPremium > 30) { winnerScore += 20; winnerTraits.push({ trait: 'Display premium', value: `+${displayPremium.toFixed(0)}%`, positive: true }); }
+        else if (displayPremium > 10) { winnerScore += 10; winnerTraits.push({ trait: 'Display légèrement au-dessus', value: `+${displayPremium.toFixed(0)}%`, positive: true }); }
+        else if (displayPremium < -10) { winnerTraits.push({ trait: 'Display sous le MSRP', value: `${displayPremium.toFixed(0)}%`, positive: false }); }
+
+        // Trait 3 : Booster premium = cartes chase très recherchées
+        if (boosterPremium > 100) { winnerScore += 20; winnerTraits.push({ trait: 'Boosters très recherchés', value: `+${boosterPremium.toFixed(0)}%`, positive: true }); }
+        else if (boosterPremium > 30) { winnerScore += 10; winnerTraits.push({ trait: 'Boosters au-dessus du MSRP', value: `+${boosterPremium.toFixed(0)}%`, positive: true }); }
+
+        // Trait 4 : Hausse consistante sur tous les types
+        const typesUp = Object.values(byType).filter(t => t.premium > 5).length;
+        const typesTotal = Object.keys(byType).length;
+        if (typesTotal > 0 && typesUp === typesTotal) { winnerScore += 20; winnerTraits.push({ trait: 'Tous les produits en hausse', value: `${typesUp}/${typesTotal}`, positive: true }); }
+        else if (typesTotal > 0 && typesUp >= typesTotal * 0.5) { winnerScore += 10; winnerTraits.push({ trait: 'Majorité en hausse', value: `${typesUp}/${typesTotal}`, positive: true }); }
+        else if (typesTotal > 0 && typesUp === 0) { winnerTraits.push({ trait: 'Aucun produit en hausse', value: `0/${typesTotal}`, positive: false }); }
+
+        // Trait 5 : Volume d'annonces élevé = marché actif
+        if (hype.totalListings >= 80) { winnerScore += 15; winnerTraits.push({ trait: 'Marché très actif', value: `${hype.totalListings} annonces`, positive: true }); }
+        else if (hype.totalListings >= 40) { winnerScore += 8; winnerTraits.push({ trait: 'Marché actif', value: `${hype.totalListings} annonces`, positive: true }); }
+        else { winnerTraits.push({ trait: 'Peu d\'annonces', value: `${hype.totalListings}`, positive: false }); }
+
+        winnerScore = Math.min(100, winnerScore);
+
+        return {
+            ...s, ...hype, winnerScore, winnerTraits,
+            displayPremium, etbPremium, boosterPremium, displayEtbRatio,
+            byType,
+        };
+    });
+
+    // Séparer top et flop
+    series.sort((a, b) => b.winnerScore - a.winnerScore);
+    const top5 = series.slice(0, 5);
+    const flop5 = [...series].sort((a, b) => a.winnerScore - b.winnerScore).slice(0, 5);
+
+    // Calculer les moyennes des gagnants pour identifier les patterns
+    const winners = series.filter(s => s.winnerScore >= 50);
+    const losers = series.filter(s => s.winnerScore < 30);
+
+    const avgWinnerETB = winners.length ? winners.reduce((s, w) => s + w.etbPremium, 0) / winners.length : 0;
+    const avgWinnerDisplay = winners.length ? winners.reduce((s, w) => s + w.displayPremium, 0) / winners.length : 0;
+    const avgWinnerBooster = winners.length ? winners.reduce((s, w) => s + w.boosterPremium, 0) / winners.length : 0;
+    const avgLoserETB = losers.length ? losers.reduce((s, w) => s + w.etbPremium, 0) / losers.length : 0;
+    const avgLoserDisplay = losers.length ? losers.reduce((s, w) => s + w.displayPremium, 0) / losers.length : 0;
+
+    // Insights globaux
+    const insights = [];
+    if (avgWinnerETB > 30) insights.push({ icon: '🎁', text: `Les séries qui marchent ont un ETB à +${avgWinnerETB.toFixed(0)}% en moyenne`, color: 'var(--green-light)' });
+    if (avgWinnerDisplay > 20) insights.push({ icon: '📦', text: `Les gagnantes ont un Display à +${avgWinnerDisplay.toFixed(0)}% vs MSRP`, color: 'var(--green-light)' });
+    if (avgWinnerBooster > 30) insights.push({ icon: '🃏', text: `Les boosters des séries fortes valent +${avgWinnerBooster.toFixed(0)}% vs MSRP`, color: 'var(--green-light)' });
+    if (avgLoserETB < 5) insights.push({ icon: '⚠️', text: `Les séries faibles ont un ETB proche du MSRP (${avgLoserETB >= 0 ? '+' : ''}${avgLoserETB.toFixed(0)}%)`, color: 'var(--orange)' });
+    if (winners.length > 0) {
+        const avgListW = winners.reduce((s, w) => s + w.totalListings, 0) / winners.length;
+        const avgListL = losers.length ? losers.reduce((s, w) => s + w.totalListings, 0) / losers.length : 0;
+        if (avgListW > avgListL * 1.3) insights.push({ icon: '📊', text: `Les gagnantes ont ${Math.round(avgListW)} annonces en moyenne vs ${Math.round(avgListL)} pour les faibles`, color: 'var(--blue)' });
+    }
+
+    const wrap = document.getElementById('seriesAnalysis');
+    wrap.innerHTML = `
+        <div class="analysis-wrap">
+            <!-- Insights clés -->
+            <div class="analysis-insights">
+                <h3 class="analysis-subtitle">💡 Ce qui fait le succès d'une série</h3>
+                <div class="analysis-insights-list">
+                    ${insights.map(i => `<div class="analysis-insight">
+                        <span class="analysis-insight-icon">${i.icon}</span>
+                        <span class="analysis-insight-text" style="color:${i.color}">${i.text}</span>
+                    </div>`).join('')}
+                </div>
+            </div>
+
+            <!-- Comparaison Top vs Flop -->
+            <div class="analysis-compare">
+                <div class="analysis-column analysis-top">
+                    <h3 class="analysis-subtitle">🏆 Top séries</h3>
+                    ${top5.map((s, i) => `<div class="analysis-card analysis-winner">
+                        <div class="analysis-card-header">
+                            <span class="analysis-rank">${i + 1}</span>
+                            <div>
+                                <span class="analysis-code">${s.code}</span>
+                                <span class="analysis-name">${s.name}</span>
+                            </div>
+                            <span class="analysis-wscore">${s.winnerScore}<small>/100</small></span>
+                        </div>
+                        <div class="analysis-premiums">
+                            ${s.byType.etb ? `<span class="analysis-premium ${s.etbPremium > 10 ? 'ap-up' : s.etbPremium < -5 ? 'ap-down' : ''}">ETB ${s.etbPremium >= 0 ? '+' : ''}${s.etbPremium.toFixed(0)}%</span>` : ''}
+                            ${s.byType.display ? `<span class="analysis-premium ${s.displayPremium > 10 ? 'ap-up' : s.displayPremium < -5 ? 'ap-down' : ''}">Display ${s.displayPremium >= 0 ? '+' : ''}${s.displayPremium.toFixed(0)}%</span>` : ''}
+                            ${s.byType.booster ? `<span class="analysis-premium ${s.boosterPremium > 10 ? 'ap-up' : s.boosterPremium < -5 ? 'ap-down' : ''}">Booster ${s.boosterPremium >= 0 ? '+' : ''}${s.boosterPremium.toFixed(0)}%</span>` : ''}
+                        </div>
+                        <div class="analysis-traits">
+                            ${s.winnerTraits.filter(t => t.positive).slice(0, 3).map(t => `<span class="analysis-trait trait-pos">✓ ${t.trait}</span>`).join('')}
+                        </div>
+                    </div>`).join('')}
+                </div>
+                <div class="analysis-column analysis-flop">
+                    <h3 class="analysis-subtitle">📉 Séries en difficulté</h3>
+                    ${flop5.map((s, i) => `<div class="analysis-card analysis-loser">
+                        <div class="analysis-card-header">
+                            <span class="analysis-rank">${series.length - flop5.length + i + 1}</span>
+                            <div>
+                                <span class="analysis-code">${s.code}</span>
+                                <span class="analysis-name">${s.name}</span>
+                            </div>
+                            <span class="analysis-wscore low">${s.winnerScore}<small>/100</small></span>
+                        </div>
+                        <div class="analysis-premiums">
+                            ${s.byType.etb ? `<span class="analysis-premium ${s.etbPremium > 10 ? 'ap-up' : s.etbPremium < -5 ? 'ap-down' : ''}">ETB ${s.etbPremium >= 0 ? '+' : ''}${s.etbPremium.toFixed(0)}%</span>` : ''}
+                            ${s.byType.display ? `<span class="analysis-premium ${s.displayPremium > 10 ? 'ap-up' : s.displayPremium < -5 ? 'ap-down' : ''}">Display ${s.displayPremium >= 0 ? '+' : ''}${s.displayPremium.toFixed(0)}%</span>` : ''}
+                            ${s.byType.booster ? `<span class="analysis-premium ${s.boosterPremium > 10 ? 'ap-up' : s.boosterPremium < -5 ? 'ap-down' : ''}">Booster ${s.boosterPremium >= 0 ? '+' : ''}${s.boosterPremium.toFixed(0)}%</span>` : ''}
+                        </div>
+                        <div class="analysis-traits">
+                            ${s.winnerTraits.filter(t => !t.positive).slice(0, 3).map(t => `<span class="analysis-trait trait-neg">✗ ${t.trait}</span>`).join('')}
+                        </div>
+                    </div>`).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Sauvegarder les winnerScores pour les réutiliser dans le potentiel
+    window._seriesWinnerScores = {};
+    for (const s of series) {
+        window._seriesWinnerScores[s.code] = s.winnerScore;
+    }
+}
 
 function renderPerfTable(priced) {
     // Grouper par série
@@ -1433,23 +1614,36 @@ function renderPotential(priced) {
             reasons.push(`Set complet à ${fmt(setTotal)} — demande modérée`);
         }
 
-        // Facteur 5 : Hype de la série — 25pts max
+        // Facteur 5 : Hype de la série — 15pts max
         const hypeLabel = hype.hypeScore >= 80 ? 'Ultra Hype' : hype.hypeScore >= 60 ? 'Hype' : hype.hypeScore >= 40 ? 'Neutre' : 'Faible';
         if (hype.hypeScore >= 80) {
-            score += 25;
+            score += 15;
             reasons.push(`🔥 Série ${hypeLabel} (${hype.hypeScore}/100)`);
         } else if (hype.hypeScore >= 60) {
-            score += 18;
+            score += 11;
             reasons.push(`📈 Série ${hypeLabel} (${hype.hypeScore}/100)`);
         } else if (hype.hypeScore >= 40) {
-            score += 10;
+            score += 6;
             reasons.push(`😐 Série ${hypeLabel} (${hype.hypeScore}/100)`);
         } else {
-            score += 3;
+            score += 2;
             reasons.push(`📉 Série ${hypeLabel} (${hype.hypeScore}/100)`);
         }
 
-        return { ...s, score, reasons, avgPerf, avgTrend, setTotal, hypeScore: hype.hypeScore };
+        // Facteur 6 : ADN gagnant (winnerScore) — 10pts max
+        const winnerScore = (window._seriesWinnerScores && window._seriesWinnerScores[s.code]) || 0;
+        if (winnerScore >= 70) {
+            score += 10;
+            reasons.push(`🏆 ADN gagnant (${winnerScore}/100)`);
+        } else if (winnerScore >= 50) {
+            score += 7;
+            reasons.push(`✓ Profil de série solide (${winnerScore}/100)`);
+        } else if (winnerScore >= 30) {
+            score += 3;
+            reasons.push(`Profil moyen (${winnerScore}/100)`);
+        }
+
+        return { ...s, score, reasons, avgPerf, avgTrend, setTotal, hypeScore: hype.hypeScore, winnerScore };
     });
 
     // Filtrer celles avec du potentiel, trier par score
@@ -1482,6 +1676,10 @@ function renderPotential(priced) {
                         <div class="potential-stat">
                             <span class="potential-stat-label">Perf. sortie</span>
                             <span class="potential-stat-value ${s.avgPerf >= 0 ? 'positive' : 'negative'}">${s.avgPerf >= 0 ? '+' : ''}${s.avgPerf.toFixed(1)}%</span>
+                        </div>
+                        <div class="potential-stat">
+                            <span class="potential-stat-label">ADN</span>
+                            <span class="potential-stat-value" style="color:${s.winnerScore >= 50 ? 'var(--green-light)' : s.winnerScore >= 30 ? 'var(--orange)' : 'var(--text-muted)'}">${s.winnerScore}/100</span>
                         </div>
                         <div class="potential-stat">
                             <span class="potential-stat-label">Score</span>

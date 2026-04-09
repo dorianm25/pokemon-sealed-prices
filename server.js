@@ -325,12 +325,12 @@ function extractPrices(ebayResponse, limits, query) {
 function serieProducts(id, nom, code, opts = {}) {
     const nl = opts.noLimits;
     return [
-        { id: `${id}-etb`,       query: `ETB ${nom} ${code}`,               name: `ETB ${nom}`,            minPrice: nl ? 0 : 40,   maxPrice: nl ? 99999 : 10000 },
-        { id: `${id}-display`,    query: `display ${nom} ${code}`,          name: `Display 36 ${nom}`,     minPrice: nl ? 0 : 220,  maxPrice: nl ? 99999 : 10000 },
-        { id: `${id}-display18`,  query: `demi display ${nom} ${code}`,     name: `Display 18 ${nom}`,     minPrice: nl ? 0 : 100,  maxPrice: nl ? 99999 : 10000 },
-        { id: `${id}-tripack`,    query: `tripack ${nom} ${code}`,          name: `Tripack ${nom}`,        minPrice: nl ? 0 : 18,   maxPrice: nl ? 99999 : 10000 },
-        { id: `${id}-bundle`,     query: `bundle ${nom} ${code}`,           name: `Bundle 6 ${nom}`,       minPrice: nl ? 0 : 30,   maxPrice: nl ? 99999 : 10000 },
-        { id: `${id}-booster`,    query: `booster ${nom} ${code}`,          name: `Booster ${nom}`,        minPrice: nl ? 0 : 7,    maxPrice: nl ? 99999 : 10000 },
+        { id: `${id}-etb`,       query: `ETB ${nom} ${code}`,               name: `ETB ${nom}`,            minPrice: nl ? 0 : 40,   maxPrice: nl ? 99999 : 800 },
+        { id: `${id}-display`,    query: `display ${nom} ${code} -demi`,    name: `Display 36 ${nom}`,     minPrice: nl ? 0 : 150,  maxPrice: nl ? 99999 : 1500 },
+        { id: `${id}-display18`,  query: `demi display ${nom} ${code}`,     name: `Display 18 ${nom}`,     minPrice: nl ? 0 : 80,   maxPrice: nl ? 99999 : 600 },
+        { id: `${id}-tripack`,    query: `tripack ${nom} ${code}`,          name: `Tripack ${nom}`,        minPrice: nl ? 0 : 12,   maxPrice: nl ? 99999 : 80 },
+        { id: `${id}-bundle`,     query: `bundle ${nom} ${code}`,           name: `Bundle 6 ${nom}`,       minPrice: nl ? 0 : 25,   maxPrice: nl ? 99999 : 200 },
+        { id: `${id}-booster`,    query: `booster ${nom} ${code} -display -lot`, name: `Booster ${nom}`,    minPrice: nl ? 0 : 4,    maxPrice: nl ? 99999 : 40 },
     ];
 }
 
@@ -359,6 +359,25 @@ const PRODUCTS_TO_TRACK = [
     ...serieProducts('me02', 'Flammes Fantasmagoriques', 'ME02'),
     ...serieProducts('me2.5', 'Héros Transcendants', 'ME2.5'),
     ...serieProducts('me03', 'Équilibre Parfait', 'ME03'),
+    // Épée et Bouclier (séries anciennes — prix plus élevés, limites adaptées)
+    { id: 'swsh11-etb',       query: 'ETB Origine Perdue EB11',                    name: 'ETB Origine Perdue',            minPrice: 100, maxPrice: 800 },
+    { id: 'swsh11-display',   query: 'display Origine Perdue EB11 -demi',          name: 'Display 36 Origine Perdue',     minPrice: 200, maxPrice: 1500 },
+    { id: 'swsh11-display18', query: 'demi display Origine Perdue EB11',           name: 'Display 18 Origine Perdue',     minPrice: 80,  maxPrice: 600 },
+    { id: 'swsh11-tripack',   query: 'tripack Origine Perdue EB11',                name: 'Tripack Origine Perdue',        minPrice: 20,  maxPrice: 120 },
+    { id: 'swsh11-bundle',    query: 'bundle Origine Perdue EB11',                 name: 'Bundle 6 Origine Perdue',       minPrice: 40,  maxPrice: 200 },
+    { id: 'swsh11-booster',   query: 'booster Origine Perdue EB11 -display -lot',  name: 'Booster Origine Perdue',        minPrice: 5,   maxPrice: 60 },
+    { id: 'swsh12-etb',       query: 'ETB Tempête Argentée EB12',                  name: 'ETB Tempête Argentée',          minPrice: 100, maxPrice: 800 },
+    { id: 'swsh12-display',   query: 'display Tempête Argentée EB12 -demi',        name: 'Display 36 Tempête Argentée',   minPrice: 200, maxPrice: 1500 },
+    { id: 'swsh12-display18', query: 'demi display Tempête Argentée EB12',         name: 'Display 18 Tempête Argentée',   minPrice: 80,  maxPrice: 600 },
+    { id: 'swsh12-tripack',   query: 'tripack Tempête Argentée EB12',              name: 'Tripack Tempête Argentée',      minPrice: 20,  maxPrice: 120 },
+    { id: 'swsh12-bundle',    query: 'bundle Tempête Argentée EB12',               name: 'Bundle 6 Tempête Argentée',     minPrice: 40,  maxPrice: 200 },
+    { id: 'swsh12-booster',   query: 'booster Tempête Argentée EB12 -display -lot', name: 'Booster Tempête Argentée',     minPrice: 5,   maxPrice: 60 },
+    { id: 'swsh12.5-etb',       query: 'ETB Zénith Suprême EB12.5',                  name: 'ETB Zénith Suprême',          minPrice: 100, maxPrice: 800 },
+    { id: 'swsh12.5-display',   query: 'display Zénith Suprême EB12.5 -demi',        name: 'Display 36 Zénith Suprême',   minPrice: 200, maxPrice: 1500 },
+    { id: 'swsh12.5-display18', query: 'demi display Zénith Suprême EB12.5',         name: 'Display 18 Zénith Suprême',   minPrice: 80,  maxPrice: 600 },
+    { id: 'swsh12.5-tripack',   query: 'tripack Zénith Suprême EB12.5',              name: 'Tripack Zénith Suprême',      minPrice: 20,  maxPrice: 120 },
+    { id: 'swsh12.5-bundle',    query: 'bundle Zénith Suprême EB12.5',               name: 'Bundle 6 Zénith Suprême',     minPrice: 40,  maxPrice: 200 },
+    { id: 'swsh12.5-booster',   query: 'booster Zénith Suprême EB12.5 -display -lot', name: 'Booster Zénith Suprême',     minPrice: 5,   maxPrice: 60 },
 ];
 
 // ── Fetch specific eBay item by URL ─────────────────────────

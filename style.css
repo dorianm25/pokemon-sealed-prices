@@ -1858,7 +1858,7 @@ body {
 
 .potential-stats {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 8px;
     margin-bottom: 12px;
 }
@@ -2462,6 +2462,195 @@ body {
 
     /* Portfolio cards */
     .pf-grid { grid-template-columns: 1fr !important; }
+}
+
+/* ---- Series Analysis (ADN) ---- */
+.analysis-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.analysis-subtitle {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+}
+
+.analysis-insights {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+
+.analysis-insights-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.analysis-insight {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+}
+
+.analysis-insight-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.analysis-insight-text {
+    line-height: 1.4;
+}
+
+.analysis-compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.analysis-column h3 {
+    margin-bottom: 12px;
+}
+
+.analysis-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    transition: border-color var(--dur-mid);
+}
+
+.analysis-card:hover {
+    border-color: var(--border-hover);
+}
+
+.analysis-winner {
+    border-left: 3px solid var(--green);
+}
+
+.analysis-loser {
+    border-left: 3px solid var(--red);
+}
+
+.analysis-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.analysis-rank {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.analysis-winner .analysis-rank {
+    background: var(--green-bg);
+    color: var(--green-light);
+}
+
+.analysis-loser .analysis-rank {
+    background: var(--red-bg);
+    color: var(--red);
+}
+
+.analysis-code {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    display: block;
+    letter-spacing: 0.5px;
+}
+
+.analysis-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: block;
+}
+
+.analysis-wscore {
+    margin-left: auto;
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--green-light);
+    flex-shrink: 0;
+}
+
+.analysis-wscore small {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.analysis-wscore.low {
+    color: var(--red);
+}
+
+.analysis-premiums {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.analysis-premium {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.analysis-premium.ap-up {
+    background: var(--green-bg);
+    color: var(--green-light);
+}
+
+.analysis-premium.ap-down {
+    background: var(--red-bg);
+    color: var(--red);
+}
+
+.analysis-traits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.analysis-trait {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.analysis-trait.trait-pos {
+    color: var(--green-light);
+}
+
+.analysis-trait.trait-neg {
+    color: var(--red);
+}
+
+@media (max-width: 768px) {
+    .analysis-compare {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 380px) {

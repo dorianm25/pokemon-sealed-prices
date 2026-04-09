@@ -22,5 +22,21 @@
     "high": 399.99,
     "lastPrice": 270,
     "sampleSize": 20
+  },
+  {
+    "date": "2026-04-08",
+    "median": 290,
+    "low": 269,
+    "high": 399.99,
+    "lastPrice": 270,
+    "sampleSize": 19
+  },
+  {
+    "date": "2026-04-09",
+    "median": 294.5,
+    "low": 269,
+    "high": 399.99,
+    "lastPrice": 270,
+    "sampleSize": 12
   }
 ]
