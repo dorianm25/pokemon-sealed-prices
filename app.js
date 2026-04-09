@@ -921,6 +921,44 @@ async function loadTrends7d() {
     }
 }
 
+// Calcul du hype score pour une série (réutilisé par Hype Meter et Potentiel)
+function computeHypeScore(s) {
+    // Factor 1 : Performance vs MSRP (30%)
+    let perfSum = 0, perfCount = 0;
+    for (const p of s.products) {
+        const msrp = MSRP[p.type];
+        if (msrp && msrp > 0) {
+            perfSum += ((p.price - msrp) / msrp) * 100;
+            perfCount++;
+        }
+    }
+    const avgPerf = perfCount > 0 ? perfSum / perfCount : 0;
+    const perfScore = Math.min(100, Math.max(0, avgPerf / 2 + 50));
+
+    // Factor 2 : Tendance 7j (25%)
+    let trend7dSum = 0, trend7dCount = 0;
+    for (const p of s.products) {
+        const t7 = trends7d[p.name];
+        if (t7) { trend7dSum += t7.change; trend7dCount++; }
+    }
+    const avgTrend7d = trend7dCount > 0 ? trend7dSum / trend7dCount : 0;
+    const trendScore = Math.min(100, Math.max(0, avgTrend7d + 50));
+
+    // Factor 3 : Nombre d'annonces en ligne (25%)
+    const totalListings = s.products.reduce((sum, p) => sum + (p.sampleSize || 0), 0);
+    const avgListings = totalListings / s.products.length;
+    const listingScore = Math.min(100, (avgListings / 10) * 100);
+
+    // Factor 4 : Prix moyen élevé = demande forte (20%)
+    const avgPrice = s.products.reduce((sum, p) => sum + p.price, 0) / s.products.length;
+    const priceScore = Math.min(100, (avgPrice / 5));
+
+    let hypeScore = Math.round(perfScore * 0.30 + trendScore * 0.25 + listingScore * 0.25 + priceScore * 0.20);
+    hypeScore = Math.min(100, Math.max(0, hypeScore));
+
+    return { hypeScore, avgPerf, avgTrend7d, totalListings, avgListings, avgPrice };
+}
+
 function renderHypeMeter(priced) {
     // Grouper par série
     const seriesMap = {};
@@ -932,43 +970,9 @@ function renderHypeMeter(priced) {
     }
 
     const series = Object.values(seriesMap).map(s => {
-        let hypeScore = 0;
+        const hype = computeHypeScore(s);
 
-        // Factor 1 : Performance vs MSRP (30%)
-        let perfSum = 0, perfCount = 0;
-        for (const p of s.products) {
-            const msrp = MSRP[p.type];
-            if (msrp && msrp > 0) {
-                perfSum += ((p.price - msrp) / msrp) * 100;
-                perfCount++;
-            }
-        }
-        const avgPerf = perfCount > 0 ? perfSum / perfCount : 0;
-        const perfScore = Math.min(100, Math.max(0, avgPerf / 2 + 50));
-
-        // Factor 2 : Tendance 7j (25%)
-        let trend7dSum = 0, trend7dCount = 0;
-        for (const p of s.products) {
-            const t7 = trends7d[p.name];
-            if (t7) { trend7dSum += t7.change; trend7dCount++; }
-        }
-        const avgTrend7d = trend7dCount > 0 ? trend7dSum / trend7dCount : 0;
-        const trendScore = Math.min(100, Math.max(0, avgTrend7d + 50));
-
-        // Factor 3 : Nombre d'annonces en ligne (25%) — plus il y en a, plus c'est hype
-        const totalListings = s.products.reduce((sum, p) => sum + (p.sampleSize || 0), 0);
-        const avgListings = totalListings / s.products.length;
-        // 10+ annonces par produit = score max
-        const listingScore = Math.min(100, (avgListings / 10) * 100);
-
-        // Factor 4 : Prix moyen élevé = demande forte (20%)
-        const avgPrice = s.products.reduce((sum, p) => sum + p.price, 0) / s.products.length;
-        const priceScore = Math.min(100, (avgPrice / 5));
-
-        hypeScore = Math.round(perfScore * 0.30 + trendScore * 0.25 + listingScore * 0.25 + priceScore * 0.20);
-        hypeScore = Math.min(100, Math.max(0, hypeScore));
-
-        return { ...s, hypeScore, avgPerf, avgTrend7d, avgPrice, totalListings, avgListings };
+        return { ...s, hypeScore: hype.hypeScore, avgPerf: hype.avgPerf, avgTrend7d: hype.avgTrend7d, avgPrice: hype.avgPrice, totalListings: hype.totalListings, avgListings: hype.avgListings };
     });
 
     series.sort((a, b) => b.hypeScore - a.hypeScore);
@@ -1302,7 +1306,8 @@ function renderPotential(priced) {
     // 1. Prix proches du MSRP (pas encore monté = potentiel)
     // 2. Tendance positive naissante
     // 3. Prix bas dans le range
-    // 4. Carte la plus chère de la série (carte chase = potentiel scellé)
+    // 4. Valeur totale du set
+    // 5. Hype de la série (perf, tendance 7j, annonces, prix)
     const potentials = series.map(s => {
         let score = 0;
         let reasons = [];
@@ -1317,59 +1322,76 @@ function renderPotential(priced) {
         }
         if (count > 0) avgPerf /= count;
 
-        // Prix total du set (somme de tous les produits de la série)
+        // Prix total du set
         const setTotal = s.products.reduce((sum, p) => sum + p.price, 0);
 
-        // Facteur 1 : Proche du MSRP = potentiel (n'a pas encore bougé) — 25pts max
+        // Hype score de la série
+        const hype = computeHypeScore(s);
+
+        // Facteur 1 : Proche du MSRP — 20pts max
         if (avgPerf < 20 && avgPerf > -20) {
-            score += 25;
+            score += 20;
             reasons.push('Prix proche du prix de sortie');
         } else if (avgPerf >= 20 && avgPerf < 80) {
-            score += 12;
+            score += 10;
             reasons.push('Hausse modérée depuis la sortie');
         }
 
-        // Facteur 2 : Tendance positive — 20pts max
+        // Facteur 2 : Tendance positive — 15pts max
         const avgTrend = s.products.reduce((sum, p) => sum + p.trend, 0) / s.products.length;
         if (avgTrend > 5) {
-            score += 20;
+            score += 15;
             reasons.push('Tendance haussière (+' + avgTrend.toFixed(0) + '%)');
         } else if (avgTrend > 0) {
-            score += 10;
+            score += 8;
             reasons.push('Légère hausse récente');
         }
 
-        // Facteur 3 : Prix bas dans le range (proche du low) — 20pts max
+        // Facteur 3 : Prix bas dans le range — 15pts max
         const withRange = s.products.filter(p => p.low && p.high && p.high > p.low);
         if (withRange.length > 0) {
             const avgPos = withRange.reduce((sum, p) => sum + (p.price - p.low) / (p.high - p.low), 0) / withRange.length;
             if (avgPos < 0.4) {
-                score += 20;
+                score += 15;
                 reasons.push('Prix bas dans la fourchette historique');
             } else if (avgPos < 0.6) {
-                score += 10;
+                score += 8;
                 reasons.push('Prix dans la moyenne');
             }
         }
 
-        // Facteur 4 : Valeur totale du set — 35pts max
-        // Plus le set complet est cher, plus la série a du potentiel
-        // (forte demande = prix élevés = scellés deviennent rares)
+        // Facteur 4 : Valeur totale du set — 25pts max
         if (setTotal >= 1500) {
-            score += 35;
+            score += 25;
             reasons.push(`Set complet à ${fmt(setTotal)} — très forte demande`);
         } else if (setTotal >= 800) {
-            score += 28;
+            score += 20;
             reasons.push(`Set complet à ${fmt(setTotal)} — forte demande`);
         } else if (setTotal >= 500) {
-            score += 18;
+            score += 12;
             reasons.push(`Set complet à ${fmt(setTotal)} — demande correcte`);
         } else if (setTotal >= 300) {
-            score += 8;
+            score += 5;
             reasons.push(`Set complet à ${fmt(setTotal)} — demande modérée`);
         }
 
-        return { ...s, score, reasons, avgPerf, avgTrend, setTotal };
+        // Facteur 5 : Hype de la série — 25pts max
+        const hypeLabel = hype.hypeScore >= 80 ? 'Ultra Hype' : hype.hypeScore >= 60 ? 'Hype' : hype.hypeScore >= 40 ? 'Neutre' : 'Faible';
+        if (hype.hypeScore >= 80) {
+            score += 25;
+            reasons.push(`🔥 Série ${hypeLabel} (${hype.hypeScore}/100)`);
+        } else if (hype.hypeScore >= 60) {
+            score += 18;
+            reasons.push(`📈 Série ${hypeLabel} (${hype.hypeScore}/100)`);
+        } else if (hype.hypeScore >= 40) {
+            score += 10;
+            reasons.push(`😐 Série ${hypeLabel} (${hype.hypeScore}/100)`);
+        } else {
+            score += 3;
+            reasons.push(`📉 Série ${hypeLabel} (${hype.hypeScore}/100)`);
+        }
+
+        return { ...s, score, reasons, avgPerf, avgTrend, setTotal, hypeScore: hype.hypeScore };
     });
 
     // Filtrer celles avec du potentiel, trier par score
@@ -1392,16 +1414,16 @@ function renderPotential(priced) {
                     <div class="potential-label">${potLabel}</div>
                     <div class="potential-stats">
                         <div class="potential-stat">
-                            <span class="potential-stat-label">Valeur du set</span>
+                            <span class="potential-stat-label">Hype</span>
+                            <span class="potential-stat-value" style="color:${s.hypeScore >= 60 ? 'var(--green-light)' : s.hypeScore >= 40 ? 'var(--orange)' : 'var(--red)'}">${s.hypeScore}/100</span>
+                        </div>
+                        <div class="potential-stat">
+                            <span class="potential-stat-label">Valeur set</span>
                             <span class="potential-stat-value" style="color:var(--orange)">${fmt(s.setTotal)}</span>
                         </div>
                         <div class="potential-stat">
                             <span class="potential-stat-label">Perf. sortie</span>
                             <span class="potential-stat-value ${s.avgPerf >= 0 ? 'positive' : 'negative'}">${s.avgPerf >= 0 ? '+' : ''}${s.avgPerf.toFixed(1)}%</span>
-                        </div>
-                        <div class="potential-stat">
-                            <span class="potential-stat-label">Tendance</span>
-                            <span class="potential-stat-value ${s.avgTrend >= 0 ? 'positive' : 'negative'}">${s.avgTrend >= 0 ? '+' : ''}${s.avgTrend.toFixed(1)}%</span>
                         </div>
                         <div class="potential-stat">
                             <span class="potential-stat-label">Score</span>
