@@ -267,7 +267,7 @@ async function searchEbaySold(query, limit = 20, priceRange = null) {
     return res.json();
 }
 
-function extractPrices(ebayResponse, limits) {
+function extractPrices(ebayResponse, limits, query) {
     const items = ebayResponse.itemSummaries || [];
 
     if (items.length === 0) return null;
@@ -488,7 +488,7 @@ app.get('/api/price/:productId', async (req, res) => {
             const query = custom?.query || product.query;
             const limits = { min: product.minPrice, max: product.maxPrice };
             const ebayData = await searchEbaySold(query, 20, limits);
-            priceData = extractPrices(ebayData, limits);
+            priceData = extractPrices(ebayData, limits, query);
         }
 
         if (!priceData) {
@@ -523,7 +523,7 @@ app.get('/api/prices', async (req, res) => {
 
             const limits = { min: product.minPrice, max: product.maxPrice };
             const ebayData = await searchEbaySold(product.query, 20, limits);
-            const priceData = extractPrices(ebayData, limits);
+            const priceData = extractPrices(ebayData, limits, product.query);
 
             if (priceData) {
                 const result = { id: product.id, name: product.name, ...priceData };
@@ -558,7 +558,7 @@ app.post('/api/refresh/:productId', async (req, res) => {
     try {
         const limits = { min: product.minPrice, max: product.maxPrice };
         const ebayData = await searchEbaySold(product.query, 20, limits);
-        const priceData = extractPrices(ebayData, limits);
+        const priceData = extractPrices(ebayData, limits, product.query);
 
         if (!priceData) {
             return res.json({ error: 'Aucun résultat eBay', name: product.name });
