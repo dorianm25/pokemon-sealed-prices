@@ -2130,8 +2130,85 @@ async function loadPortfolioChart() {
     }
 }
 
+// Historique local du portfolio (sans authentification)
+function saveLocalPortfolioSnapshot(pf) {
+    let totalInvested = 0, totalValue = 0, totalItems = 0;
+    for (const p of products) {
+        const h = pf[p.name];
+        if (!h || h.qty <= 0) continue;
+        totalItems += h.qty;
+        totalInvested += h.qty * h.cost;
+        totalValue += h.qty * p.price;
+    }
+    if (totalItems === 0) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const entry = {
+        date: today,
+        invested: Math.round(totalInvested * 100) / 100,
+        value: Math.round(totalValue * 100) / 100,
+        pnl: Math.round((totalValue - totalInvested) * 100) / 100,
+        items: totalItems,
+    };
+
+    let history = [];
+    try { history = JSON.parse(localStorage.getItem('pokescelle-pf-history') || '[]'); } catch {}
+    const idx = history.findIndex(h => h.date === today);
+    if (idx >= 0) history[idx] = entry;
+    else history.push(entry);
+    if (history.length > 365) history.splice(0, history.length - 365);
+    localStorage.setItem('pokescelle-pf-history', JSON.stringify(history));
+}
+
+function getPortfolioHistory() {
+    try { return JSON.parse(localStorage.getItem('pokescelle-pf-history') || '[]'); } catch { return []; }
+}
+
+function renderPortfolioHistory(remoteHistory) {
+    const local = getPortfolioHistory();
+    const history = (remoteHistory && remoteHistory.length > 0) ? remoteHistory : local;
+    const wrap = document.getElementById('portfolioHistoryWrap');
+
+    if (!history || history.length === 0) {
+        wrap.style.display = 'none';
+        return;
+    }
+
+    wrap.style.display = 'block';
+    const reversed = [...history].reverse();
+
+    document.getElementById('portfolioHistoryTable').innerHTML = `
+        <div class="pfh-table">
+            <div class="pfh-header">
+                <span class="pfh-col-date">Date</span>
+                <span class="pfh-col">Investi</span>
+                <span class="pfh-col">Valeur</span>
+                <span class="pfh-col">P&L</span>
+                <span class="pfh-col">Évolution</span>
+            </div>
+            ${reversed.map((h, i) => {
+                const prev = reversed[i + 1];
+                const evolution = prev ? ((h.value - prev.value) / prev.value * 100) : 0;
+                const evoClass = evolution > 0 ? 'positive' : evolution < 0 ? 'negative' : '';
+                const pnlClass = h.pnl > 0 ? 'positive' : h.pnl < 0 ? 'negative' : '';
+                return `<div class="pfh-row">
+                    <span class="pfh-col-date">${h.date}</span>
+                    <span class="pfh-col">${fmt(h.invested)}</span>
+                    <span class="pfh-col" style="font-weight:600">${fmt(h.value)}</span>
+                    <span class="pfh-col ${pnlClass}">${h.pnl >= 0 ? '+' : ''}${fmt(h.pnl)}</span>
+                    <span class="pfh-col ${evoClass}">${prev ? (evolution >= 0 ? '+' : '') + evolution.toFixed(1) + '%' : '—'}</span>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+}
+
 async function renderPortfolio() {
     const pf = await loadPortfolio();
+
+    // Sauvegarder un snapshot local
+    saveLocalPortfolioSnapshot(pf);
+
     const sorted = [...products].sort((a, b) => {
         const aQty = (pf[a.name]?.qty || 0);
         const bQty = (pf[b.name]?.qty || 0);
@@ -2142,6 +2219,17 @@ async function renderPortfolio() {
     document.getElementById('portfolioGrid').innerHTML = sorted.map(p => renderPortfolioCard(p, pf)).join('');
     renderPortfolioSummary(pf);
     loadPortfolioChart();
+
+    // Charger l'historique (remote si connecté, sinon local)
+    if (authToken) {
+        try {
+            const res = await fetch('/api/portfolio-history', { headers: { 'Authorization': `Bearer ${authToken}` } });
+            const remote = await res.json();
+            renderPortfolioHistory(remote);
+        } catch { renderPortfolioHistory(null); }
+    } else {
+        renderPortfolioHistory(null);
+    }
 }
 
 // ── Toast Notifications ─────────────────────────────────────
@@ -2164,7 +2252,7 @@ function showToast(icon, message, sub = '') {
 // ── Scroll to Top ───────────────────────────────────────────
 
 function scrollToTop() {
-    const section = document.querySelector('.section-catalogue:not([style*="none"]), .section-portfolio:not([style*="none"]), .section-tendances:not([style*="none"])');
+    const section = document.querySelector('.section-catalogue:not([style*="none"]), .section-portfolio:not([style*="none"]), .section-tendances:not([style*="none"]), .section-simulation:not([style*="none"])');
     if (section) section.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -2387,8 +2475,8 @@ function renderSimProductTable() {
     const seriesList = window._simSeriesList || [];
     if (!allProds.length) return;
 
-    // Collect available types
-    const types = [...new Set(allProds.map(p => p.type))];
+    // All product types (always show all chips)
+    const types = ['etb', 'display', 'display18', 'tripack', 'bundle', 'booster', 'dispbundle'];
     const typeLabels = { etb: 'ETB', display: 'Display 36', display18: 'Display 18', tripack: 'Tripack', bundle: 'Bundle 6', booster: 'Booster', dispbundle: 'Disp. Bundle' };
 
     // Filter
