@@ -30,5 +30,13 @@
     "high": 69.4,
     "lastPrice": 47.5,
     "sampleSize": 20
+  },
+  {
+    "date": "2026-04-11",
+    "median": 59.45,
+    "low": 47.5,
+    "high": 69.4,
+    "lastPrice": 47.5,
+    "sampleSize": 20
   }
 ]

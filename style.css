@@ -460,7 +460,8 @@ body {
    ============================================================ */
 .section-catalogue,
 .section-portfolio,
-.section-tendances {
+.section-tendances,
+.section-simulation {
     flex: 1;
     overflow-y: auto;
     padding: 24px;
@@ -468,12 +469,14 @@ body {
 
 .section-catalogue::-webkit-scrollbar,
 .section-portfolio::-webkit-scrollbar,
-.section-tendances::-webkit-scrollbar {
+.section-tendances::-webkit-scrollbar,
+.section-simulation::-webkit-scrollbar {
     width: 6px;
 }
 .section-catalogue::-webkit-scrollbar-thumb,
 .section-portfolio::-webkit-scrollbar-thumb,
-.section-tendances::-webkit-scrollbar-thumb {
+.section-tendances::-webkit-scrollbar-thumb,
+.section-simulation::-webkit-scrollbar-thumb {
     background: var(--border-hover);
     border-radius: 3px;
 }
@@ -2415,120 +2418,7 @@ body {
     }
 }
 
-/* ============================================================
-   HAMBURGER BUTTON (hidden on desktop)
-   ============================================================ */
-.topbar-hamburger {
-    display: none;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 6px;
-    border-radius: var(--radius-sm);
-    flex-shrink: 0;
-}
-.topbar-hamburger:hover { color: var(--text-primary); background: rgba(255,255,255,0.06); }
-
-/* Sidebar overlay (mobile only) */
-.sidebar-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.6);
-    z-index: 99;
-}
-.sidebar-overlay.open { display: block; }
-
-/* ============================================================
-   RESPONSIVE
-   ============================================================ */
-@media (max-width: 900px) {
-    .sidebar { width: 220px; }
-    .serie-items { grid-template-columns: repeat(3, 1fr); }
-    .serie-items.flat-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
-    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-    .detail-body { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 640px) {
-    /* Sidebar: drawer overlay */
-    .sidebar {
-        position: fixed;
-        left: 0; top: 0; bottom: 0;
-        width: 280px;
-        z-index: 100;
-        transform: translateX(-100%);
-        transition: transform 0.25s var(--ease-out);
-    }
-    .sidebar.open { transform: translateX(0); }
-
-    /* Show hamburger */
-    .topbar-hamburger { display: flex; }
-
-    /* Topbar compact */
-    .topbar { padding: 0 12px; gap: 8px; }
-    .topbar-right .ebay-status { display: none; }
-    .topbar-right select { font-size: 11px; padding: 4px 6px; }
-    .topbar-right .btn-auth { font-size: 11px; padding: 5px 10px; }
-
-    /* Sections */
-    .section-catalogue,
-    .section-portfolio,
-    .section-tendances { padding: 12px; }
-
-    /* Product grid: 2-3 columns on mobile */
-    .serie-items {
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-        padding: 8px;
-    }
-    .serie-items.flat-grid { grid-template-columns: repeat(2, 1fr); }
-    .serie-header { padding: 10px 12px; }
-    .serie-name { font-size: 13px; }
-
-    /* Cards more compact */
-    .product-img { aspect-ratio: 1 / 1; }
-    .product-info { padding: 8px 10px 10px; }
-    .product-name { font-size: 11px; }
-    .product-type { font-size: 8px; padding: 2px 5px; }
-    .product-price-value { font-size: 13px; }
-    .product-price-label { font-size: 9px; }
-    .product-price-sub { font-size: 10px; }
-    .btn-ebay-edit { opacity: 1; width: 24px; height: 24px; font-size: 11px; }
-
-    /* Detail modal: full screen */
-    .detail-overlay { padding: 0; align-items: stretch; }
-    .detail-modal {
-        max-width: 100%;
-        border-radius: 0;
-        min-height: 100vh;
-    }
-    .detail-banner { height: 80px; padding: 12px 16px; }
-    .detail-body { grid-template-columns: 1fr; min-height: auto; }
-    .detail-sidebar {
-        border-right: none;
-        border-bottom: 1px solid var(--border);
-        padding: 16px;
-    }
-    .detail-main { padding: 16px; }
-    .detail-product-name { font-size: 15px; }
-
-    /* KPIs */
-    .kpi-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
-    .kpi-card { padding: 12px; }
-    .kpi-value { font-size: 18px; }
-
-    /* Portfolio cards */
-    .pf-grid { grid-template-columns: 1fr !important; }
-}
-
-/* ---- Simulation ---- */
-.section-simulation {
-    padding: 24px;
-    overflow-y: auto;
-    max-height: calc(100vh - var(--topbar-h));
-}
+/* (hamburger and responsive styles moved to end of file) */
 
 .section-title {
     font-size: 22px;
@@ -3132,3 +3022,307 @@ body {
     .product-name { font-size: 10px; }
     .product-info { padding: 6px 8px 8px; }
 }
+
+/* ============================================================
+   COFFRET TYPE
+   ============================================================ */
+.type-coffret { color: #fff; background: #e5534b; }
+.type-dispbundle { color: #fff; background: #388bfd; }
+
+/* ============================================================
+   FAVORITES
+   ============================================================ */
+.product-fav-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.5);
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all var(--dur-fast) var(--ease-out);
+    z-index: 2;
+}
+.product:hover .product-fav-btn { opacity: 1; }
+.product-fav-btn:hover { color: #f59e0b; transform: scale(1.15); }
+.product-fav-btn.fav-active { opacity: 1; color: #f59e0b; background: rgba(245, 158, 11, 0.2); }
+
+.fav-filter-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: var(--bg-chip);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all var(--dur-fast);
+}
+.fav-filter-btn:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.fav-filter-btn.active { color: #f59e0b; background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); }
+
+/* ============================================================
+   COMPARE BAR
+   ============================================================ */
+.compare-bar {
+    position: fixed;
+    bottom: 0;
+    left: var(--sidebar-w);
+    right: 0;
+    background: var(--bg-sidebar);
+    border-top: 1px solid var(--border);
+    padding: 12px 24px;
+    z-index: 400;
+    animation: slideUp 0.2s var(--ease-out);
+}
+.compare-bar-content {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+.compare-bar-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.compare-bar-items {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+    overflow-x: auto;
+}
+.compare-bar-item {
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.compare-bar-item button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
+}
+.compare-bar-item button:hover { color: var(--red); }
+.compare-bar-btn {
+    padding: 8px 20px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    background: var(--green);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+}
+.compare-bar-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.compare-bar-btn:not(:disabled):hover { opacity: 0.85; }
+
+/* ============================================================
+   COMPARE TABLE
+   ============================================================ */
+.compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.compare-table th {
+    text-align: center;
+    padding: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 2px solid var(--border);
+    min-width: 160px;
+}
+.compare-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    text-align: center;
+}
+.compare-table td:first-child {
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.compare-table tr:hover td { background: rgba(255,255,255,0.02); }
+.compare-table .positive { color: var(--green-light); }
+.compare-table .negative { color: var(--red); }
+
+/* ============================================================
+   PRODUCT COMPARE BUTTON
+   ============================================================ */
+.product-cmp-btn {
+    position: absolute;
+    top: 40px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.5);
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all var(--dur-fast) var(--ease-out);
+    z-index: 2;
+}
+.product:hover .product-cmp-btn { opacity: 1; }
+.product-cmp-btn:hover { color: var(--blue); transform: scale(1.15); }
+
+/* ============================================================
+   RESPONSIVE MOBILE
+   ============================================================ */
+@media (max-width: 1200px) {
+    .serie-items { grid-template-columns: repeat(4, 1fr); }
+    .detail-body { grid-template-columns: 1fr; }
+    .detail-sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+}
+
+@media (max-width: 900px) {
+    .serie-items { grid-template-columns: repeat(3, 1fr); }
+    .trend-kpis { grid-template-columns: repeat(3, 1fr); }
+    .tendances-grid { grid-template-columns: 1fr; }
+    .analysis-compare { grid-template-columns: 1fr; }
+    .sim-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .sim-series-grid { grid-template-columns: 1fr; }
+    .compare-bar { left: 0; }
+}
+
+@media (max-width: 640px) {
+    .sidebar {
+        position: fixed;
+        left: -280px;
+        top: 0;
+        bottom: 0;
+        z-index: 600;
+        width: 280px;
+        transition: left 0.25s var(--ease-out);
+    }
+    .sidebar.open { left: 0; }
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 599;
+    }
+    .sidebar-overlay.open { display: block; }
+    .topbar-hamburger { display: flex !important; }
+
+    .serie-items { grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 8px; }
+    .flat-grid { grid-template-columns: repeat(2, 1fr); }
+
+    .section-catalogue,
+    .section-portfolio,
+    .section-tendances,
+    .section-simulation { padding: 16px 12px; }
+
+    .topbar { padding: 0 12px; gap: 8px; }
+    .topbar-right select { display: none; }
+
+    .page-title { font-size: 16px; }
+    .section-header { flex-direction: column; gap: 8px; }
+
+    .trend-kpis { grid-template-columns: repeat(2, 1fr); }
+    .sim-kpi-grid { grid-template-columns: 1fr 1fr; }
+    .sim-filter-row { flex-direction: column; }
+
+    .perf-table-row { font-size: 11px; }
+    .perf-col-best { display: none; }
+    .perf-col-msrp { display: none; }
+
+    .detail-overlay { padding: 0; }
+    .detail-modal { border-radius: 0; max-height: 100vh; }
+    .detail-body { grid-template-columns: 1fr; }
+    .detail-sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+
+    .compare-bar { left: 0; padding: 8px 12px; }
+    .compare-bar-content { flex-wrap: wrap; }
+    .compare-bar-items { order: 2; width: 100%; }
+
+    .portfolio-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .pf-card { padding: 12px; }
+
+    .hype-row { flex-wrap: wrap; }
+    .hype-details { width: 100%; margin-top: 8px; }
+
+    .greed-index { padding: 20px 16px; }
+    .greed-index-factors { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 420px) {
+    .serie-items { grid-template-columns: 1fr; }
+    .flat-grid { grid-template-columns: 1fr; }
+    .portfolio-grid { grid-template-columns: 1fr; }
+    .sim-kpi-grid { grid-template-columns: 1fr; }
+    .trend-kpis { grid-template-columns: 1fr; }
+}
+
+/* ============================================================
+   TOPBAR HAMBURGER (mobile only)
+   ============================================================ */
+.topbar-hamburger {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.topbar-hamburger:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+
+/* ============================================================
+   EXPORT BUTTON
+   ============================================================ */
+.btn-export {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: none;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all var(--dur-fast);
+    font-family: inherit;
+}
+.btn-export:hover { border-color: var(--border-hover); color: var(--text-primary); }

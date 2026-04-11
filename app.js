@@ -53,6 +53,23 @@ const products = [
     ...serie('EB11', 'Origine Perdue', 'EB', { etb: { price: 350, old: 54.99, low: 280, high: 400 }, display: { price: 550, old: 215, low: 250, high: 850 }, tripack: { price: 40, old: 17.99, low: 35, high: 80 }, bundle: { price: 90, old: 35, low: 70, high: 120 }, booster: { price: 15, old: 6.99, low: 10, high: 40 } }),
     ...serie('EB12', 'Tempête Argentée', 'EB', { etb: { price: 310, old: 54.99, low: 200, high: 400 }, display: { price: 400, old: 215, low: 330, high: 470 }, tripack: { price: 44, old: 17.99, low: 40, high: 50 }, bundle: { price: 75, old: 35, low: 60, high: 100 }, booster: { price: 15, old: 6.99, low: 10, high: 40 } }),
     ...serie('EB12.5', 'Zénith Suprême', 'EB', { etb: { price: 320, old: 54.99, low: 299, high: 500 }, display: { price: 500, old: 215, low: 400, high: 700 }, tripack: { price: 60, old: 17.99, low: 50, high: 80 }, booster: { price: 25, old: 6.99, low: 19, high: 40 } }),
+    ...serie('EB01', 'Épée et Bouclier', 'EB', { etb: { price: 120, old: 54.99, low: 80, high: 200 }, display: { price: 300, old: 215, low: 200, high: 500 }, tripack: { price: 30, old: 17.99, low: 20, high: 50 }, bundle: { price: 60, old: 35, low: 40, high: 90 }, booster: { price: 10, old: 6.99, low: 7, high: 20 } }),
+    ...serie('EB02', 'Clash des Rebelles', 'EB', { etb: { price: 130, old: 54.99, low: 80, high: 220 }, display: { price: 280, old: 215, low: 180, high: 450 }, tripack: { price: 28, old: 17.99, low: 18, high: 45 }, bundle: { price: 55, old: 35, low: 35, high: 85 }, booster: { price: 9, old: 6.99, low: 6, high: 18 } }),
+    ...serie('EB03', 'Ténèbres Embrasées', 'EB', { etb: { price: 200, old: 54.99, low: 120, high: 350 }, display: { price: 450, old: 215, low: 300, high: 700 }, tripack: { price: 35, old: 17.99, low: 25, high: 60 }, bundle: { price: 70, old: 35, low: 50, high: 110 }, booster: { price: 12, old: 6.99, low: 8, high: 25 } }),
+    ...serie('EB03.5', 'La Voie du Maître', 'EB', { etb: { price: 250, old: 54.99, low: 150, high: 400 }, display: { price: 500, old: 215, low: 350, high: 800 }, tripack: { price: 40, old: 17.99, low: 30, high: 70 }, bundle: { price: 80, old: 35, low: 55, high: 130 }, booster: { price: 15, old: 6.99, low: 10, high: 30 } }),
+    ...serie('EB04', 'Voltage Éclatant', 'EB', { etb: { price: 160, old: 54.99, low: 100, high: 280 }, display: { price: 380, old: 215, low: 250, high: 600 }, tripack: { price: 30, old: 17.99, low: 20, high: 55 }, bundle: { price: 65, old: 35, low: 40, high: 100 }, booster: { price: 11, old: 6.99, low: 7, high: 22 } }),
+    ...serie('EB04.5', 'Destinées Radieuses', 'EB', { etb: { price: 280, old: 54.99, low: 180, high: 450 }, display: { price: 600, old: 215, low: 400, high: 900 }, tripack: { price: 45, old: 17.99, low: 30, high: 75 }, bundle: { price: 90, old: 35, low: 60, high: 140 }, booster: { price: 18, old: 6.99, low: 12, high: 35 } }),
+    ...serie('EB05', 'Styles de Combat', 'EB', { etb: { price: 100, old: 54.99, low: 65, high: 180 }, display: { price: 250, old: 215, low: 160, high: 400 }, tripack: { price: 25, old: 17.99, low: 16, high: 40 }, bundle: { price: 50, old: 35, low: 30, high: 75 }, booster: { price: 8, old: 6.99, low: 5, high: 15 } }),
+    ...serie('EB06', 'Règne de Glace', 'EB', { etb: { price: 110, old: 54.99, low: 70, high: 200 }, display: { price: 270, old: 215, low: 170, high: 420 }, tripack: { price: 26, old: 17.99, low: 17, high: 42 }, bundle: { price: 52, old: 35, low: 32, high: 80 }, booster: { price: 9, old: 6.99, low: 6, high: 16 } }),
+    ...serie('EB07', 'Évolution Céleste', 'EB', { etb: { price: 400, old: 54.99, low: 300, high: 600 }, display: { price: 700, old: 215, low: 500, high: 1000 }, tripack: { price: 50, old: 17.99, low: 35, high: 80 }, bundle: { price: 100, old: 35, low: 70, high: 150 }, booster: { price: 20, old: 6.99, low: 15, high: 35 } }),
+    ...serie('EB08', 'Poing de Fusion', 'EB', { etb: { price: 150, old: 54.99, low: 90, high: 250 }, display: { price: 350, old: 215, low: 220, high: 550 }, tripack: { price: 30, old: 17.99, low: 20, high: 50 }, bundle: { price: 60, old: 35, low: 40, high: 95 }, booster: { price: 10, old: 6.99, low: 7, high: 20 } }),
+    ...serie('EB09', 'Stars Étincelantes', 'EB', { etb: { price: 180, old: 54.99, low: 120, high: 300 }, display: { price: 400, old: 215, low: 280, high: 650 }, tripack: { price: 35, old: 17.99, low: 22, high: 55 }, bundle: { price: 70, old: 35, low: 45, high: 110 }, booster: { price: 12, old: 6.99, low: 8, high: 22 } }),
+    ...serie('EB10', 'Astres Radieux', 'EB', { etb: { price: 130, old: 54.99, low: 80, high: 220 }, display: { price: 320, old: 215, low: 200, high: 500 }, tripack: { price: 28, old: 17.99, low: 18, high: 45 }, bundle: { price: 55, old: 35, low: 35, high: 85 }, booster: { price: 9, old: 6.99, low: 6, high: 18 } }),
+    ...serie('EB10.5', 'Pokémon GO', 'EB', { etb: { price: 140, old: 54.99, low: 90, high: 250 }, display: { price: 350, old: 215, low: 230, high: 550 }, tripack: { price: 30, old: 17.99, low: 20, high: 50 }, bundle: { price: 60, old: 35, low: 40, high: 95 }, booster: { price: 11, old: 6.99, low: 7, high: 22 } }),
+    // Coffrets spéciaux
+    { name: 'UPC Pokémon 151', ext: 'EV3.5 — Pokémon 151', serie: 'Écarlate et Violet', type: 'coffret', price: 500, old: 119.99, trend: 0, low: 400, high: 700 },
+    { name: 'UPC Évolutions Prismatiques', ext: 'EV8.5 — Évolutions Prismatiques', serie: 'Écarlate et Violet', type: 'coffret', price: 350, old: 119.99, trend: 0, low: 280, high: 450 },
+    { name: 'UPC Dracaufeu', ext: 'Special — Dracaufeu', serie: 'Écarlate et Violet', type: 'coffret', price: 400, old: 119.99, trend: 0, low: 300, high: 600 },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -72,7 +89,7 @@ function trendLabel(t) {
     return `${arrow} ${sign}${t} %`;
 }
 
-const TYPE_LABELS = { etb: 'ETB', display: 'DISPLAY 36', display18: 'DISPLAY 18', tripack: 'TRIPACK', bundle: 'BUNDLE', booster: 'BOOSTER', dispbundle: 'DISPLAY BUNDLE' };
+const TYPE_LABELS = { etb: 'ETB', display: 'DISPLAY 36', display18: 'DISPLAY 18', tripack: 'TRIPACK', bundle: 'BUNDLE', booster: 'BOOSTER', dispbundle: 'DISPLAY BUNDLE', coffret: 'COFFRET' };
 
 // Blocs & Séries — structure pour l'accordéon sidebar
 const BLOCS_SERIES = [
@@ -211,6 +228,11 @@ function buildEbayMap() {
         ['ev10.5fb', 'Flamme Blanche (EV10.5)'], ['me01', 'Méga-Évolution'], ['me02', 'Flammes Fantasmagoriques'],
         ['me2.5', 'Héros Transcendants'], ['me03', 'Équilibre Parfait'],
         ['swsh11', 'Origine Perdue'], ['swsh12', 'Tempête Argentée'], ['swsh12.5', 'Zénith Suprême'],
+        ['swsh01', 'Épée et Bouclier'], ['swsh02', 'Clash des Rebelles'], ['swsh03', 'Ténèbres Embrasées'],
+        ['swsh03.5', 'La Voie du Maître'], ['swsh04', 'Voltage Éclatant'], ['swsh04.5', 'Destinées Radieuses'],
+        ['swsh05', 'Styles de Combat'], ['swsh06', 'Règne de Glace'], ['swsh07', 'Évolution Céleste'],
+        ['swsh08', 'Poing de Fusion'], ['swsh09', 'Stars Étincelantes'], ['swsh10', 'Astres Radieux'],
+        ['swsh10.5', 'Pokémon GO'],
     ];
     const types = [['etb', 'ETB'], ['display', 'Display 36'], ['display18', 'Display 18'], ['tripack', 'Tripack'], ['bundle', 'Bundle 6'], ['booster', 'Booster']];
     const map = {};
@@ -222,6 +244,9 @@ function buildEbayMap() {
     // Produits spéciaux
     map['ev35-dispbundle'] = 'Display Bundle Pokémon 151';
     map['ev85-dispbundle'] = 'Display Bundle Évolutions Prismatiques';
+    map['upc-151'] = 'UPC Pokémon 151';
+    map['upc-ev85'] = 'UPC Évolutions Prismatiques';
+    map['upc-dracaufeu'] = 'UPC Dracaufeu';
     return map;
 }
 
@@ -232,6 +257,11 @@ const EBAY_PRODUCT_MAP = buildEbayMap();
 function renderCard(p, i) {
     const ebayId = getEbayId(p.name);
     const editBtn = ebayId ? `<button class="btn-ebay-edit" onclick="event.stopPropagation();openQueryEditor('${ebayId}','${p.name.replace(/'/g, "\\'")}')" title="Modifier la source">⚙</button>` : '';
+
+    const favs = getFavorites();
+    const isFav = favs.includes(p.name);
+    const favBtn = `<button class="product-fav-btn ${isFav ? 'fav-active' : ''}" data-name="${p.name.replace(/"/g, '&quot;')}" onclick="toggleFavorite('${p.name.replace(/'/g, "\\'")}', event)" title="Favoris">${isFav ? '★' : '☆'}</button>`;
+    const cmpBtn = `<button class="product-cmp-btn" onclick="toggleCompare('${p.name.replace(/'/g, "\\'")}', event)" title="Comparer">⚖</button>`;
 
     const imgSrc = p.lastListing?.image;
     const imgHtml = imgSrc
@@ -257,6 +287,8 @@ function renderCard(p, i) {
         ${imgHtml}
         ${editBtn}
         ${badgeHtml}
+        ${favBtn}
+        ${cmpBtn}
     </div>
     <div class="product-info">
         <div class="product-name-row">
@@ -729,6 +761,7 @@ function getFiltered() {
         if (q && !p.name.toLowerCase().includes(q) && !p.ext.toLowerCase().includes(q)) return false;
         if (activeType && p.type !== activeType) return false;
         if (activeBlocs.size > 0 && !activeBlocs.has(p.serie)) return false;
+        if (showFavOnly && !getFavorites().includes(p.name)) return false;
         if (activeSerie && !p.ext?.includes(activeSerie)) return false;
         if (prix) {
             const [lo, hi] = prix.split('-').map(Number);
@@ -1284,6 +1317,7 @@ const MSRP = {
     tripack: 17.99,
     bundle: 35,
     dispbundle: 0,
+    coffret: 119.99,
 };
 
 function renderSeriesAnalysis(priced) {
@@ -1790,6 +1824,7 @@ async function fetchEbayPrices() {
 
     renderTrends();
     updatePortfolioBadge();
+    checkAlerts();
 }
 
 // ── Auth ────────────────────────────────────────────────────
@@ -2275,6 +2310,162 @@ function updatePortfolioBadge() {
     badge.textContent = count > 0 ? count : '';
 }
 
+// ── Favoris ────────────────────────────────────────────────────
+
+function getFavorites() {
+    try { return JSON.parse(localStorage.getItem('pokescelle-favorites') || '[]'); } catch { return []; }
+}
+
+function toggleFavorite(name, e) {
+    if (e) e.stopPropagation();
+    const favs = getFavorites();
+    const idx = favs.indexOf(name);
+    if (idx >= 0) { favs.splice(idx, 1); showToast('💔', 'Retiré des favoris', name); }
+    else { favs.push(name); showToast('⭐', 'Ajouté aux favoris', name); }
+    localStorage.setItem('pokescelle-favorites', JSON.stringify(favs));
+    // Update star icons
+    document.querySelectorAll('.product-fav-btn').forEach(btn => {
+        btn.classList.toggle('fav-active', favs.includes(btn.dataset.name));
+    });
+    updateFavBadge();
+}
+
+let showFavOnly = false;
+
+function toggleFavFilter() {
+    showFavOnly = !showFavOnly;
+    document.getElementById('favFilterBtn')?.classList.toggle('active', showFavOnly);
+    render();
+}
+
+function updateFavBadge() {
+    const el = document.getElementById('favCount');
+    if (el) el.textContent = getFavorites().length || '';
+}
+
+// ── Alertes de prix ────────────────────────────────────────────
+
+function getAlerts() {
+    try { return JSON.parse(localStorage.getItem('pokescelle-alerts') || '{}'); } catch { return {}; }
+}
+
+function setAlert(name) {
+    const current = getAlerts()[name]?.threshold || '';
+    const val = prompt(`Alerte quand "${name}" passe sous quel prix (€) ?\n(Vide pour supprimer l'alerte)`, current);
+    if (val === null) return;
+    const alerts = getAlerts();
+    if (val.trim() === '') { delete alerts[name]; showToast('🔕', 'Alerte supprimée', name); }
+    else { alerts[name] = { threshold: parseFloat(val), notified: false }; showToast('🔔', `Alerte à ${val} €`, name); }
+    localStorage.setItem('pokescelle-alerts', JSON.stringify(alerts));
+}
+
+function checkAlerts() {
+    const alerts = getAlerts();
+    for (const [name, alert] of Object.entries(alerts)) {
+        if (alert.notified) continue;
+        const p = products.find(pr => pr.name === name);
+        if (p && p._ebayLoaded && p.price > 0 && p.price <= alert.threshold) {
+            showToast('🔔', `${name} est à ${fmt(p.price)} !`, `Sous votre seuil de ${alert.threshold} €`);
+            alerts[name].notified = true;
+        }
+    }
+    localStorage.setItem('pokescelle-alerts', JSON.stringify(alerts));
+}
+
+// ── Comparateur ────────────────────────────────────────────────
+
+let compareList = [];
+
+function toggleCompare(name, e) {
+    if (e) e.stopPropagation();
+    const idx = compareList.indexOf(name);
+    if (idx >= 0) { compareList.splice(idx, 1); }
+    else { if (compareList.length >= 3) { showToast('⚠️', 'Maximum 3 produits'); return; } compareList.push(name); }
+    updateCompareBar();
+}
+
+function updateCompareBar() {
+    let bar = document.getElementById('compareBar');
+    if (compareList.length === 0) { if (bar) bar.remove(); return; }
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'compareBar';
+        bar.className = 'compare-bar';
+        document.body.appendChild(bar);
+    }
+    bar.innerHTML = `
+        <div class="compare-bar-content">
+            <span class="compare-bar-label">${compareList.length} produit${compareList.length > 1 ? 's' : ''} sélectionné${compareList.length > 1 ? 's' : ''}</span>
+            <div class="compare-bar-items">${compareList.map(n => `<span class="compare-bar-item">${n} <button onclick="toggleCompare('${n.replace(/'/g, "\\'")}')">×</button></span>`).join('')}</div>
+            <button class="compare-bar-btn" onclick="openComparator()" ${compareList.length < 2 ? 'disabled' : ''}>Comparer</button>
+        </div>
+    `;
+}
+
+function openComparator() {
+    if (compareList.length < 2) return;
+    const prods = compareList.map(n => products.find(p => p.name === n)).filter(Boolean);
+    const existing = document.getElementById('comparatorOverlay');
+    if (existing) existing.remove();
+
+    const div = document.createElement('div');
+    div.id = 'comparatorOverlay';
+    div.className = 'detail-overlay open';
+    div.innerHTML = `
+        <div class="detail-modal" style="max-width:1000px">
+            <div class="detail-banner" style="height:60px">
+                <h2 style="color:#fff;font-size:16px;margin:auto 0">Comparateur de produits</h2>
+                <button class="detail-banner-close" onclick="document.getElementById('comparatorOverlay').remove();compareList=[];updateCompareBar()">&times;</button>
+            </div>
+            <div style="padding:24px;overflow-x:auto">
+                <table class="compare-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            ${prods.map(p => `<th>${p.name}<br><small style="color:var(--text-muted);font-weight:400">${p.ext}</small></th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Type</td>${prods.map(p => `<td><span class="product-type type-${p.type}">${TYPE_LABELS[p.type]}</span></td>`).join('')}</tr>
+                        <tr><td>Prix actuel</td>${prods.map(p => `<td style="font-weight:700;font-size:16px">${fmt(p.price)}</td>`).join('')}</tr>
+                        <tr><td>Dernier prix</td>${prods.map(p => `<td>${fmt(p.lastPrice || p.lastListing?.price || p.price)}</td>`).join('')}</tr>
+                        <tr><td>Prix minimum</td>${prods.map(p => `<td style="color:var(--green-light)">${fmt(p.low)}</td>`).join('')}</tr>
+                        <tr><td>Prix maximum</td>${prods.map(p => `<td style="color:var(--red)">${fmt(p.high)}</td>`).join('')}</tr>
+                        <tr><td>Tendance</td>${prods.map(p => `<td class="${p.trend > 0 ? 'positive' : p.trend < 0 ? 'negative' : ''}">${trendLabel(p.trend)}</td>`).join('')}</tr>
+                        <tr><td>Prix sortie</td>${prods.map(p => `<td>${fmt(MSRP[p.type] || 0)}</td>`).join('')}</tr>
+                        <tr><td>Performance</td>${prods.map(p => { const msrp = MSRP[p.type] || 0; const perf = msrp > 0 ? ((p.price - msrp) / msrp * 100) : 0; return `<td class="${perf > 0 ? 'positive' : 'negative'}">${perf >= 0 ? '+' : ''}${perf.toFixed(1)}%</td>`; }).join('')}</tr>
+                        <tr><td>Résultats eBay</td>${prods.map(p => `<td>${p.sampleSize || '—'}</td>`).join('')}</tr>
+                        <tr><td>Série</td>${prods.map(p => `<td>${p.serie}</td>`).join('')}</tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    div.addEventListener('click', e => { if (e.target === div) { div.remove(); compareList = []; updateCompareBar(); } });
+    document.body.appendChild(div);
+}
+
+// ── Export CSV Portfolio ────────────────────────────────────────
+
+function exportPortfolioCSV() {
+    const pf = loadPortfolioSync();
+    const rows = [['Produit', 'Type', 'Série', 'Quantité', 'Prix achat', 'Prix actuel', 'Investi', 'Valeur', 'P&L']];
+    for (const p of products) {
+        const h = pf[p.name] || { qty: 0, cost: 0 };
+        if (h.qty <= 0) continue;
+        const inv = h.qty * h.cost;
+        const val = h.qty * p.price;
+        rows.push([p.name, TYPE_LABELS[p.type] || p.type, p.serie, h.qty, h.cost.toFixed(2), p.price.toFixed(2), inv.toFixed(2), val.toFixed(2), (val - inv).toFixed(2)]);
+    }
+    const csv = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `pokescelle-portfolio-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    showToast('📥', 'Portfolio exporté', 'Fichier CSV téléchargé');
+}
+
 // ── Simulation ──────────────────────────────────────────────
 
 let simScenario = 'moderate';
@@ -2324,6 +2515,13 @@ function getGrowthRate(type, scenario, seriesAge) {
 
 // Estimation de l'âge de la série basée sur le code
 function getSeriesAge(code) {
+    // EB01-EB03 : 2020
+    if (['EB01', 'EB02', 'EB03'].includes(code)) return 6;
+    if (code === 'EB03.5') return 6;
+    // EB04-EB06 : 2020-2021
+    if (['EB04', 'EB04.5', 'EB05', 'EB06'].includes(code)) return 5;
+    // EB07-EB10 : 2021-2022
+    if (['EB07', 'EB08', 'EB09', 'EB10', 'EB10.5'].includes(code)) return 4;
     // Épée et Bouclier : 2022-2023
     if (code.startsWith('EB') || code.startsWith('SWSH')) return 3;
     // EV01-EV03 : 2023
