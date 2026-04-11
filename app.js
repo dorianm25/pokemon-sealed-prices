@@ -1306,6 +1306,18 @@ async function renderTrends() {
 
     // ── Séries à potentiel ──
     renderPotential(priced);
+
+    // ── Score d'investissement ──
+    renderInvestmentScores(priced);
+
+    // ── Détection de bulles ──
+    renderBubbleDetection(priced);
+
+    // ── Corrélations ──
+    renderCorrelations(priced);
+
+    // ── Prédictions ──
+    renderPredictions(priced);
 }
 
 // Prix de sortie officiels par type
@@ -2751,6 +2763,354 @@ function renderSimProductTable() {
                     <span class="sim-col-mult ${multClass}">×${mult.toFixed(1)}</span>
                 </div>`;
             }).join('')}
+        </div>
+    `;
+}
+
+// ── Score d'investissement ─────────────────────────────────
+
+function computeInvestmentScore(p) {
+    const msrp = MSRP[p.type] || 0;
+    let score = 0;
+    const factors = [];
+
+    // 1. Proximité au MSRP (25pts) — plus c'est proche, plus c'est une opportunité
+    if (msrp > 0) {
+        const premium = ((p.price - msrp) / msrp) * 100;
+        if (premium < 5) { score += 25; factors.push({ label: 'Prix proche du MSRP', value: `${premium >= 0 ? '+' : ''}${premium.toFixed(0)}%`, positive: true }); }
+        else if (premium < 30) { score += 18; factors.push({ label: 'Premium modéré', value: `+${premium.toFixed(0)}%`, positive: true }); }
+        else if (premium < 100) { score += 10; factors.push({ label: 'Premium élevé', value: `+${premium.toFixed(0)}%`, positive: false }); }
+        else { score += 3; factors.push({ label: 'Prix très élevé', value: `+${premium.toFixed(0)}%`, positive: false }); }
+    }
+
+    // 2. Position dans le range (20pts) — bas = bonne entrée
+    if (p.low && p.high && p.high > p.low) {
+        const pos = (p.price - p.low) / (p.high - p.low);
+        if (pos < 0.3) { score += 20; factors.push({ label: 'Prix bas dans le range', value: `${(pos * 100).toFixed(0)}%`, positive: true }); }
+        else if (pos < 0.5) { score += 14; factors.push({ label: 'Prix médian', value: `${(pos * 100).toFixed(0)}%`, positive: true }); }
+        else if (pos < 0.7) { score += 7; factors.push({ label: 'Prix haut', value: `${(pos * 100).toFixed(0)}%`, positive: false }); }
+        else { score += 2; factors.push({ label: 'Prix très haut', value: `${(pos * 100).toFixed(0)}%`, positive: false }); }
+    }
+
+    // 3. Tendance (20pts) — hausse = momentum positif
+    const t = p.trend || 0;
+    if (t > 10) { score += 20; factors.push({ label: 'Forte hausse', value: `+${t}%`, positive: true }); }
+    else if (t > 3) { score += 15; factors.push({ label: 'Hausse', value: `+${t}%`, positive: true }); }
+    else if (t >= -3) { score += 10; factors.push({ label: 'Stable', value: `${t}%`, positive: true }); }
+    else if (t >= -10) { score += 5; factors.push({ label: 'Baisse', value: `${t}%`, positive: false }); }
+    else { score += 0; factors.push({ label: 'Forte baisse', value: `${t}%`, positive: false }); }
+
+    // 4. Liquidité (15pts) — beaucoup d'annonces = facile à revendre
+    const samples = p.sampleSize || 0;
+    if (samples >= 15) { score += 15; factors.push({ label: 'Très liquide', value: `${samples} résultats`, positive: true }); }
+    else if (samples >= 8) { score += 11; factors.push({ label: 'Liquide', value: `${samples} résultats`, positive: true }); }
+    else if (samples >= 3) { score += 6; factors.push({ label: 'Peu liquide', value: `${samples} résultats`, positive: false }); }
+    else { score += 1; factors.push({ label: 'Illiquide', value: `${samples} résultats`, positive: false }); }
+
+    // 5. Risque / Volatilité (20pts inversé) — faible spread = moins risqué
+    if (p.low && p.high && p.high > p.low) {
+        const spread = (p.high - p.low) / ((p.high + p.low) / 2);
+        if (spread < 0.15) { score += 20; factors.push({ label: 'Très stable', value: `${(spread * 100).toFixed(0)}%`, positive: true }); }
+        else if (spread < 0.3) { score += 14; factors.push({ label: 'Stable', value: `${(spread * 100).toFixed(0)}%`, positive: true }); }
+        else if (spread < 0.5) { score += 8; factors.push({ label: 'Volatile', value: `${(spread * 100).toFixed(0)}%`, positive: false }); }
+        else { score += 3; factors.push({ label: 'Très volatile', value: `${(spread * 100).toFixed(0)}%`, positive: false }); }
+    }
+
+    return { score: Math.min(100, score), factors };
+}
+
+function renderInvestmentScores(priced) {
+    const scored = priced.map(p => {
+        const inv = computeInvestmentScore(p);
+        return { ...p, investScore: inv.score, investFactors: inv.factors };
+    }).sort((a, b) => b.investScore - a.investScore);
+
+    const getScoreLabel = (s) => {
+        if (s >= 80) return { label: 'Excellent', cls: 'inv-excellent', icon: '🟢' };
+        if (s >= 60) return { label: 'Bon', cls: 'inv-bon', icon: '🔵' };
+        if (s >= 40) return { label: 'Moyen', cls: 'inv-moyen', icon: '🟡' };
+        if (s >= 20) return { label: 'Faible', cls: 'inv-faible', icon: '🟠' };
+        return { label: 'Risqué', cls: 'inv-risque', icon: '🔴' };
+    };
+
+    document.getElementById('investmentScores').innerHTML = `
+        <div class="inv-grid">
+            ${scored.slice(0, 20).map((p, i) => {
+                const { label, cls, icon } = getScoreLabel(p.investScore);
+                return `<div class="inv-card ${cls}">
+                    <div class="inv-card-header">
+                        <span class="inv-rank">${i + 1}</span>
+                        <div class="inv-name-wrap">
+                            <span class="inv-name">${p.name}</span>
+                            <span class="inv-ext">${p.ext.split(' — ')[0]}</span>
+                        </div>
+                        <div class="inv-score-wrap">
+                            <span class="inv-score">${p.investScore}</span>
+                            <span class="inv-score-label">${icon} ${label}</span>
+                        </div>
+                    </div>
+                    <div class="inv-price">${fmt(p.price)}</div>
+                    <div class="inv-factors">
+                        ${p.investFactors.map(f => `<span class="inv-factor ${f.positive ? 'inv-pos' : 'inv-neg'}">
+                            ${f.positive ? '✓' : '✗'} ${f.label} <small>${f.value}</small>
+                        </span>`).join('')}
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+}
+
+// ── Détection de bulles ────────────────────────────────────
+
+function renderBubbleDetection(priced) {
+    // Détecter les produits avec hausse anormale
+    const withTrend = priced.filter(p => p.trend !== 0 && p.price > 0);
+    const avgTrend = withTrend.length > 0 ? withTrend.reduce((s, p) => s + Math.abs(p.trend), 0) / withTrend.length : 0;
+    const stdDev = withTrend.length > 0 ? Math.sqrt(withTrend.reduce((s, p) => s + Math.pow(Math.abs(p.trend) - avgTrend, 2), 0) / withTrend.length) : 0;
+
+    const bubbles = priced.map(p => {
+        const msrp = MSRP[p.type] || 0;
+        const premium = msrp > 0 ? ((p.price - msrp) / msrp) * 100 : 0;
+        const spread = (p.low && p.high && p.high > p.low) ? (p.high - p.low) / ((p.high + p.low) / 2) : 0;
+        const trendDeviation = stdDev > 0 ? (Math.abs(p.trend) - avgTrend) / stdDev : 0;
+
+        let risk = 0;
+        const signals = [];
+
+        // Signal 1: Hausse très au-dessus de la moyenne
+        if (p.trend > avgTrend + stdDev * 1.5) { risk += 30; signals.push(`Hausse anormale (+${p.trend}% vs moy. ${avgTrend.toFixed(0)}%)`); }
+        else if (p.trend > avgTrend + stdDev) { risk += 15; signals.push(`Hausse élevée (+${p.trend}%)`); }
+
+        // Signal 2: Premium excessif par rapport au MSRP
+        if (premium > 300) { risk += 25; signals.push(`Premium excessif (+${premium.toFixed(0)}% vs MSRP)`); }
+        else if (premium > 150) { risk += 15; signals.push(`Premium très élevé (+${premium.toFixed(0)}%)`); }
+
+        // Signal 3: Spread très large = prix instable
+        if (spread > 0.5) { risk += 20; signals.push(`Forte volatilité (${(spread * 100).toFixed(0)}% de spread)`); }
+        else if (spread > 0.35) { risk += 10; signals.push(`Volatilité élevée (${(spread * 100).toFixed(0)}%)`); }
+
+        // Signal 4: Prix proche du max historique
+        if (p.high > 0 && p.price > 0) {
+            const posInRange = p.high > p.low ? (p.price - p.low) / (p.high - p.low) : 0.5;
+            if (posInRange > 0.9) { risk += 20; signals.push('Prix au sommet du range'); }
+            else if (posInRange > 0.75) { risk += 10; signals.push('Prix dans le haut du range'); }
+        }
+
+        // Signal 5: Peu de liquidité malgré prix élevé
+        if (premium > 50 && (p.sampleSize || 0) < 5) { risk += 15; signals.push(`Prix élevé mais peu liquide (${p.sampleSize || 0} résultats)`); }
+
+        return { ...p, bubbleRisk: Math.min(100, risk), signals, premium };
+    }).filter(b => b.bubbleRisk >= 25).sort((a, b) => b.bubbleRisk - a.bubbleRisk);
+
+    const getRiskLabel = (r) => {
+        if (r >= 70) return { label: 'Risque critique', cls: 'bubble-critical', icon: '🔴' };
+        if (r >= 50) return { label: 'Risque élevé', cls: 'bubble-high', icon: '🟠' };
+        if (r >= 25) return { label: 'À surveiller', cls: 'bubble-watch', icon: '🟡' };
+        return { label: 'OK', cls: '', icon: '🟢' };
+    };
+
+    document.getElementById('bubbleDetection').innerHTML = bubbles.length ? `
+        <div class="bubble-grid">
+            ${bubbles.slice(0, 15).map(b => {
+                const { label, cls, icon } = getRiskLabel(b.bubbleRisk);
+                return `<div class="bubble-card ${cls}">
+                    <div class="bubble-header">
+                        <div>
+                            <span class="bubble-name">${b.name}</span>
+                            <span class="bubble-ext">${b.ext.split(' — ')[0]}</span>
+                        </div>
+                        <div class="bubble-risk-wrap">
+                            <span class="bubble-risk">${icon} ${b.bubbleRisk}</span>
+                            <span class="bubble-risk-label">${label}</span>
+                        </div>
+                    </div>
+                    <div class="bubble-price">${fmt(b.price)} <span class="bubble-trend ${b.trend > 0 ? 'positive' : 'negative'}">${b.trend > 0 ? '+' : ''}${b.trend}%</span></div>
+                    <div class="bubble-signals">
+                        ${b.signals.map(s => `<span class="bubble-signal">⚠ ${s}</span>`).join('')}
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>
+    ` : '<div class="t-empty-block">Aucun risque de bulle détecté actuellement</div>';
+}
+
+// ── Corrélation entre séries ───────────────────────────────
+
+function renderCorrelations(priced) {
+    // Grouper par série
+    const seriesMap = {};
+    for (const p of priced) {
+        const code = p.ext.split(' — ')[0];
+        const name = p.ext.split(' — ')[1] || code;
+        if (!seriesMap[code]) seriesMap[code] = { code, name, products: [], avgTrend: 0, avgPerf: 0, setTotal: 0 };
+        seriesMap[code].products.push(p);
+    }
+    const series = Object.values(seriesMap);
+
+    // Calculer des métriques pour chaque série
+    for (const s of series) {
+        s.avgTrend = s.products.reduce((sum, p) => sum + p.trend, 0) / s.products.length;
+        s.setTotal = s.products.reduce((sum, p) => sum + p.price, 0);
+        let perfSum = 0, perfCount = 0;
+        for (const p of s.products) {
+            const msrp = MSRP[p.type];
+            if (msrp && msrp > 0) { perfSum += ((p.price - msrp) / msrp) * 100; perfCount++; }
+        }
+        s.avgPerf = perfCount > 0 ? perfSum / perfCount : 0;
+    }
+
+    // Trouver des corrélations (séries qui ont des profils similaires)
+    const correlations = [];
+    for (let i = 0; i < series.length; i++) {
+        for (let j = i + 1; j < series.length; j++) {
+            const a = series[i], b = series[j];
+            // Score de similarité basé sur tendance et perf
+            const trendDiff = Math.abs(a.avgTrend - b.avgTrend);
+            const perfDiff = Math.abs(a.avgPerf - b.avgPerf);
+            const trendSame = a.avgTrend > 0 === b.avgTrend > 0; // même direction
+            const similarity = Math.max(0, 100 - trendDiff * 2 - perfDiff * 0.5);
+            if (similarity > 40 && trendSame) {
+                correlations.push({ a, b, similarity: Math.round(similarity), trendDiff, perfDiff });
+            }
+        }
+    }
+    correlations.sort((a, b) => b.similarity - a.similarity);
+
+    // Identifier les leaders (séries qui bougent en premier et influencent les autres)
+    const leaders = series.filter(s => s.avgTrend > 5 && s.setTotal > 500).sort((a, b) => b.avgTrend - a.avgTrend).slice(0, 5);
+    const followers = series.filter(s => s.avgTrend > 0 && s.avgTrend <= 5 && s.setTotal > 200).sort((a, b) => b.setTotal - a.setTotal).slice(0, 5);
+
+    document.getElementById('correlations').innerHTML = `
+        <div class="corr-wrap">
+            <div class="corr-section">
+                <h4 class="corr-subtitle">🔗 Séries corrélées</h4>
+                <p class="corr-desc">Séries qui évoluent dans la même direction avec des profils similaires</p>
+                <div class="corr-pairs">
+                    ${correlations.slice(0, 8).map(c => `<div class="corr-pair">
+                        <div class="corr-pair-series">
+                            <span class="corr-pair-name">${c.a.code} ${c.a.name}</span>
+                            <span class="corr-pair-arrow">↔</span>
+                            <span class="corr-pair-name">${c.b.code} ${c.b.name}</span>
+                        </div>
+                        <div class="corr-pair-score">
+                            <div class="corr-bar"><div class="corr-bar-fill" style="width:${c.similarity}%"></div></div>
+                            <span class="corr-pct">${c.similarity}%</span>
+                        </div>
+                    </div>`).join('')}
+                </div>
+            </div>
+            ${leaders.length > 0 ? `<div class="corr-section">
+                <h4 class="corr-subtitle">🚀 Séries leaders</h4>
+                <p class="corr-desc">Séries en forte hausse qui pourraient entraîner d'autres séries</p>
+                <div class="corr-leaders">
+                    ${leaders.map(s => `<div class="corr-leader">
+                        <span class="corr-leader-code">${s.code}</span>
+                        <span class="corr-leader-name">${s.name}</span>
+                        <span class="corr-leader-trend positive">+${s.avgTrend.toFixed(1)}%</span>
+                        <span class="corr-leader-total">${fmt(s.setTotal)}</span>
+                    </div>`).join('')}
+                </div>
+            </div>` : ''}
+            ${followers.length > 0 ? `<div class="corr-section">
+                <h4 class="corr-subtitle">📊 Séries à suivre</h4>
+                <p class="corr-desc">Séries en légère hausse qui pourraient accélérer</p>
+                <div class="corr-leaders">
+                    ${followers.map(s => `<div class="corr-leader">
+                        <span class="corr-leader-code">${s.code}</span>
+                        <span class="corr-leader-name">${s.name}</span>
+                        <span class="corr-leader-trend" style="color:var(--orange)">+${s.avgTrend.toFixed(1)}%</span>
+                        <span class="corr-leader-total">${fmt(s.setTotal)}</span>
+                    </div>`).join('')}
+                </div>
+            </div>` : ''}
+        </div>
+    `;
+}
+
+// ── Prédiction de prix ─────────────────────────────────────
+
+function renderPredictions(priced) {
+    // Prédiction simple basée sur la tendance actuelle et l'historique
+    const predictions = priced.filter(p => p._ebayLoaded && p.price > 0).map(p => {
+        const dailyRate = (p.trend || 0) / 30; // trend est sur ~30 jours
+        const msrp = MSRP[p.type] || 0;
+        const premium = msrp > 0 ? ((p.price - msrp) / msrp) * 100 : 0;
+
+        // Ajustement : les produits à premium élevé ralentissent, les bas accélèrent
+        const decel = premium > 100 ? 0.7 : premium > 50 ? 0.85 : premium < 10 ? 1.15 : 1;
+
+        const p30 = p.price * (1 + dailyRate * 30 * decel / 100);
+        const p60 = p.price * (1 + dailyRate * 60 * decel * 0.95 / 100);
+        const p90 = p.price * (1 + dailyRate * 90 * decel * 0.9 / 100);
+
+        const change30 = ((p30 - p.price) / p.price * 100);
+        const change90 = ((p90 - p.price) / p.price * 100);
+
+        // Confiance basée sur la liquidité et la stabilité
+        const liquidity = Math.min(1, (p.sampleSize || 0) / 15);
+        const stability = (p.low && p.high && p.high > p.low) ? 1 - Math.min(1, (p.high - p.low) / ((p.high + p.low) / 2)) : 0.5;
+        const confidence = Math.round((liquidity * 0.5 + stability * 0.5) * 100);
+
+        return { ...p, p30, p60, p90, change30, change90, confidence, dailyRate };
+    });
+
+    // Top hausse prévue
+    const topUp = [...predictions].sort((a, b) => b.change90 - a.change90).slice(0, 10);
+    // Top baisse prévue
+    const topDown = [...predictions].sort((a, b) => a.change90 - b.change90).filter(p => p.change90 < 0).slice(0, 10);
+
+    document.getElementById('predictions').innerHTML = `
+        <div class="pred-wrap">
+            <div class="pred-section">
+                <h4 class="pred-subtitle">📈 Hausses prévues (90 jours)</h4>
+                <div class="pred-table">
+                    <div class="pred-header">
+                        <span class="pred-col-name">Produit</span>
+                        <span class="pred-col">Actuel</span>
+                        <span class="pred-col">30j</span>
+                        <span class="pred-col">60j</span>
+                        <span class="pred-col">90j</span>
+                        <span class="pred-col">Confiance</span>
+                    </div>
+                    ${topUp.map(p => `<div class="pred-row">
+                        <div class="pred-col-name">
+                            <span class="pred-name">${p.name}</span>
+                            <span class="pred-ext">${p.ext.split(' — ')[0]}</span>
+                        </div>
+                        <span class="pred-col">${fmt(p.price)}</span>
+                        <span class="pred-col positive">${fmt(Math.round(p.p30))}</span>
+                        <span class="pred-col positive">${fmt(Math.round(p.p60))}</span>
+                        <span class="pred-col positive" style="font-weight:700">${fmt(Math.round(p.p90))} <small>(+${p.change90.toFixed(1)}%)</small></span>
+                        <span class="pred-col"><span class="pred-conf" style="--conf:${p.confidence}%">${p.confidence}%</span></span>
+                    </div>`).join('')}
+                </div>
+            </div>
+            ${topDown.length > 0 ? `<div class="pred-section">
+                <h4 class="pred-subtitle">📉 Baisses prévues (90 jours)</h4>
+                <div class="pred-table">
+                    <div class="pred-header">
+                        <span class="pred-col-name">Produit</span>
+                        <span class="pred-col">Actuel</span>
+                        <span class="pred-col">30j</span>
+                        <span class="pred-col">60j</span>
+                        <span class="pred-col">90j</span>
+                        <span class="pred-col">Confiance</span>
+                    </div>
+                    ${topDown.map(p => `<div class="pred-row">
+                        <div class="pred-col-name">
+                            <span class="pred-name">${p.name}</span>
+                            <span class="pred-ext">${p.ext.split(' — ')[0]}</span>
+                        </div>
+                        <span class="pred-col">${fmt(p.price)}</span>
+                        <span class="pred-col negative">${fmt(Math.round(p.p30))}</span>
+                        <span class="pred-col negative">${fmt(Math.round(p.p60))}</span>
+                        <span class="pred-col negative" style="font-weight:700">${fmt(Math.round(p.p90))} <small>(${p.change90.toFixed(1)}%)</small></span>
+                        <span class="pred-col"><span class="pred-conf" style="--conf:${p.confidence}%">${p.confidence}%</span></span>
+                    </div>`).join('')}
+                </div>
+            </div>` : ''}
+            <div class="pred-disclaimer">⚠️ Prédictions basées sur les tendances actuelles. Elles ne constituent pas un conseil d'investissement.</div>
         </div>
     `;
 }
