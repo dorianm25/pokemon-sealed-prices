@@ -147,6 +147,20 @@ const BLOCS_SERIES = [
     ]},
 ];
 
+const SERIES_ICONS = {
+    'Écarlate et Violet': { icon: '🔴', color: '#e74c3c' },
+    'Méga-Évolution': { icon: '🧬', color: '#9b59b6' },
+    'Épée et Bouclier': { icon: '⚔️', color: '#3498db' },
+    'Soleil et Lune': { icon: '☀️', color: '#f39c12' },
+    'XY': { icon: '✖️', color: '#2ecc71' },
+    'Noir et Blanc': { icon: '⚫', color: '#7f8c8d' },
+    'HeartGold SoulSilver': { icon: '💛', color: '#f1c40f' },
+    'Platine': { icon: '💎', color: '#bdc3c7' },
+    'Diamant et Perle': { icon: '💠', color: '#1abc9c' },
+    'EX': { icon: '⭐', color: '#e67e22' },
+    'Wizards': { icon: '🧙', color: '#8e44ad' },
+};
+
 let activeBlocs = new Set(['Écarlate et Violet', 'Méga-Évolution', 'Épée et Bouclier']); // blocs cochés par défaut
 let openBloc = null; // bloc déplié (accordéon)
 let activeSerie = null;
@@ -161,6 +175,7 @@ function renderBlocsAccordion() {
             <div class="bloc-header" onclick="toggleOpenBloc('${b.bloc.replace(/'/g, "\\'")}')">
                 <label class="bloc-check" onclick="event.stopPropagation()">
                     <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleBlocFilter('${b.bloc.replace(/'/g, "\\'")}', this.checked)">
+                    <span class="bloc-icon" style="color:${(SERIES_ICONS[b.bloc]||{}).color||'var(--text-muted)'}">${(SERIES_ICONS[b.bloc]||{}).icon||'📦'}</span>
                     <span class="${hasProducts ? '' : 'bloc-empty'}">${b.bloc}</span>
                 </label>
                 <span class="bloc-chevron">${isOpen ? '▾' : '›'}</span>
@@ -727,6 +742,7 @@ function switchSection(section, e) {
     });
 
     // Show/hide sections
+    document.getElementById('sectionDashboard').style.display = section === 'dashboard' ? 'block' : 'none';
     document.getElementById('sectionCatalogue').style.display = section === 'catalogue' ? 'block' : 'none';
     document.getElementById('sectionPortfolio').style.display = section === 'portfolio' ? 'block' : 'none';
     document.getElementById('sectionTendances').style.display = section === 'tendances' ? 'block' : 'none';
@@ -735,6 +751,7 @@ function switchSection(section, e) {
     // Show/hide sidebar filters
     document.getElementById('sidebarFilters').style.display = section === 'catalogue' ? 'block' : 'none';
 
+    if (section === 'dashboard') renderDashboard();
     if (section === 'portfolio') renderPortfolio();
     if (section === 'tendances') renderTrends();
     if (section === 'simulation') renderSimulation();
@@ -809,6 +826,7 @@ function render() {
                 <div class="serie-header">
                     <span class="serie-code">${g.code}</span>
                     <span class="serie-name">${g.name}</span>
+                    ${(() => { const bloc = products.find(p => p.ext.startsWith(g.code))?.serie; const si = SERIES_ICONS[bloc]; return si ? `<span class="series-group-icon" style="color:${si.color}">${si.icon}</span>` : ''; })()}
                 </div>
                 <div class="serie-items">${g.items.map(renderCard).join('')}</div>
             </div>`
@@ -3115,6 +3133,177 @@ function renderPredictions(priced) {
     `;
 }
 
+// ── Skeleton Loading ─────────────────────────────────────────
+
+function renderSkeletonCards(count = 6) {
+    return Array.from({length: count}, () => `
+        <div class="skeleton-card">
+            <div class="skeleton skeleton-img"></div>
+            <div class="skeleton skeleton-line long"></div>
+            <div class="skeleton skeleton-line short"></div>
+            <div class="skeleton skeleton-line medium"></div>
+        </div>
+    `).join('');
+}
+
+function renderSkeletonTrend() {
+    return `<div class="skeleton-trend-block">
+        <div class="skeleton skeleton-line medium"></div>
+        <div class="skeleton skeleton-line long"></div>
+        <div class="skeleton skeleton-line short"></div>
+        <div class="skeleton skeleton-line long"></div>
+        <div class="skeleton skeleton-line medium"></div>
+    </div>`;
+}
+
+// ── Theme ────────────────────────────────────────────────────
+
+function getTheme() { return localStorage.getItem('pokescelle-theme') || 'dark'; }
+function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('pokescelle-theme', theme);
+    const btn = document.getElementById('themeToggle');
+    if (btn) btn.textContent = theme === 'dark' ? '🌙' : '☀️';
+}
+function toggleTheme() {
+    setTheme(getTheme() === 'dark' ? 'light' : 'dark');
+}
+
+// ── Dashboard ────────────────────────────────────────────────
+
+function renderDashboard() {
+    const container = document.getElementById('dashboardContent');
+    const priced = products.filter(p => p.price > 0);
+    const favs = getFavorites();
+    const alerts = getAlerts();
+    const pf = JSON.parse(localStorage.getItem('pokescelle-portfolio') || '{}');
+    const pfItems = Object.entries(pf).filter(([,v]) => v.qty > 0);
+
+    // Portfolio value
+    let pfTotal = 0;
+    pfItems.forEach(([name, data]) => {
+        const p = products.find(pr => pr.name === name);
+        if (p) pfTotal += (p.lastPrice || p.price) * data.qty;
+    });
+
+    // Best trend
+    const bestTrend = priced.reduce((best, p) => p.trend > best.trend ? p : best, { trend: -999, name: '—' });
+
+    // Top 3 investment scores
+    const scored = priced.map(p => ({ ...p, inv: computeInvestmentScore(p) }))
+        .sort((a, b) => b.inv.score - a.inv.score).slice(0, 3);
+
+    // Favorite products
+    const favProducts = priced.filter(p => favs.includes(p.name)).slice(0, 6);
+
+    container.innerHTML = `
+        <div class="dash-kpis">
+            <div class="dash-kpi">
+                <span class="dash-kpi-icon">📦</span>
+                <div>
+                    <span class="dash-kpi-value">${priced.length}</span>
+                    <span class="dash-kpi-label">Produits suivis</span>
+                </div>
+            </div>
+            <div class="dash-kpi">
+                <span class="dash-kpi-icon">💰</span>
+                <div>
+                    <span class="dash-kpi-value">${pfItems.length > 0 ? fmt(pfTotal) : '—'}</span>
+                    <span class="dash-kpi-label">Valeur portfolio</span>
+                </div>
+            </div>
+            <div class="dash-kpi">
+                <span class="dash-kpi-icon">📈</span>
+                <div>
+                    <span class="dash-kpi-value positive">+${bestTrend.trend}%</span>
+                    <span class="dash-kpi-label">${bestTrend.name.substring(0, 25)}</span>
+                </div>
+            </div>
+            <div class="dash-kpi">
+                <span class="dash-kpi-icon">🔔</span>
+                <div>
+                    <span class="dash-kpi-value">${alerts.length}</span>
+                    <span class="dash-kpi-label">Alertes actives</span>
+                </div>
+            </div>
+        </div>
+
+        ${favProducts.length > 0 ? `
+        <div class="dash-section">
+            <h3 class="dash-section-title">⭐ Mes favoris</h3>
+            <div class="dash-favs-grid">
+                ${favProducts.map(p => `
+                    <div class="dash-fav-card" onclick="openDetail('${p.name.replace(/'/g, "\\'")}')">
+                        ${p.lastListing?.image ? `<img src="${p.lastListing.image}" alt="${p.name}" class="dash-fav-img">` : '<div class="dash-fav-img-placeholder">📦</div>'}
+                        <div class="dash-fav-info">
+                            <span class="dash-fav-name">${p.name}</span>
+                            <span class="dash-fav-price">${fmt(p.lastPrice || p.price)}</span>
+                            <span class="dash-fav-trend ${trendClass(p.trend)}">${trendLabel(p.trend)}</span>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>` : ''}
+
+        <div class="dash-section">
+            <h3 class="dash-section-title">🏆 Top 3 investissements</h3>
+            <div class="dash-top3">
+                ${scored.map((p, i) => `
+                    <div class="dash-top3-card" onclick="openDetail('${p.name.replace(/'/g, "\\'")}')">
+                        <span class="dash-top3-rank">#${i + 1}</span>
+                        <div class="dash-top3-info">
+                            <span class="dash-top3-name">${p.name}</span>
+                            <span class="dash-top3-ext">${p.ext.split(' — ')[0]}</span>
+                        </div>
+                        <div class="dash-top3-score">
+                            <span class="dash-top3-score-value">${p.inv.score}/100</span>
+                            <div class="dash-top3-bar"><div class="dash-top3-bar-fill" style="width:${p.inv.score}%"></div></div>
+                        </div>
+                        <span class="dash-top3-price">${fmt(p.lastPrice || p.price)}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+
+        ${alerts.length > 0 ? `
+        <div class="dash-section">
+            <h3 class="dash-section-title">🔔 Alertes configurées</h3>
+            <div class="dash-alerts">
+                ${alerts.slice(0, 5).map(a => `
+                    <div class="dash-alert-row">
+                        <span class="dash-alert-name">${a.product}</span>
+                        <span class="dash-alert-type">${a.type === 'below' ? '< ' : '> '}${fmt(a.threshold)}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>` : ''}
+
+        ${pfItems.length > 0 ? `
+        <div class="dash-section">
+            <h3 class="dash-section-title">📊 Mon portfolio (${pfItems.length} items)</h3>
+            <div class="dash-pf-grid">
+                ${pfItems.slice(0, 6).map(([name, data]) => {
+                    const p = products.find(pr => pr.name === name);
+                    if (!p) return '';
+                    const val = (p.lastPrice || p.price) * data.qty;
+                    return `<div class="dash-pf-item">
+                        <span class="dash-pf-name">${name}</span>
+                        <span class="dash-pf-qty">×${data.qty}</span>
+                        <span class="dash-pf-val">${fmt(val)}</span>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>` : ''}
+
+        <div class="dash-quick-links">
+            <button class="dash-link" onclick="switchSection('catalogue')">📋 Catalogue</button>
+            <button class="dash-link" onclick="switchSection('tendances')">📊 Tendances</button>
+            <button class="dash-link" onclick="switchSection('simulation')">🔮 Simulation</button>
+            ${currentUser ? '<button class="dash-link" onclick="switchSection(\'portfolio\')">💼 Portfolio</button>' : ''}
+        </div>
+    `;
+}
+
 // ── Events ───────────────────────────────────────────────────
 
 document.getElementById('searchInput').addEventListener('input', render);
@@ -3123,6 +3312,7 @@ document.getElementById('sortBy').addEventListener('change', render);
 
 // ── Init ─────────────────────────────────────────────────────
 
+setTheme(getTheme());
 initAuth();
 renderBlocsAccordion();
 render();

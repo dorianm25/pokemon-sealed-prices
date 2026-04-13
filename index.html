@@ -27,6 +27,10 @@
                 <!-- Nav -->
                 <nav class="sidebar-nav">
                     <div class="sidebar-nav-label">NAVIGATION</div>
+                    <a href="#" class="sidebar-link" data-section="dashboard" onclick="switchSection('dashboard', event)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                        Dashboard
+                    </a>
                     <a href="#" class="sidebar-link active" data-section="catalogue" onclick="switchSection('catalogue', event)">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
                         Items Pokémon
@@ -108,6 +112,7 @@
                     </div>
                 </div>
                 <div class="topbar-right">
+                    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Changer le thème">🌙</button>
                     <div class="ebay-status" id="ebayBanner"></div>
                     <select id="sortBy">
                         <option value="serie">Par série</option>
@@ -122,6 +127,17 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Section: Dashboard -->
+            <section class="section-dashboard" id="sectionDashboard" style="display:none">
+                <div class="dash-welcome">
+                    <div>
+                        <h1 class="dash-welcome-title">Bonjour, <span id="dashUsername">—</span> 👋</h1>
+                        <p class="dash-welcome-sub">Voici un résumé de votre activité PokéScellé</p>
+                    </div>
+                </div>
+                <div id="dashboardContent"></div>
+            </section>
 
             <!-- Section: Catalogue -->
             <section class="section-catalogue" id="sectionCatalogue">
