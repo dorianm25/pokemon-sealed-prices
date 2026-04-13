@@ -8,6 +8,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2ea043">
 </head>
 <body>
 
@@ -112,6 +114,7 @@
                     </div>
                 </div>
                 <div class="topbar-right">
+                    <button class="theme-toggle" id="notifToggle" onclick="requestNotifications()" title="Activer les notifications">🔔</button>
                     <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Changer le thème">🌙</button>
                     <div class="ebay-status" id="ebayBanner"></div>
                     <select id="sortBy">
@@ -148,8 +151,17 @@
                     </div>
                 </div>
 
-                <!-- Active type badge -->
-                <div class="active-filter-badge" id="activeFilterBadge"></div>
+                <div class="catalogue-toolbar">
+                    <div class="active-filter-badge" id="activeFilterBadge"></div>
+                    <div class="view-mode-toggle">
+                        <button class="view-mode-btn active" data-mode="grid" onclick="setViewMode('grid')" title="Grille">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                        </button>
+                        <button class="view-mode-btn" data-mode="table" onclick="setViewMode('table')" title="Tableau">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                        </button>
+                    </div>
+                </div>
 
                 <div id="productsGrid" class="products-grid"></div>
             </section>
@@ -159,6 +171,7 @@
                 <div class="section-header">
                     <h1 class="page-title">Mon Portfolio</h1>
                     <button class="btn-export" onclick="exportPortfolioCSV()">📥 Export CSV</button>
+                    <button class="btn-export" onclick="sharePortfolio()">🔗 Partager</button>
                     <button class="btn-outline" onclick="refreshPortfolio()" style="margin-right:8px">Actualiser</button>
                     <button class="btn-outline" onclick="resetPortfolio()">Réinitialiser</button>
                 </div>
@@ -255,6 +268,16 @@
                 <h2 class="trend-section-title">Prédiction de prix</h2>
                 <p class="trend-section-desc">Estimation à 30, 60 et 90 jours basée sur les tendances actuelles</p>
                 <div id="predictions"></div>
+
+                <!-- Heatmap -->
+                <h2 class="trend-section-title">Carte thermique des prix</h2>
+                <p class="trend-section-desc">Vue d'ensemble des prix par série et type de produit</p>
+                <div id="heatmapWrap"></div>
+
+                <!-- ROI Calculator -->
+                <h2 class="trend-section-title">Calculateur de ROI</h2>
+                <p class="trend-section-desc">Simulez le retour sur investissement si vous aviez acheté un produit dans le passé</p>
+                <div id="roiCalculator"></div>
             </section>
 
             <!-- ═══ SIMULATION ═══ -->
@@ -316,6 +339,9 @@
         </div>
     </div>
 
+    <!-- Shared portfolio viewer -->
+    <div id="sharedPortfolioWrap" style="display:none"></div>
+
     <!-- Toast notifications -->
     <div class="toast-container" id="toastContainer"></div>
 
@@ -326,5 +352,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
     <script src="app.js"></script>
+    <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});</script>
 </body>
 </html>

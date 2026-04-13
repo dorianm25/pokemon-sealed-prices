@@ -277,6 +277,9 @@ function renderCard(p, i) {
     const isFav = favs.includes(p.name);
     const favBtn = `<button class="product-fav-btn ${isFav ? 'fav-active' : ''}" data-name="${p.name.replace(/"/g, '&quot;')}" onclick="toggleFavorite('${p.name.replace(/'/g, "\\'")}', event)" title="Favoris">${isFav ? '★' : '☆'}</button>`;
     const cmpBtn = `<button class="product-cmp-btn" onclick="toggleCompare('${p.name.replace(/'/g, "\\'")}', event)" title="Comparer">⚖</button>`;
+    const wl = getWishlist();
+    const isWish = wl.includes(p.name);
+    const wishBtn = `<button class="product-wish-btn ${isWish ? 'wish-active' : ''}" onclick="toggleWishlist('${p.name.replace(/'/g, "\\'")}', event)" title="Wishlist">${isWish ? '🛒' : '🛒'}</button>`;
 
     const imgSrc = p.lastListing?.image;
     const imgHtml = imgSrc
@@ -304,6 +307,7 @@ function renderCard(p, i) {
         ${badgeHtml}
         ${favBtn}
         ${cmpBtn}
+        ${wishBtn}
     </div>
     <div class="product-info">
         <div class="product-name-row">
@@ -416,7 +420,10 @@ function openDetail(productName) {
                         ${p.lastListing?.url ? `<a class="detail-nav-link" href="${p.lastListing.url}" target="_blank" rel="noopener">🔗 Voir sur eBay</a>` : ''}
                         ${p.searchUrl ? `<a class="detail-nav-link" href="${p.searchUrl}" target="_blank" rel="noopener">🛒 Rechercher sur eBay</a>` : ''}
                         ${ebayId ? `<button class="detail-nav-link" onclick="document.getElementById('detailOverlay').remove();openQueryEditor('${ebayId}','${p.name.replace(/'/g, "\\'")}')">⚙ Modifier la source</button>` : ''}
+                        <button class="detail-nav-link" onclick="saveNote('${p.name.replace(/'/g, "\\'")}')">📝 ${getNotes()[p.name] ? 'Modifier la note' : 'Ajouter une note'}</button>
+                        <button class="detail-nav-link" onclick="setAlert('${p.name.replace(/'/g, "\\'")}')">🔔 Alerte de prix</button>
                     </div>
+                    ${getNotes()[p.name] ? `<div class="detail-note"><strong>📝 Note :</strong> ${getNotes()[p.name]}</div>` : ''}
                     ${p.lastListing ? `
                     <div style="border-top:1px solid var(--border);padding-top:12px">
                         <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Dernier article trouvé</div>
@@ -808,7 +815,18 @@ function render() {
     const sort = document.getElementById('sortBy').value;
     const grid = document.getElementById('productsGrid');
 
-    if (sort === 'serie') {
+    if (viewMode === 'table') {
+        grid.innerHTML = `
+            ${renderWishlistSection()}
+            <div class="table-wrap">
+                <table class="products-table">
+                    <thead><tr>
+                        <th></th><th>Produit</th><th>Type</th><th>Prix</th><th>Tendance</th><th>Min</th><th>Max</th><th>Perf.</th><th>Résultats</th>
+                    </tr></thead>
+                    <tbody>${list.map(renderTableRow).join('')}</tbody>
+                </table>
+            </div>`;
+    } else if (sort === 'serie') {
         // Grouper par série avec en-têtes
         const groups = [];
         let currentCode = null;
@@ -821,7 +839,7 @@ function render() {
             }
             groups[groups.length - 1].items.push(p);
         }
-        grid.innerHTML = groups.map(g =>
+        grid.innerHTML = renderWishlistSection() + groups.map(g =>
             `<div class="serie-group">
                 <div class="serie-header">
                     <span class="serie-code">${g.code}</span>
@@ -832,7 +850,7 @@ function render() {
             </div>`
         ).join('');
     } else {
-        grid.innerHTML = `<div class="serie-items flat-grid">${list.map(renderCard).join('')}</div>`;
+        grid.innerHTML = renderWishlistSection() + `<div class="serie-items flat-grid">${list.map(renderCard).join('')}</div>`;
     }
 
     document.getElementById('resultsCount').textContent = list.length;
@@ -1336,6 +1354,12 @@ async function renderTrends() {
 
     // ── Prédictions ──
     renderPredictions(priced);
+
+    // ── Heatmap ──
+    renderHeatmap(priced);
+
+    // ── ROI Calculator ──
+    renderROICalculator();
 }
 
 // Prix de sortie officiels par type
@@ -2323,7 +2347,7 @@ function scrollToTop() {
 
 function initScrollTopBtn() {
     const btn = document.getElementById('scrollTopBtn');
-    ['sectionCatalogue', 'sectionPortfolio', 'sectionTendances', 'sectionSimulation'].forEach(id => {
+    ['sectionDashboard', 'sectionCatalogue', 'sectionPortfolio', 'sectionTendances', 'sectionSimulation'].forEach(id => {
         document.getElementById(id).addEventListener('scroll', function() {
             btn.classList.toggle('visible', this.scrollTop > 300);
         });
@@ -2396,6 +2420,7 @@ function checkAlerts() {
         const p = products.find(pr => pr.name === name);
         if (p && p._ebayLoaded && p.price > 0 && p.price <= alert.threshold) {
             showToast('🔔', `${name} est à ${fmt(p.price)} !`, `Sous votre seuil de ${alert.threshold} €`);
+            sendNotification('PokéScellé — Alerte prix', `${name} est à ${fmt(p.price)} (seuil: ${alert.threshold} €)`);
             alerts[name].notified = true;
         }
     }
@@ -3133,6 +3158,332 @@ function renderPredictions(priced) {
     `;
 }
 
+// ── View Mode (Grid / Table) ────────────────────────────────
+
+let viewMode = localStorage.getItem('pokescelle-viewmode') || 'grid';
+
+function setViewMode(mode) {
+    viewMode = mode;
+    localStorage.setItem('pokescelle-viewmode', mode);
+    document.querySelectorAll('.view-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    render();
+}
+
+function renderTableRow(p) {
+    const tVal = p.trend || 0;
+    const tCls = tVal > 5 ? 'positive' : tVal < -5 ? 'negative' : '';
+    const msrp = MSRP[p.type] || 0;
+    const perf = msrp > 0 ? ((p.price - msrp) / msrp * 100) : 0;
+    const perfCls = perf > 0 ? 'positive' : perf < 0 ? 'negative' : '';
+    const favs = getFavorites();
+    const isFav = favs.includes(p.name);
+    return `<tr class="table-row" onclick="openDetail('${p.name.replace(/'/g, "\\'")}')">
+        <td class="table-fav"><button class="product-fav-btn ${isFav ? 'fav-active' : ''}" data-name="${p.name.replace(/"/g, '&quot;')}" onclick="toggleFavorite('${p.name.replace(/'/g, "\\'")}', event)">${isFav ? '★' : '☆'}</button></td>
+        <td class="table-name"><span>${p.name}</span><small>${p.ext.split(' — ')[0]}</small></td>
+        <td><span class="product-type type-${p.type}">${TYPE_LABELS[p.type] || p.type}</span></td>
+        <td class="table-price">${fmt(p.lastPrice || p.price)}</td>
+        <td class="${tCls}">${trendLabel(tVal)}</td>
+        <td>${fmt(p.low)}</td>
+        <td>${fmt(p.high)}</td>
+        <td class="${perfCls}">${perf >= 0 ? '+' : ''}${perf.toFixed(0)}%</td>
+        <td>${p.sampleSize || '—'}</td>
+    </tr>`;
+}
+
+// ── Wishlist ────────────────────────────────────────────────
+
+function getWishlist() {
+    try { return JSON.parse(localStorage.getItem('pokescelle-wishlist') || '[]'); } catch { return []; }
+}
+
+function toggleWishlist(name, e) {
+    if (e) e.stopPropagation();
+    const wl = getWishlist();
+    const idx = wl.indexOf(name);
+    if (idx >= 0) { wl.splice(idx, 1); showToast('❌', 'Retiré de la wishlist', name); }
+    else { wl.push(name); showToast('🛒', 'Ajouté à la wishlist', name); }
+    localStorage.setItem('pokescelle-wishlist', JSON.stringify(wl));
+    render();
+}
+
+function renderWishlistSection() {
+    const wl = getWishlist();
+    if (wl.length === 0) return '';
+    const items = wl.map(n => products.find(p => p.name === n)).filter(Boolean);
+    const total = items.reduce((s, p) => s + (p.lastPrice || p.price), 0);
+    return `<div class="wishlist-section" id="wishlistSection">
+        <div class="wishlist-header">
+            <h3>🛒 Ma Wishlist (${items.length} items — ${fmt(total)})</h3>
+        </div>
+        <div class="wishlist-items">
+            ${items.map(p => `<div class="wishlist-item">
+                <span class="wishlist-item-name">${p.name}</span>
+                <span class="wishlist-item-ext">${p.ext.split(' — ')[0]}</span>
+                <span class="wishlist-item-price">${fmt(p.lastPrice || p.price)}</span>
+                <button class="wishlist-item-remove" onclick="toggleWishlist('${p.name.replace(/'/g, "\\'")}', event)">×</button>
+            </div>`).join('')}
+        </div>
+    </div>`;
+}
+
+// ── Notes personnelles ──────────────────────────────────────
+
+function getNotes() {
+    try { return JSON.parse(localStorage.getItem('pokescelle-notes') || '{}'); } catch { return {}; }
+}
+
+function saveNote(name) {
+    const notes = getNotes();
+    const current = notes[name] || '';
+    const val = prompt(`Note pour "${name}" :`, current);
+    if (val === null) return;
+    if (val.trim() === '') { delete notes[name]; showToast('📝', 'Note supprimée', name); }
+    else { notes[name] = val.trim(); showToast('📝', 'Note enregistrée', name); }
+    localStorage.setItem('pokescelle-notes', JSON.stringify(notes));
+}
+
+// ── Heatmap (carte thermique) ───────────────────────────────
+
+function renderHeatmap(priced) {
+    const seriesMap = {};
+    for (const p of priced) {
+        const code = p.ext?.split(' — ')[0] || '';
+        if (!code) continue;
+        if (!seriesMap[code]) seriesMap[code] = [];
+        seriesMap[code].push(p);
+    }
+
+    const types = ['etb', 'display', 'display18', 'tripack', 'bundle', 'booster'];
+    const seriesCodes = Object.keys(seriesMap).sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }));
+
+    // Find global min/max for color scale
+    const allPrices = priced.map(p => p.lastPrice || p.price).filter(v => v > 0);
+    const maxPrice = Math.max(...allPrices);
+
+    function heatColor(price) {
+        if (!price || price <= 0) return 'transparent';
+        const ratio = Math.min(price / Math.min(maxPrice, 500), 1);
+        if (ratio < 0.2) return 'rgba(46, 160, 67, 0.3)';
+        if (ratio < 0.4) return 'rgba(46, 160, 67, 0.5)';
+        if (ratio < 0.6) return 'rgba(210, 153, 34, 0.5)';
+        if (ratio < 0.8) return 'rgba(248, 81, 73, 0.4)';
+        return 'rgba(248, 81, 73, 0.7)';
+    }
+
+    const container = document.getElementById('heatmapWrap');
+    container.innerHTML = `
+        <div class="heatmap-scroll">
+            <table class="heatmap-table">
+                <thead>
+                    <tr>
+                        <th class="heatmap-corner">Série</th>
+                        ${types.map(t => `<th>${TYPE_LABELS[t] || t}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${seriesCodes.slice(0, 30).map(code => {
+                        const items = seriesMap[code];
+                        return `<tr>
+                            <td class="heatmap-serie">${code}</td>
+                            ${types.map(t => {
+                                const p = items.find(i => i.type === t);
+                                const price = p ? (p.lastPrice || p.price) : 0;
+                                return `<td class="heatmap-cell" style="background:${heatColor(price)}" title="${p ? p.name + ': ' + fmt(price) : '—'}">${price > 0 ? fmt(price) : '—'}</td>`;
+                            }).join('')}
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+        <div class="heatmap-legend">
+            <span>Bas</span>
+            <div class="heatmap-legend-bar"></div>
+            <span>Élevé</span>
+        </div>
+    `;
+}
+
+// ── Calculateur ROI ─────────────────────────────────────────
+
+function renderROICalculator() {
+    const container = document.getElementById('roiCalculator');
+    const priced = products.filter(p => p.price > 0);
+
+    container.innerHTML = `
+        <div class="roi-wrap">
+            <div class="roi-controls">
+                <div class="roi-field">
+                    <label>Produit</label>
+                    <select id="roiProduct">
+                        ${priced.map(p => `<option value="${p.name.replace(/"/g, '&quot;')}">${p.name} (${p.ext.split(' — ')[0]})</option>`).join('')}
+                    </select>
+                </div>
+                <div class="roi-field">
+                    <label>Budget investi (€)</label>
+                    <input type="number" id="roiBudget" value="100" min="1">
+                </div>
+                <div class="roi-field">
+                    <label>Date d'achat estimée</label>
+                    <select id="roiYearsAgo">
+                        <option value="1">Il y a 1 an</option>
+                        <option value="2">Il y a 2 ans</option>
+                        <option value="3" selected>Il y a 3 ans</option>
+                        <option value="5">Il y a 5 ans</option>
+                        <option value="10">Il y a 10 ans</option>
+                    </select>
+                </div>
+                <button class="btn-roi" onclick="calculateROI()">Calculer</button>
+            </div>
+            <div id="roiResult"></div>
+        </div>
+    `;
+}
+
+function calculateROI() {
+    const name = document.getElementById('roiProduct').value;
+    const budget = parseFloat(document.getElementById('roiBudget').value) || 100;
+    const yearsAgo = parseInt(document.getElementById('roiYearsAgo').value) || 3;
+    const p = products.find(pr => pr.name === name);
+    if (!p) return;
+
+    const currentPrice = p.lastPrice || p.price;
+    const msrp = MSRP[p.type] || p.old || currentPrice;
+    // Estimate past price using reverse projection
+    const code = p.ext?.split(' — ')[0] || '';
+    const age = getSeriesAge(code);
+    const rate = getGrowthRate(p.type, 'moderate', age);
+    const pastPrice = currentPrice / Math.pow(1 + rate, yearsAgo);
+    const buyPrice = Math.max(pastPrice, msrp * 0.8);
+    const qtyBought = Math.floor(budget / buyPrice);
+    const totalInvested = qtyBought * buyPrice;
+    const currentValue = qtyBought * currentPrice;
+    const profit = currentValue - totalInvested;
+    const roi = totalInvested > 0 ? ((currentValue - totalInvested) / totalInvested * 100) : 0;
+    const annualROI = totalInvested > 0 ? ((Math.pow(currentValue / totalInvested, 1 / yearsAgo) - 1) * 100) : 0;
+
+    document.getElementById('roiResult').innerHTML = `
+        <div class="roi-result-card">
+            <h4>${p.name}</h4>
+            <p class="roi-result-sub">${p.ext}</p>
+            <div class="roi-result-grid">
+                <div class="roi-stat">
+                    <span class="roi-stat-label">Prix d'achat estimé</span>
+                    <span class="roi-stat-value">${fmt(Math.round(buyPrice))}</span>
+                </div>
+                <div class="roi-stat">
+                    <span class="roi-stat-label">Quantité achetée</span>
+                    <span class="roi-stat-value">${qtyBought}</span>
+                </div>
+                <div class="roi-stat">
+                    <span class="roi-stat-label">Total investi</span>
+                    <span class="roi-stat-value">${fmt(Math.round(totalInvested))}</span>
+                </div>
+                <div class="roi-stat">
+                    <span class="roi-stat-label">Prix actuel</span>
+                    <span class="roi-stat-value">${fmt(currentPrice)}</span>
+                </div>
+                <div class="roi-stat">
+                    <span class="roi-stat-label">Valeur actuelle</span>
+                    <span class="roi-stat-value" style="color:var(--green-light);font-size:20px">${fmt(Math.round(currentValue))}</span>
+                </div>
+                <div class="roi-stat">
+                    <span class="roi-stat-label">Profit</span>
+                    <span class="roi-stat-value ${profit >= 0 ? 'positive' : 'negative'}">${profit >= 0 ? '+' : ''}${fmt(Math.round(profit))}</span>
+                </div>
+                <div class="roi-stat">
+                    <span class="roi-stat-label">ROI total</span>
+                    <span class="roi-stat-value ${roi >= 0 ? 'positive' : 'negative'}">${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%</span>
+                </div>
+                <div class="roi-stat">
+                    <span class="roi-stat-label">ROI annualisé</span>
+                    <span class="roi-stat-value ${annualROI >= 0 ? 'positive' : 'negative'}">${annualROI >= 0 ? '+' : ''}${annualROI.toFixed(1)}%/an</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// ── Notifications Push ──────────────────────────────────────
+
+async function requestNotifications() {
+    if (!('Notification' in window)) { showToast('⚠️', 'Notifications non supportées'); return; }
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+        localStorage.setItem('pokescelle-notif', 'on');
+        showToast('🔔', 'Notifications activées');
+    } else {
+        showToast('🔕', 'Notifications refusées');
+    }
+}
+
+function sendNotification(title, body) {
+    if (Notification.permission === 'granted' && localStorage.getItem('pokescelle-notif') === 'on') {
+        new Notification(title, { body, icon: '📦' });
+    }
+}
+
+// ── Partage portfolio ───────────────────────────────────────
+
+function sharePortfolio() {
+    const pf = loadPortfolioSync();
+    const items = Object.entries(pf).filter(([,v]) => v.qty > 0);
+    if (items.length === 0) { showToast('⚠️', 'Portfolio vide'); return; }
+
+    const data = items.map(([name, h]) => {
+        const p = products.find(pr => pr.name === name);
+        return { name, qty: h.qty, cost: h.cost, price: p ? (p.lastPrice || p.price) : 0 };
+    });
+
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+    const url = `${window.location.origin}${window.location.pathname}?portfolio=${encoded}`;
+
+    navigator.clipboard.writeText(url).then(() => {
+        showToast('📋', 'Lien copié !', 'Partagez votre portfolio');
+    }).catch(() => {
+        prompt('Copiez ce lien :', url);
+    });
+}
+
+function loadSharedPortfolio() {
+    const params = new URLSearchParams(window.location.search);
+    const data = params.get('portfolio');
+    if (!data) return;
+
+    try {
+        const items = JSON.parse(decodeURIComponent(escape(atob(data))));
+        const container = document.getElementById('sharedPortfolioWrap');
+        if (!container) return;
+
+        let totalVal = 0, totalInv = 0;
+        const rows = items.map(item => {
+            const p = products.find(pr => pr.name === item.name);
+            const currentPrice = p ? (p.lastPrice || p.price) : item.price;
+            const val = currentPrice * item.qty;
+            const inv = item.cost * item.qty;
+            totalVal += val;
+            totalInv += inv;
+            return `<div class="shared-pf-row">
+                <span class="shared-pf-name">${item.name}</span>
+                <span class="shared-pf-qty">×${item.qty}</span>
+                <span class="shared-pf-val">${fmt(val)}</span>
+            </div>`;
+        });
+
+        const pnl = totalVal - totalInv;
+        container.innerHTML = `
+            <div class="shared-pf-card">
+                <h3>📊 Portfolio partagé</h3>
+                <div class="shared-pf-summary">
+                    <span>Valeur : <strong>${fmt(totalVal)}</strong></span>
+                    <span>P&L : <strong class="${pnl >= 0 ? 'positive' : 'negative'}">${pnl >= 0 ? '+' : ''}${fmt(Math.round(pnl))}</strong></span>
+                </div>
+                ${rows.join('')}
+            </div>
+        `;
+        container.style.display = 'block';
+    } catch { /* invalid data */ }
+}
+
 // ── Skeleton Loading ─────────────────────────────────────────
 
 function renderSkeletonCards(count = 6) {
@@ -3175,7 +3526,8 @@ function renderDashboard() {
     const container = document.getElementById('dashboardContent');
     const priced = products.filter(p => p.price > 0);
     const favs = getFavorites();
-    const alerts = getAlerts();
+    const alertsObj = getAlerts();
+    const alertsList = Object.entries(alertsObj);
     const pf = JSON.parse(localStorage.getItem('pokescelle-portfolio') || '{}');
     const pfItems = Object.entries(pf).filter(([,v]) => v.qty > 0);
 
@@ -3222,7 +3574,7 @@ function renderDashboard() {
             <div class="dash-kpi">
                 <span class="dash-kpi-icon">🔔</span>
                 <div>
-                    <span class="dash-kpi-value">${alerts.length}</span>
+                    <span class="dash-kpi-value">${alertsList.length}</span>
                     <span class="dash-kpi-label">Alertes actives</span>
                 </div>
             </div>
@@ -3265,14 +3617,14 @@ function renderDashboard() {
             </div>
         </div>
 
-        ${alerts.length > 0 ? `
+        ${alertsList.length > 0 ? `
         <div class="dash-section">
             <h3 class="dash-section-title">🔔 Alertes configurées</h3>
             <div class="dash-alerts">
-                ${alerts.slice(0, 5).map(a => `
+                ${alertsList.slice(0, 5).map(([name, a]) => `
                     <div class="dash-alert-row">
-                        <span class="dash-alert-name">${a.product}</span>
-                        <span class="dash-alert-type">${a.type === 'below' ? '< ' : '> '}${fmt(a.threshold)}</span>
+                        <span class="dash-alert-name">${name}</span>
+                        <span class="dash-alert-type">< ${fmt(a.threshold)}</span>
                     </div>
                 `).join('')}
             </div>
@@ -3319,7 +3671,19 @@ render();
 renderTrends();
 initScrollTopBtn();
 updatePortfolioBadge();
+loadSharedPortfolio();
 
 fetchEbayPrices().then(() => {
     if (currentSection === 'portfolio') renderPortfolio();
+    // Send push notifications for triggered alerts
+    const alerts = getAlerts();
+    for (const [name, alert] of Object.entries(alerts)) {
+        if (alert.notified) continue;
+        const p = products.find(pr => pr.name === name);
+        if (p && p._ebayLoaded && p.price > 0 && p.price <= alert.threshold) {
+            sendNotification('PokéScellé — Alerte prix', `${name} est à ${fmt(p.price)} (seuil: ${alert.threshold} €)`);
+        }
+    }
+    // Cache prices for offline
+    try { localStorage.setItem('pokescelle-cache', JSON.stringify({ ts: Date.now(), products: products.map(p => ({ name: p.name, price: p.price, lastPrice: p.lastPrice, trend: p.trend, low: p.low, high: p.high, sampleSize: p.sampleSize })) })); } catch {}
 });

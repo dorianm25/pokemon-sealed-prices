@@ -54,5 +54,13 @@
     "high": 45,
     "lastPrice": 29,
     "sampleSize": 3
+  },
+  {
+    "date": "2026-04-13",
+    "median": 35,
+    "low": 29,
+    "high": 45,
+    "lastPrice": 29,
+    "sampleSize": 3
   }
 ]
