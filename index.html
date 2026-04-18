@@ -294,6 +294,26 @@
                         <div class="pf-add-modal-body" id="pfAddModalBody"></div>
                     </div>
                 </div>
+
+                <!-- Barre de confirmation des modifs -->
+                <div class="pf-confirm-bar" id="pfConfirmBar" role="region" aria-live="polite">
+                    <div class="pf-confirm-bar-inner">
+                        <div class="pf-confirm-bar-info">
+                            <span class="pf-confirm-bar-dot"></span>
+                            <span class="pf-confirm-bar-label">
+                                <strong id="pfConfirmCount">0 modification</strong>
+                                <span>en attente</span>
+                            </span>
+                        </div>
+                        <div class="pf-confirm-bar-actions">
+                            <button class="pf-btn-ghost" onclick="discardPfChanges()">Annuler</button>
+                            <button class="pf-btn-primary" onclick="confirmPfChanges()">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;vertical-align:-2px"><polyline points="20 6 9 17 4 12"/></svg>
+                                Confirmer
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- Section: Tendances -->

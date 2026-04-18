@@ -2077,31 +2077,105 @@ function resetPortfolio() {
     renderPortfolio();
 }
 
-function onPortfolioInput(name, field, value) {
-    const pf = loadPortfolioSync();
-    if (!pf[name]) pf[name] = { qty: 0, cost: 0 };
-    pf[name][field] = parseFloat(value) || 0;
-    savePortfolio(pf);
-    renderPortfolioSummary(pf);
+// ── Pending changes (confirmation flow) ─────────────────────
+// Map<name, {qty, cost}> : valeurs saisies non confirmées
+const _pfPending = new Map();
 
-    // Mettre à jour la carte en direct
+function _pfOriginalFor(name) {
+    const pf = loadPortfolioSync();
+    return pf[name] || { qty: 0, cost: 0 };
+}
+
+function _pfIsDirty(name) {
+    if (!_pfPending.has(name)) return false;
+    const pending = _pfPending.get(name);
+    const orig = _pfOriginalFor(name);
+    return pending.qty !== orig.qty || pending.cost !== orig.cost;
+}
+
+function onPortfolioInput(name, field, value) {
+    // 1) Récupère ou crée l'entrée pending depuis la vraie valeur actuelle
+    const current = _pfPending.get(name) || { ..._pfOriginalFor(name) };
+    const num = parseFloat(value) || 0;
+    current[field] = field === 'qty' ? Math.round(num) : Math.round(num * 100) / 100;
+    _pfPending.set(name, current);
+
+    // 2) MAJ visuelle de la carte SANS sauvegarder
     const p = products.find(pr => pr.name === name);
-    if (p) {
-        const h = pf[name];
+    const card = document.querySelector(`.pf-pos-card[data-name="${name.replace(/"/g, '&quot;')}"]`);
+    if (p && card) {
+        const h = current;
         const totalInvested = h.qty * h.cost;
         const currentVal = h.qty * p.price;
         const pnl = currentVal - totalInvested;
-        const card = document.querySelector(`.pf-card[data-name="${name.replace(/"/g, '\\"')}"]`);
-        if (card) {
-            const results = card.querySelectorAll('.pf-result-value');
-            if (results[0]) results[0].textContent = h.qty > 0 ? fmt(totalInvested) : '—';
-            if (results[1]) results[1].textContent = h.qty > 0 ? fmt(currentVal) : '—';
-            if (results[2]) {
-                results[2].textContent = h.qty > 0 ? (pnl >= 0 ? '+' : '') + fmt(pnl) : '—';
-                results[2].className = 'pf-result-value ' + (pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : '');
-            }
+        const pnlPct = totalInvested > 0 ? ((pnl / totalInvested) * 100) : 0;
+        const pnlClass = pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : '';
+        const pnlSign = pnl >= 0 ? '+' : '';
+
+        // P&L big
+        const pnlBig = card.querySelector('.pf-pos-pnl-big');
+        if (pnlBig) {
+            pnlBig.className = 'pf-pos-pnl-big ' + pnlClass;
+            const arrow = pnlBig.querySelector('.pf-pos-pnl-arrow');
+            const pct = pnlBig.querySelector('.pf-pos-pnl-pct');
+            const abs = pnlBig.querySelector('.pf-pos-pnl-abs');
+            if (arrow) arrow.textContent = pnl > 0 ? '▲' : pnl < 0 ? '▼' : '—';
+            if (pct) pct.textContent = `${pnlSign}${pnlPct.toFixed(1)}%`;
+            if (abs) abs.textContent = `${pnlSign}${fmt(pnl)}`;
+        }
+
+        // Footer KPIs
+        const kpis = card.querySelectorAll('.pf-pos-kpi strong');
+        if (kpis[0]) kpis[0].textContent = fmt(totalInvested);
+        if (kpis[1]) kpis[1].textContent = fmt(currentVal);
+        if (kpis[2]) {
+            kpis[2].textContent = `${pnlSign}${fmt(pnl)}`;
+            kpis[2].className = pnlClass;
         }
     }
+
+    // 3) Toggle dirty state + barre de confirmation
+    if (card) card.classList.toggle('dirty', _pfIsDirty(name));
+    updatePfConfirmBar();
+}
+
+// ── Confirm / Discard bar ───────────────────────────────────
+function updatePfConfirmBar() {
+    const bar = document.getElementById('pfConfirmBar');
+    if (!bar) return;
+    // Ne compter QUE les changements réellement différents de l'original
+    let dirtyCount = 0;
+    for (const [name] of _pfPending) {
+        if (_pfIsDirty(name)) dirtyCount++;
+    }
+    const countEl = document.getElementById('pfConfirmCount');
+    if (countEl) countEl.textContent = dirtyCount === 1 ? '1 modification' : `${dirtyCount} modifications`;
+    bar.classList.toggle('visible', dirtyCount > 0);
+}
+
+function confirmPfChanges() {
+    if (_pfPending.size === 0) return;
+    const pf = loadPortfolioSync();
+    let applied = 0;
+    for (const [name, v] of _pfPending) {
+        if (!pf[name]) pf[name] = { qty: 0, cost: 0 };
+        const orig = pf[name];
+        if (orig.qty !== v.qty || orig.cost !== v.cost) applied++;
+        pf[name] = { qty: v.qty, cost: v.cost };
+    }
+    savePortfolio(pf);
+    _pfPending.clear();
+    updatePfConfirmBar();
+    showToast('✅', applied === 1 ? 'Modification enregistrée' : `${applied} modifications enregistrées`);
+    renderPortfolio();
+}
+
+function discardPfChanges() {
+    if (_pfPending.size === 0) return;
+    _pfPending.clear();
+    updatePfConfirmBar();
+    showToast('↺', 'Modifications annulées');
+    renderPortfolio();
 }
 
 // ── Portfolio v2 state ──────────────────────────────────────
@@ -2737,6 +2811,23 @@ async function renderPortfolio() {
     renderTopPositions(pf);
     loadPortfolioChart();
     renderAllocChart();
+
+    // Réappliquer l'état dirty sur les cartes qui ont des modifs pendantes
+    if (_pfPending.size > 0) {
+        for (const [name] of _pfPending) {
+            if (!_pfIsDirty(name)) continue;
+            const card = document.querySelector(`.pf-pos-card[data-name="${name.replace(/"/g, '&quot;')}"]`);
+            if (card) {
+                card.classList.add('dirty');
+                // Réappliquer les valeurs pendantes dans les inputs
+                const pending = _pfPending.get(name);
+                const inputs = card.querySelectorAll('.pf-pos-inputs input');
+                if (inputs[0]) inputs[0].value = pending.qty;
+                if (inputs[1]) inputs[1].value = pending.cost || '';
+            }
+        }
+    }
+    updatePfConfirmBar();
 }
 
 // Historique dans son propre onglet
