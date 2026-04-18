@@ -776,13 +776,53 @@ function setTypeFilter(type) {
     render();
 }
 
+// ── Recherche floue (Fuse.js) ────────────────────────────────
+// Index construit une fois — les champs indexés (name/serie/ext) sont statiques
+let _fuseProducts = null;
+function getFuseProducts() {
+    if (!_fuseProducts && typeof Fuse !== 'undefined') {
+        _fuseProducts = new Fuse(products, {
+            keys: [
+                { name: 'name', weight: 0.7 },
+                { name: 'ext', weight: 0.2 },
+                { name: 'serie', weight: 0.1 },
+            ],
+            threshold: 0.35,         // 0 = strict, 1 = tout matche
+            ignoreLocation: true,    // match n'importe où dans la chaine
+            minMatchCharLength: 2,
+            includeScore: true,
+        });
+    }
+    return _fuseProducts;
+}
+
+function fuzzyMatchProducts(query) {
+    const q = (query || '').trim();
+    if (!q) return null; // pas de recherche
+    const fuse = getFuseProducts();
+    if (!fuse) {
+        // Fallback includes() si Fuse pas encore chargé
+        const qLower = q.toLowerCase();
+        return products.filter(p =>
+            p.name.toLowerCase().includes(qLower) ||
+            (p.ext || '').toLowerCase().includes(qLower) ||
+            (p.serie || '').toLowerCase().includes(qLower)
+        );
+    }
+    return fuse.search(q).map(r => r.item);
+}
+
 function getFiltered() {
-    const q = document.getElementById('searchInput').value.toLowerCase();
+    const q = document.getElementById('searchInput').value;
     const prix = document.getElementById('filterPrix').value;
     const sort = document.getElementById('sortBy').value;
 
-    let list = products.filter(p => {
-        if (q && !p.name.toLowerCase().includes(q) && !p.ext.toLowerCase().includes(q)) return false;
+    // Si recherche active, on part de la liste ordonnée par pertinence Fuse
+    const fuzzyList = fuzzyMatchProducts(q);
+    const hasQuery = fuzzyList !== null;
+    const base = hasQuery ? fuzzyList : products;
+
+    let list = base.filter(p => {
         if (activeType && p.type !== activeType) return false;
         if (activeBlocs.size > 0 && !activeBlocs.has(p.serie)) return false;
         if (showFavOnly && !getFavorites().includes(p.name)) return false;
@@ -794,17 +834,21 @@ function getFiltered() {
         return true;
     });
 
-    switch (sort) {
-        case 'price-asc':  list.sort((a, b) => a.price - b.price); break;
-        case 'price-desc': list.sort((a, b) => b.price - a.price); break;
-        case 'trend-desc': list.sort((a, b) => b.trend - a.trend); break;
-        case 'trend-asc':  list.sort((a, b) => a.trend - b.trend); break;
-        case 'serie':      list.sort((a, b) => {
-            const codeA = a.ext.split(' — ')[0];
-            const codeB = b.ext.split(' — ')[0];
-            return codeA.localeCompare(codeB, 'fr', { numeric: true });
-        }); break;
-        default:           list.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    // Si recherche active, on garde l'ordre de pertinence Fuse
+    // Sinon, on applique le tri demandé
+    if (!hasQuery) {
+        switch (sort) {
+            case 'price-asc':  list.sort((a, b) => a.price - b.price); break;
+            case 'price-desc': list.sort((a, b) => b.price - a.price); break;
+            case 'trend-desc': list.sort((a, b) => b.trend - a.trend); break;
+            case 'trend-asc':  list.sort((a, b) => a.trend - b.trend); break;
+            case 'serie':      list.sort((a, b) => {
+                const codeA = a.ext.split(' — ')[0];
+                const codeB = b.ext.split(' — ')[0];
+                return codeA.localeCompare(codeB, 'fr', { numeric: true });
+            }); break;
+            default:           list.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+        }
     }
 
     return list;
@@ -2502,8 +2546,22 @@ function renderAddCatalog() {
 
     let list = [...products];
     if (_pfAddTypeFilter) list = list.filter(p => p.type === _pfAddTypeFilter);
-    if (search) list = list.filter(p => p.name.toLowerCase().includes(search) || (p.serie || '').toLowerCase().includes(search) || (p.ext || '').toLowerCase().includes(search));
-    list.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    if (search) {
+        // Recherche floue via Fuse si dispo
+        if (typeof Fuse !== 'undefined') {
+            const f = new Fuse(list, {
+                keys: ['name', 'serie', 'ext'],
+                threshold: 0.35,
+                ignoreLocation: true,
+                minMatchCharLength: 2,
+            });
+            list = f.search(search).map(r => r.item);
+        } else {
+            list = list.filter(p => p.name.toLowerCase().includes(search) || (p.serie || '').toLowerCase().includes(search) || (p.ext || '').toLowerCase().includes(search));
+        }
+    } else {
+        list.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    }
 
     if (list.length === 0) {
         grid.innerHTML = '<div class="pf-add-empty">Aucun produit ne correspond à votre recherche.</div>';
@@ -2771,11 +2829,25 @@ async function renderPortfolio() {
             return { p, h, inv, val, pnl, pct };
         });
 
-    if (search) positions = positions.filter(x =>
-        x.p.name.toLowerCase().includes(search) ||
-        (x.p.serie || '').toLowerCase().includes(search) ||
-        (x.p.ext || '').toLowerCase().includes(search)
-    );
+    if (search) {
+        // Recherche floue sur les positions (via Fuse si dispo)
+        if (typeof Fuse !== 'undefined') {
+            const posFuse = new Fuse(positions, {
+                keys: ['p.name', 'p.serie', 'p.ext'],
+                threshold: 0.35,
+                ignoreLocation: true,
+                minMatchCharLength: 2,
+            });
+            positions = posFuse.search(search).map(r => r.item);
+        } else {
+            const s = search.toLowerCase();
+            positions = positions.filter(x =>
+                x.p.name.toLowerCase().includes(s) ||
+                (x.p.serie || '').toLowerCase().includes(s) ||
+                (x.p.ext || '').toLowerCase().includes(s)
+            );
+        }
+    }
 
     const sortFns = {
         'pnl-desc': (a, b) => b.pnl - a.pnl,
@@ -4235,6 +4307,298 @@ document.addEventListener('keydown', (e) => {
 });
 // Initial call
 setTimeout(updateMobileSortFab, 100);
+
+// ═══════════════════════════════════════════════════════════════
+//  Command Palette (Cmd/Ctrl+K) + raccourcis clavier
+// ═══════════════════════════════════════════════════════════════
+
+const _cmdk = {
+    open: false,
+    selectedIndex: 0,
+    items: [],
+    query: '',
+};
+
+// Actions "globales" — toujours dans la palette, même sans recherche
+function _cmdkActions() {
+    return [
+        { type: 'action', icon: '🏠', label: 'Aller au Dashboard',      hint: 'g d', run: () => switchSection('dashboard') },
+        { type: 'action', icon: '📋', label: 'Aller au Catalogue',      hint: 'g c', run: () => switchSection('catalogue') },
+        { type: 'action', icon: '💼', label: 'Aller au Portfolio',      hint: 'g p', run: () => switchSection('portfolio'), requiresAuth: true },
+        { type: 'action', icon: '📊', label: 'Aller aux Tendances',     hint: 'g t', run: () => switchSection('tendances') },
+        { type: 'action', icon: '🔮', label: 'Aller à la Simulation',   hint: 'g s', run: () => switchSection('simulation') },
+        { type: 'action', icon: '🎨', label: 'Basculer thème clair/sombre', hint: 't', run: () => toggleTheme?.() },
+        { type: 'action', icon: '⬆️', label: 'Remonter en haut',        hint: 'h', run: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
+        { type: 'action', icon: '⌨️', label: 'Afficher les raccourcis clavier', hint: '?', run: () => openKbdHelp() },
+        ...(currentUser ? [{ type: 'action', icon: '📤', label: 'Exporter portfolio (CSV)', run: () => typeof exportPortfolioCSV === 'function' ? exportPortfolioCSV() : null }] : []),
+    ].filter(a => !a.requiresAuth || !!currentUser);
+}
+
+function openCmdk() {
+    const el = document.getElementById('cmdk');
+    const input = document.getElementById('cmdkInput');
+    if (!el || !input) return;
+    _cmdk.open = true;
+    _cmdk.query = '';
+    _cmdk.selectedIndex = 0;
+    input.value = '';
+    el.hidden = false;
+    requestAnimationFrame(() => {
+        el.classList.add('open');
+        input.focus();
+    });
+    renderCmdkResults();
+}
+
+function closeCmdk() {
+    const el = document.getElementById('cmdk');
+    if (!el) return;
+    _cmdk.open = false;
+    el.classList.remove('open');
+    setTimeout(() => { el.hidden = true; }, 180);
+}
+
+function renderCmdkResults() {
+    const container = document.getElementById('cmdkResults');
+    if (!container) return;
+
+    const q = (_cmdk.query || '').trim();
+    let items = [];
+
+    // Actions d'abord (toujours visibles, filtrées par Fuse si q)
+    const actions = _cmdkActions();
+    if (q) {
+        if (typeof Fuse !== 'undefined') {
+            const af = new Fuse(actions, { keys: ['label'], threshold: 0.4, ignoreLocation: true });
+            items.push(...af.search(q).map(r => r.item));
+        } else {
+            const lq = q.toLowerCase();
+            items.push(...actions.filter(a => a.label.toLowerCase().includes(lq)));
+        }
+    } else {
+        items.push(...actions.slice(0, 6));
+    }
+
+    // Produits (max 8 pour garder la palette lisible)
+    if (q) {
+        const prodMatches = fuzzyMatchProducts(q) || [];
+        for (const p of prodMatches.slice(0, 8)) {
+            items.push({
+                type: 'product',
+                icon: _productTypeIcon(p.type),
+                label: p.name,
+                sub: p.ext,
+                priceLabel: p.price ? fmt(p.price) : '—',
+                run: () => {
+                    // Naviguer au catalogue + filtrer par ce produit
+                    switchSection('catalogue');
+                    const input = document.getElementById('searchInput');
+                    if (input) { input.value = p.name; input.dispatchEvent(new Event('input')); }
+                    // Scroll to the product card
+                    setTimeout(() => {
+                        const card = document.querySelector(`[data-product-name="${CSS.escape(p.name)}"]`);
+                        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 200);
+                },
+            });
+        }
+    }
+
+    _cmdk.items = items;
+    if (_cmdk.selectedIndex >= items.length) _cmdk.selectedIndex = Math.max(0, items.length - 1);
+
+    if (items.length === 0) {
+        container.innerHTML = `<div class="cmdk-empty">Aucun résultat pour "<strong>${_escapeHtml(q)}</strong>"</div>`;
+        return;
+    }
+
+    container.innerHTML = items.map((it, i) => {
+        const active = i === _cmdk.selectedIndex ? ' active' : '';
+        if (it.type === 'product') {
+            return `<div class="cmdk-item${active}" role="option" data-idx="${i}" onclick="cmdkExecuteIndex(${i})" onmouseenter="cmdkSelect(${i})">
+                <span class="cmdk-item-icon">${it.icon}</span>
+                <div class="cmdk-item-main">
+                    <div class="cmdk-item-label">${_escapeHtml(it.label)}</div>
+                    <div class="cmdk-item-sub">${_escapeHtml(it.sub || '')}</div>
+                </div>
+                <span class="cmdk-item-price">${it.priceLabel}</span>
+            </div>`;
+        }
+        return `<div class="cmdk-item${active}" role="option" data-idx="${i}" onclick="cmdkExecuteIndex(${i})" onmouseenter="cmdkSelect(${i})">
+            <span class="cmdk-item-icon">${it.icon || '•'}</span>
+            <div class="cmdk-item-main">
+                <div class="cmdk-item-label">${_escapeHtml(it.label)}</div>
+            </div>
+            ${it.hint ? `<span class="cmdk-item-hint">${it.hint.split(' ').map(k => `<kbd>${k}</kbd>`).join('')}</span>` : ''}
+        </div>`;
+    }).join('');
+
+    // Scroll l'item actif dans la vue
+    const activeEl = container.querySelector('.cmdk-item.active');
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+}
+
+function cmdkSelect(idx) {
+    _cmdk.selectedIndex = idx;
+    const container = document.getElementById('cmdkResults');
+    if (!container) return;
+    container.querySelectorAll('.cmdk-item').forEach((el, i) => el.classList.toggle('active', i === idx));
+}
+
+function cmdkExecuteIndex(idx) {
+    const it = _cmdk.items[idx];
+    if (!it) return;
+    closeCmdk();
+    setTimeout(() => { try { it.run(); } catch (err) { console.error(err); } }, 100);
+}
+
+function _productTypeIcon(type) {
+    const map = { etb: '📦', display: '🎴', display18: '🎴', tripack: '🃏', bundle: '🎁', booster: '✨' };
+    return map[type] || '🔹';
+}
+
+function _escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Listen input changes
+const _cmdkInput = document.getElementById('cmdkInput');
+if (_cmdkInput) {
+    _cmdkInput.addEventListener('input', (e) => {
+        _cmdk.query = e.target.value;
+        _cmdk.selectedIndex = 0;
+        renderCmdkResults();
+    });
+    _cmdkInput.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            _cmdk.selectedIndex = Math.min(_cmdk.items.length - 1, _cmdk.selectedIndex + 1);
+            renderCmdkResults();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            _cmdk.selectedIndex = Math.max(0, _cmdk.selectedIndex - 1);
+            renderCmdkResults();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            cmdkExecuteIndex(_cmdk.selectedIndex);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeCmdk();
+        }
+    });
+}
+
+// ── Help Overlay ────────────────────────────────────────────
+
+function openKbdHelp() {
+    const el = document.getElementById('kbdHelp');
+    if (!el) return;
+    el.hidden = false;
+    requestAnimationFrame(() => el.classList.add('open'));
+}
+
+function closeKbdHelp() {
+    const el = document.getElementById('kbdHelp');
+    if (!el) return;
+    el.classList.remove('open');
+    setTimeout(() => { el.hidden = true; }, 180);
+}
+
+window.openCmdk = openCmdk;
+window.closeCmdk = closeCmdk;
+window.openKbdHelp = openKbdHelp;
+window.closeKbdHelp = closeKbdHelp;
+window.cmdkSelect = cmdkSelect;
+window.cmdkExecuteIndex = cmdkExecuteIndex;
+
+// ── Global keyboard shortcuts ────────────────────────────────
+
+// Buffer pour la séquence "g X"
+let _gSequenceTimer = null;
+let _gSequenceActive = false;
+
+function _isTypingInField(target) {
+    if (!target) return false;
+    const tag = (target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+    if (target.isContentEditable) return true;
+    return false;
+}
+
+document.addEventListener('keydown', (e) => {
+    // Cmd/Ctrl + K : ouvre la palette (fonctionne même dans un input)
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (_cmdk.open) closeCmdk(); else openCmdk();
+        return;
+    }
+
+    // Esc : ferme cmdk + help
+    if (e.key === 'Escape') {
+        if (_cmdk.open) closeCmdk();
+        closeKbdHelp();
+        // (les autres close sont déjà gérés dans l'autre handler)
+        return;
+    }
+
+    // Les raccourcis suivants sont ignorés si on tape dans un champ
+    if (_isTypingInField(e.target)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    // ? : ouvre l'aide (Shift+/ sur AZERTY = ?, mais on gère aussi Shift+?)
+    if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        openKbdHelp();
+        return;
+    }
+
+    // / : focus le champ de recherche
+    if (e.key === '/') {
+        const input = document.getElementById('searchInput');
+        if (input) {
+            e.preventDefault();
+            switchSection('catalogue');
+            setTimeout(() => input.focus(), 50);
+        }
+        return;
+    }
+
+    // t : bascule thème
+    if (e.key === 't' && !_gSequenceActive) {
+        if (typeof toggleTheme === 'function') {
+            e.preventDefault();
+            toggleTheme();
+        }
+        return;
+    }
+
+    // h : remonte en haut
+    if (e.key === 'h' && !_gSequenceActive) {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+    }
+
+    // Séquence "g X" : navigation
+    if (e.key === 'g' && !_gSequenceActive) {
+        _gSequenceActive = true;
+        clearTimeout(_gSequenceTimer);
+        _gSequenceTimer = setTimeout(() => { _gSequenceActive = false; }, 1200);
+        return;
+    }
+
+    if (_gSequenceActive) {
+        clearTimeout(_gSequenceTimer);
+        _gSequenceActive = false;
+        const map = { d: 'dashboard', c: 'catalogue', p: 'portfolio', t: 'tendances', s: 'simulation' };
+        const target = map[e.key.toLowerCase()];
+        if (target) {
+            e.preventDefault();
+            // switchSection gère déjà le cas "portfolio + non-auth" via le modal de login
+            switchSection(target);
+        }
+    }
+});
 
 // ── Init ─────────────────────────────────────────────────────
 
