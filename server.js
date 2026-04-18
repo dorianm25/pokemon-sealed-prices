@@ -650,6 +650,46 @@ app.get('/api/prices', async (req, res) => {
     });
 });
 
+// Helper : force le refresh d'un produit (ignore le cache, utilise les custom queries)
+async function refreshProductPrice(product) {
+    const customQueries = await loadCustomQueries();
+    const custom = customQueries[product.id];
+
+    let priceData;
+
+    if (custom?.fixedPrice) {
+        const fp = custom.fixedPrice;
+        priceData = {
+            price: fp, lastPrice: fp, low: fp, high: fp,
+            sampleSize: 1, lastUpdated: new Date().toISOString(),
+            lastListing: { title: 'Prix fixé manuellement', price: fp, currency: 'EUR', url: '', image: '' },
+            fixedPrice: true,
+        };
+    }
+
+    if (!priceData && custom?.url) {
+        const legacyId = extractItemIdFromUrl(custom.url);
+        if (legacyId) {
+            const item = await fetchEbayItem(legacyId);
+            priceData = extractItemPrice(item);
+        }
+    }
+
+    if (!priceData) {
+        const query = custom?.query || product.query;
+        const limits = { min: product.minPrice, max: product.maxPrice };
+        const ebayData = await searchEbaySold(query, 20, limits);
+        priceData = extractPrices(ebayData, limits, query);
+    }
+
+    if (!priceData) return null;
+
+    const result = { id: product.id, name: product.name, ...priceData };
+    await writeCache(product.id, result);
+    appendHistory(product.id, priceData).catch(() => {});
+    return result;
+}
+
 // API : forcer le rafraîchissement d'un produit
 app.post('/api/refresh/:productId', async (req, res) => {
     const { productId } = req.params;
@@ -660,18 +700,10 @@ app.post('/api/refresh/:productId', async (req, res) => {
     }
 
     try {
-        const limits = { min: product.minPrice, max: product.maxPrice };
-        const ebayData = await searchEbaySold(product.query, 20, limits);
-        const priceData = extractPrices(ebayData, limits, product.query);
-
-        if (!priceData) {
+        const result = await refreshProductPrice(product);
+        if (!result) {
             return res.json({ error: 'Aucun résultat eBay', name: product.name });
         }
-
-        const result = { id: productId, name: product.name, ...priceData };
-        await writeCache(productId, result);
-        appendHistory(productId, priceData).catch(() => {});
-
         res.json({ ...result, source: 'ebay-fresh' });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -975,6 +1007,84 @@ app.post('/api/portfolio-snapshot', authMiddleware, async (req, res) => {
 
     await writePortfolioHistory(userId, history);
     res.json({ ok: true, entries: history.length });
+});
+
+// ── Cron Job quotidien (déclenché par GitHub Actions / UptimeRobot / …) ──
+// Protégé par header x-cron-secret (env var CRON_SECRET)
+// 1) Collecte les produits détenus par au moins un user
+// 2) Rafraichit les prix eBay pour ces produits uniquement (limite les appels API)
+// 3) Lance le snapshot portfolio pour tous les users
+const CRON_SECRET = process.env.CRON_SECRET || '';
+
+async function runDailyCron() {
+    const start = Date.now();
+    const summary = { refreshed: 0, failed: 0, users: 0, ownedProducts: 0, errors: [] };
+
+    // Collecte des produits détenus
+    const ownedIds = new Set();
+    try {
+        const allFiles = await fs.readdir(PORTFOLIOS_DIR);
+        for (const file of allFiles) {
+            if (!file.endsWith('.json')) continue;
+            try {
+                const portfolio = JSON.parse(await fs.readFile(path.join(PORTFOLIOS_DIR, file), 'utf-8'));
+                for (const product of PRODUCTS_TO_TRACK) {
+                    const h = portfolio[product.name];
+                    if (h && h.qty > 0) ownedIds.add(product.id);
+                }
+            } catch (err) {
+                summary.errors.push(`read ${file}: ${err.message}`);
+            }
+        }
+    } catch {}
+
+    summary.ownedProducts = ownedIds.size;
+    console.log(`[Cron] ${ownedIds.size} produits détenus à rafraichir`);
+
+    // Refresh les prix (throttle pour ménager l'API eBay)
+    for (const productId of ownedIds) {
+        const product = PRODUCTS_TO_TRACK.find(p => p.id === productId);
+        if (!product) continue;
+        try {
+            await refreshProductPrice(product);
+            summary.refreshed++;
+            await new Promise(r => setTimeout(r, 400));
+        } catch (err) {
+            summary.failed++;
+            summary.errors.push(`${productId}: ${err.message}`);
+            console.error(`[Cron] refresh ${productId} failed:`, err.message);
+        }
+    }
+
+    // Snapshot
+    await snapshotPortfolio();
+
+    // Compte les users
+    try {
+        const allFiles = await fs.readdir(PORTFOLIOS_DIR);
+        summary.users = allFiles.filter(f => f.endsWith('.json')).length;
+    } catch {}
+
+    summary.durationMs = Date.now() - start;
+    console.log(`[Cron] Terminé en ${Math.round(summary.durationMs / 1000)}s`, summary);
+    return summary;
+}
+
+app.post('/api/cron/daily', async (req, res) => {
+    const provided = req.headers['x-cron-secret'] || req.query.secret;
+    if (!CRON_SECRET) {
+        return res.status(503).json({ error: 'CRON_SECRET non configuré côté serveur' });
+    }
+    if (provided !== CRON_SECRET) {
+        return res.status(401).json({ error: 'Secret invalide' });
+    }
+    try {
+        const summary = await runDailyCron();
+        res.json({ ok: true, ...summary });
+    } catch (err) {
+        console.error('[Cron] Erreur fatale:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // Cron minuit : snapshot portfolio

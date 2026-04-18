@@ -12,5 +12,7 @@ services:
         sync: false
       - key: TOKEN_SECRET
         sync: false
+      - key: CRON_SECRET
+        sync: false
       - key: NODE_ENV
         value: production

@@ -1,0 +1,44 @@
+name: Daily Portfolio Snapshot
+
+# Déclenche le snapshot quotidien du portfolio + refresh des prix eBay
+# pour tous les produits détenus par les utilisateurs.
+# Fonctionne même si le serveur Render dort (le webhook le réveille).
+
+on:
+  schedule:
+    # Tous les jours à 02h00 UTC (03h/04h heure de Paris selon l'heure d'été)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Permet de lancer manuellement depuis l'onglet Actions de GitHub
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up Render server (cold start tolerance)
+        run: |
+          echo "Ping pour réveiller le serveur..."
+          curl -s -o /dev/null -w "HTTP %{http_code} en %{time_total}s\n" \
+            --max-time 120 \
+            "${{ secrets.RENDER_URL }}/api/status" || true
+
+      - name: Trigger daily snapshot
+        run: |
+          echo "Déclenchement du snapshot..."
+          response=$(curl -s -w "\n__HTTP_CODE__:%{http_code}" \
+            --max-time 900 \
+            -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.RENDER_URL }}/api/cron/daily")
+
+          body=$(echo "$response" | sed -e 's/__HTTP_CODE__:.*//')
+          code=$(echo "$response" | grep -o '__HTTP_CODE__:[0-9]*' | cut -d: -f2)
+
+          echo "HTTP $code"
+          echo "$body"
+
+          if [ "$code" != "200" ]; then
+            echo "::error::Snapshot failed with HTTP $code"
+            exit 1
+          fi
