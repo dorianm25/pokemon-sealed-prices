@@ -168,23 +168,132 @@
 
             <!-- Section: Portfolio -->
             <section class="section-portfolio" id="sectionPortfolio" style="display:none">
-                <div class="section-header">
-                    <h1 class="page-title">Mon Portfolio</h1>
-                    <button class="btn-export" onclick="exportPortfolioCSV()">📥 Export CSV</button>
-                    <button class="btn-export" onclick="sharePortfolio()">🔗 Partager</button>
-                    <button class="btn-outline" onclick="refreshPortfolio()" style="margin-right:8px">Actualiser</button>
-                    <button class="btn-outline" onclick="resetPortfolio()">Réinitialiser</button>
+                <div class="pf-hero">
+                    <div class="pf-hero-main">
+                        <h1 class="page-title">Portfolio</h1>
+                        <p class="page-desc">Suivez la performance de vos produits scellés en temps réel</p>
+                    </div>
+                    <div class="pf-hero-actions">
+                        <button class="pf-icon-btn" onclick="refreshPortfolio()" title="Actualiser" aria-label="Actualiser">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                        </button>
+                        <div class="pf-menu-wrap">
+                            <button class="pf-icon-btn" id="pfMenuBtn" onclick="togglePfMenu(event)" title="Plus d'actions" aria-label="Plus">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+                            </button>
+                            <div class="pf-menu" id="pfMenu">
+                                <button onclick="exportPortfolioCSV(); closePfMenu()"><span>📥</span> Exporter CSV</button>
+                                <button onclick="sharePortfolio(); closePfMenu()"><span>🔗</span> Partager</button>
+                                <button onclick="resetPortfolio(); closePfMenu()" class="pf-menu-danger"><span>↺</span> Réinitialiser</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="portfolio-summary" id="portfolioSummary"></div>
-                <div class="portfolio-chart-wrap" id="portfolioChartWrap" style="display:none">
-                    <h2 class="portfolio-chart-title">Évolution du portfolio</h2>
-                    <canvas id="portfolioChart" height="280"></canvas>
+
+                <div class="pf-tabs" role="tablist">
+                    <button class="pf-tab active" data-tab="positions" onclick="switchPfTab('positions')" role="tab">
+                        <span>Mes positions</span>
+                        <span class="pf-tab-count" id="pfTabCountPositions">0</span>
+                    </button>
+                    <button class="pf-tab" data-tab="add" onclick="switchPfTab('add')" role="tab">
+                        <span>Ajouter</span>
+                    </button>
+                    <button class="pf-tab" data-tab="history" onclick="switchPfTab('history')" role="tab">
+                        <span>Historique</span>
+                    </button>
                 </div>
-                <div class="portfolio-history-wrap" id="portfolioHistoryWrap" style="display:none">
-                    <h2 class="portfolio-chart-title">Historique des valeurs</h2>
-                    <div id="portfolioHistoryTable"></div>
+
+                <!-- Panel: Mes positions -->
+                <div class="pf-panel" id="pfPanelPositions">
+                    <div class="pf-summary-grid" id="portfolioSummary"></div>
+
+                    <div class="pf-analytics" id="pfAnalytics">
+                        <div class="portfolio-chart-wrap pf-chart-card" id="portfolioChartWrap">
+                            <div class="pf-chart-header">
+                                <h2 class="portfolio-chart-title">Évolution</h2>
+                                <div class="pf-range" id="pfRange">
+                                    <button data-range="7d" onclick="setPfRange('7d')">7j</button>
+                                    <button data-range="30d" onclick="setPfRange('30d')">30j</button>
+                                    <button data-range="90d" onclick="setPfRange('90d')">90j</button>
+                                    <button data-range="all" class="active" onclick="setPfRange('all')">Tout</button>
+                                </div>
+                            </div>
+                            <canvas id="portfolioChart" height="220"></canvas>
+                        </div>
+                        <div class="portfolio-chart-wrap pf-alloc-card" id="pfAllocCard">
+                            <div class="pf-chart-header">
+                                <h2 class="portfolio-chart-title">Allocation</h2>
+                                <div class="pf-alloc-toggle" id="pfAllocToggle">
+                                    <button data-mode="type" class="active" onclick="setAllocMode('type')">Type</button>
+                                    <button data-mode="serie" onclick="setAllocMode('serie')">Série</button>
+                                </div>
+                            </div>
+                            <div class="pf-alloc-body">
+                                <canvas id="pfAllocChart" height="180"></canvas>
+                                <div class="pf-alloc-legend" id="pfAllocLegend"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pf-top-wrap" id="pfTopWrap"></div>
+
+                    <div class="pf-positions-header">
+                        <h2 class="pf-section-title">Positions détenues</h2>
+                        <div class="pf-positions-controls">
+                            <input type="search" class="pf-position-search" id="pfPositionSearch" placeholder="Rechercher…" oninput="renderPortfolio()">
+                            <select class="pf-sort-select" id="pfSortSelect" onchange="renderPortfolio()">
+                                <option value="pnl-desc">P&L ↓</option>
+                                <option value="pnl-asc">P&L ↑</option>
+                                <option value="pnlpct-desc">% P&L ↓</option>
+                                <option value="value-desc">Valeur ↓</option>
+                                <option value="name">Nom A-Z</option>
+                                <option value="serie">Série</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="portfolio-grid pf-positions-grid" id="portfolioGrid"></div>
+                    <div class="pf-empty" id="pfEmpty" style="display:none">
+                        <div class="pf-empty-icon">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
+                        </div>
+                        <h3>Aucune position pour le moment</h3>
+                        <p>Commencez à suivre la valeur de vos produits scellés en ajoutant votre première position.</p>
+                        <button class="pf-empty-cta" onclick="switchPfTab('add')">+ Ajouter un produit</button>
+                    </div>
                 </div>
-                <div class="portfolio-grid" id="portfolioGrid"></div>
+
+                <!-- Panel: Ajouter -->
+                <div class="pf-panel" id="pfPanelAdd" style="display:none">
+                    <div class="pf-add-header">
+                        <input type="search" class="pf-add-search" id="pfAddSearch" placeholder="Rechercher parmi le catalogue…" oninput="renderAddCatalog()">
+                        <div class="pf-add-filters" id="pfAddFilters">
+                            <button class="pf-chip active" data-type="" onclick="setAddTypeFilter('')">Tous</button>
+                            <button class="pf-chip" data-type="booster" onclick="setAddTypeFilter('booster')">Boosters</button>
+                            <button class="pf-chip" data-type="display" onclick="setAddTypeFilter('display')">Displays</button>
+                            <button class="pf-chip" data-type="etb" onclick="setAddTypeFilter('etb')">ETB</button>
+                            <button class="pf-chip" data-type="tripack" onclick="setAddTypeFilter('tripack')">Tripacks</button>
+                            <button class="pf-chip" data-type="bundle" onclick="setAddTypeFilter('bundle')">Bundles</button>
+                            <button class="pf-chip" data-type="coffret" onclick="setAddTypeFilter('coffret')">Coffrets</button>
+                        </div>
+                    </div>
+                    <div class="pf-add-grid" id="pfAddGrid"></div>
+                </div>
+
+                <!-- Panel: Historique -->
+                <div class="pf-panel" id="pfPanelHistory" style="display:none">
+                    <div class="portfolio-history-wrap" id="portfolioHistoryWrap">
+                        <h2 class="portfolio-chart-title">Historique des valeurs</h2>
+                        <div id="portfolioHistoryTable"></div>
+                    </div>
+                </div>
+
+                <!-- Modal: Ajouter avec quantité/prix -->
+                <div class="pf-add-modal" id="pfAddModal" onclick="if(event.target===this)closePfAddModal()">
+                    <div class="pf-add-modal-content">
+                        <button class="pf-add-modal-close" onclick="closePfAddModal()" aria-label="Fermer">×</button>
+                        <div class="pf-add-modal-body" id="pfAddModalBody"></div>
+                    </div>
+                </div>
             </section>
 
             <!-- Section: Tendances -->

@@ -2104,96 +2104,473 @@ function onPortfolioInput(name, field, value) {
     }
 }
 
-function renderPortfolioCard(p, pf) {
+// ── Portfolio v2 state ──────────────────────────────────────
+let _pfTab = 'positions';
+let _pfRange = 'all';
+let _pfAllocMode = 'type';
+let _pfAddTypeFilter = '';
+let _pfAllocChart = null;
+
+function switchPfTab(tab) {
+    _pfTab = tab;
+    document.querySelectorAll('.pf-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.getElementById('pfPanelPositions').style.display = tab === 'positions' ? 'block' : 'none';
+    document.getElementById('pfPanelAdd').style.display = tab === 'add' ? 'block' : 'none';
+    document.getElementById('pfPanelHistory').style.display = tab === 'history' ? 'block' : 'none';
+    if (tab === 'add') renderAddCatalog();
+    if (tab === 'history') renderPortfolioHistoryTab();
+}
+
+function togglePfMenu(ev) {
+    if (ev) ev.stopPropagation();
+    const menu = document.getElementById('pfMenu');
+    menu?.classList.toggle('open');
+}
+
+function closePfMenu() {
+    document.getElementById('pfMenu')?.classList.remove('open');
+}
+
+document.addEventListener('click', (e) => {
+    const menu = document.getElementById('pfMenu');
+    const btn = document.getElementById('pfMenuBtn');
+    if (menu && !menu.contains(e.target) && e.target !== btn && !btn?.contains(e.target)) {
+        menu.classList.remove('open');
+    }
+});
+
+function setPfRange(range) {
+    _pfRange = range;
+    document.querySelectorAll('#pfRange button').forEach(b => b.classList.toggle('active', b.dataset.range === range));
+    loadPortfolioChart();
+}
+
+function setAllocMode(mode) {
+    _pfAllocMode = mode;
+    document.querySelectorAll('#pfAllocToggle button').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    renderAllocChart();
+}
+
+function setAddTypeFilter(t) {
+    _pfAddTypeFilter = t;
+    document.querySelectorAll('#pfAddFilters .pf-chip').forEach(b => b.classList.toggle('active', b.dataset.type === t));
+    renderAddCatalog();
+}
+
+// ── Enhanced position card ──────────────────────────────────
+function renderPortfolioPositionCard(p, pf) {
     const h = pf[p.name] || { qty: 0, cost: 0 };
     const totalInvested = h.qty * h.cost;
     const currentVal = h.qty * p.price;
     const pnl = currentVal - totalInvested;
-    const pnlPct = totalInvested > 0 ? ((pnl / totalInvested) * 100).toFixed(1) : '0';
+    const pnlPct = totalInvested > 0 ? ((pnl / totalInvested) * 100) : 0;
     const pnlClass = pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : '';
+    const pnlSign = pnl >= 0 ? '+' : '';
+    const arrow = pnl > 0 ? '▲' : pnl < 0 ? '▼' : '—';
+    const safe = p.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const img = p.img || `https://placehold.co/200x260/1a2230/525a66?text=${encodeURIComponent(p.type.toUpperCase())}`;
 
-    return `<div class="pf-card" data-name="${p.name}">
-    <div class="pf-card-header">
-        <span class="product-type type-${p.type}">${TYPE_LABELS[p.type]}</span>
-        <span style="font-size:11px;color:var(--text-muted)">${p.serie}</span>
-    </div>
-    <h3 class="product-name">${p.name}</h3>
-    <p class="pf-card-ext">${p.ext}</p>
-    <div class="pf-inputs">
-        <div class="pf-field">
-            <label>Quantité</label>
-            <input type="number" min="0" value="${h.qty}" oninput="onPortfolioInput('${p.name.replace(/'/g, "\\'")}','qty',this.value)" placeholder="0">
+    return `<div class="pf-pos-card" data-name="${p.name.replace(/"/g, '&quot;')}">
+        <button class="pf-pos-remove" onclick="pfRemovePosition('${safe}')" title="Retirer du portfolio" aria-label="Retirer">×</button>
+        <div class="pf-pos-top" onclick="openDetail('${safe}')">
+            <div class="pf-pos-img"><img src="${img}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'"></div>
+            <div class="pf-pos-info">
+                <div class="pf-pos-meta">
+                    <span class="product-type type-${p.type}">${TYPE_LABELS[p.type] || p.type}</span>
+                    <span class="pf-pos-serie">${p.serie}</span>
+                </div>
+                <h3 class="pf-pos-name">${p.name}</h3>
+                <div class="pf-pos-pnl-big ${pnlClass}">
+                    <span class="pf-pos-pnl-arrow">${arrow}</span>
+                    <span class="pf-pos-pnl-pct">${pnlSign}${pnlPct.toFixed(1)}%</span>
+                    <span class="pf-pos-pnl-abs">${pnlSign}${fmt(pnl)}</span>
+                </div>
+            </div>
         </div>
-        <div class="pf-field">
-            <label>Prix d'achat (€)</label>
-            <input type="number" min="0" step="0.01" value="${h.cost || ''}" oninput="onPortfolioInput('${p.name.replace(/'/g, "\\'")}','cost',this.value)" placeholder="0,00">
+        <div class="pf-pos-inputs">
+            <div class="pf-field">
+                <label>Qté</label>
+                <input type="number" min="0" value="${h.qty}" oninput="onPortfolioInput('${safe}','qty',this.value)" placeholder="0">
+            </div>
+            <div class="pf-field">
+                <label>Prix achat €</label>
+                <input type="number" min="0" step="0.01" value="${h.cost || ''}" oninput="onPortfolioInput('${safe}','cost',this.value)" placeholder="0,00">
+            </div>
+            <div class="pf-field pf-field-readonly">
+                <label>Cours actuel</label>
+                <div class="pf-field-value">${fmt(p.price)}</div>
+            </div>
         </div>
-    </div>
-    <div class="pf-result">
-        <div class="pf-result-item">
-            <span class="pf-result-label">Investi</span>
-            <span class="pf-result-value">${h.qty > 0 ? fmt(totalInvested) : '—'}</span>
+        <div class="pf-pos-footer">
+            <div class="pf-pos-kpi"><span>Investi</span><strong>${fmt(totalInvested)}</strong></div>
+            <div class="pf-pos-kpi"><span>Valeur</span><strong>${fmt(currentVal)}</strong></div>
+            <div class="pf-pos-kpi"><span>Gain/perte</span><strong class="${pnlClass}">${pnlSign}${fmt(pnl)}</strong></div>
         </div>
-        <div class="pf-result-item">
-            <span class="pf-result-label">Valeur</span>
-            <span class="pf-result-value">${h.qty > 0 ? fmt(currentVal) : '—'}</span>
-        </div>
-        <div class="pf-result-item">
-            <span class="pf-result-label">P&L</span>
-            <span class="pf-result-value ${pnlClass}">${h.qty > 0 ? (pnl >= 0 ? '+' : '') + fmt(pnl) : '—'}</span>
-        </div>
-    </div>
-</div>`;
+    </div>`;
 }
 
+// Compat — conservé pour les anciens appels
+function renderPortfolioCard(p, pf) {
+    return renderPortfolioPositionCard(p, pf);
+}
+
+// Supprime une position (qty=0, cost=0)
+function pfRemovePosition(name) {
+    const p = products.find(pr => pr.name === name);
+    const label = p ? p.name : name;
+    if (!confirm(`Retirer "${label}" de votre portfolio ?`)) return;
+    const pf = loadPortfolioSync();
+    if (pf[name]) { pf[name] = { qty: 0, cost: 0 }; }
+    savePortfolio(pf);
+    showToast('🗑️', 'Position retirée', label);
+    renderPortfolio();
+}
+
+// ── Enhanced summary (6 KPIs + variation 24h) ──────────────
 function renderPortfolioSummary(pf) {
-    let totalInvested = 0, totalCurrent = 0, totalItems = 0;
+    let totalInvested = 0, totalCurrent = 0, totalItems = 0, positions = 0;
+    let best = null, worst = null;
+
     for (const p of products) {
         const h = pf[p.name];
         if (!h || h.qty <= 0) continue;
+        positions++;
         totalItems += h.qty;
-        totalInvested += h.qty * h.cost;
-        totalCurrent += h.qty * p.price;
+        const inv = h.qty * h.cost;
+        const val = h.qty * p.price;
+        totalInvested += inv;
+        totalCurrent += val;
+        const pnl = val - inv;
+        const pct = inv > 0 ? (pnl / inv) * 100 : 0;
+        if (!best || pct > best.pct) best = { name: p.name, pct, pnl };
+        if (!worst || pct < worst.pct) worst = { name: p.name, pct, pnl };
     }
+
     const totalPnl = totalCurrent - totalInvested;
-    const pnlPct = totalInvested > 0 ? ((totalPnl / totalInvested) * 100).toFixed(1) : '0';
+    const pnlPct = totalInvested > 0 ? ((totalPnl / totalInvested) * 100) : 0;
     const pnlClass = totalPnl > 0 ? 'positive' : totalPnl < 0 ? 'negative' : '';
 
+    // Variation vs snapshot le plus récent
+    const history = getPortfolioHistory();
+    let variation24 = null;
+    if (history.length >= 2) {
+        const today = history[history.length - 1];
+        const prev = history[history.length - 2];
+        if (prev.value > 0) {
+            const diff = today.value - prev.value;
+            variation24 = { diff, pct: (diff / prev.value) * 100 };
+        }
+    }
+
+    const varHtml = variation24
+        ? `<span class="pf-stat-delta ${variation24.diff >= 0 ? 'positive' : 'negative'}">${variation24.diff >= 0 ? '▲' : '▼'} ${variation24.diff >= 0 ? '+' : ''}${variation24.pct.toFixed(2)}%</span>`
+        : '<span class="pf-stat-delta pf-stat-delta-muted">—</span>';
+
+    const bestHtml = best
+        ? `<div class="pf-hero-kpi-name">${best.name}</div><div class="pf-hero-kpi-value positive">+${best.pct.toFixed(1)}%</div>`
+        : `<div class="pf-hero-kpi-name pf-hero-kpi-empty">Aucune position</div>`;
+
+    const worstHtml = worst && worst.pct < 0
+        ? `<div class="pf-hero-kpi-name">${worst.name}</div><div class="pf-hero-kpi-value negative">${worst.pct.toFixed(1)}%</div>`
+        : worst
+            ? `<div class="pf-hero-kpi-name">${worst.name}</div><div class="pf-hero-kpi-value">${worst.pct >= 0 ? '+' : ''}${worst.pct.toFixed(1)}%</div>`
+            : `<div class="pf-hero-kpi-name pf-hero-kpi-empty">Aucune position</div>`;
+
     document.getElementById('portfolioSummary').innerHTML = `
-        <div class="pf-stat"><span class="pf-stat-label">Produits en stock</span><span class="pf-stat-value">${totalItems}</span></div>
-        <div class="pf-stat"><span class="pf-stat-label">Total investi</span><span class="pf-stat-value">${fmt(totalInvested)}</span></div>
-        <div class="pf-stat"><span class="pf-stat-label">Valeur actuelle</span><span class="pf-stat-value">${fmt(totalCurrent)}</span></div>
-        <div class="pf-stat"><span class="pf-stat-label">P&L Total</span><span class="pf-stat-value ${pnlClass}">${totalPnl >= 0 ? '+' : ''}${fmt(totalPnl)} (${pnlPct} %)</span></div>
+        <div class="pf-stat pf-stat-primary">
+            <span class="pf-stat-label">Valeur du portfolio</span>
+            <span class="pf-stat-value">${fmt(totalCurrent)}</span>
+            ${varHtml}
+        </div>
+        <div class="pf-stat">
+            <span class="pf-stat-label">P&L total</span>
+            <span class="pf-stat-value ${pnlClass}">${totalPnl >= 0 ? '+' : ''}${fmt(totalPnl)}</span>
+            <span class="pf-stat-delta ${pnlClass}">${totalPnl >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</span>
+        </div>
+        <div class="pf-stat">
+            <span class="pf-stat-label">Total investi</span>
+            <span class="pf-stat-value">${fmt(totalInvested)}</span>
+            <span class="pf-stat-delta pf-stat-delta-muted">${totalItems} articles · ${positions} position${positions > 1 ? 's' : ''}</span>
+        </div>
+        <div class="pf-stat pf-stat-kpi">
+            <span class="pf-stat-label">Meilleure position</span>
+            ${bestHtml}
+        </div>
+        <div class="pf-stat pf-stat-kpi">
+            <span class="pf-stat-label">Pire position</span>
+            ${worstHtml}
+        </div>
     `;
+
+    // Badge onglet
+    const tabCount = document.getElementById('pfTabCountPositions');
+    if (tabCount) tabCount.textContent = positions;
+}
+
+// ── Top positions ──────────────────────────────────────────
+function renderTopPositions(pf) {
+    const wrap = document.getElementById('pfTopWrap');
+    if (!wrap) return;
+    const list = [];
+    for (const p of products) {
+        const h = pf[p.name];
+        if (!h || h.qty <= 0) continue;
+        const val = h.qty * p.price;
+        const inv = h.qty * h.cost;
+        const pnl = val - inv;
+        const pct = inv > 0 ? (pnl / inv) * 100 : 0;
+        list.push({ p, h, val, inv, pnl, pct });
+    }
+    if (list.length === 0) { wrap.innerHTML = ''; return; }
+
+    const sorted = [...list].sort((a, b) => b.val - a.val);
+    const total = sorted.reduce((s, x) => s + x.val, 0);
+    const top = sorted.slice(0, 5);
+
+    wrap.innerHTML = `
+        <div class="pf-top-card">
+            <div class="pf-chart-header">
+                <h2 class="portfolio-chart-title">Top 5 positions</h2>
+                <span class="pf-top-subtitle">par valeur actuelle</span>
+            </div>
+            <div class="pf-top-bars">
+                ${top.map(x => {
+                    const w = total > 0 ? (x.val / total * 100) : 0;
+                    const pnlClass = x.pnl > 0 ? 'positive' : x.pnl < 0 ? 'negative' : '';
+                    return `<div class="pf-top-row" onclick="openDetail('${x.p.name.replace(/'/g, "\\'")}')">
+                        <div class="pf-top-name">
+                            <span class="product-type type-${x.p.type}">${TYPE_LABELS[x.p.type] || x.p.type}</span>
+                            <span>${x.p.name}</span>
+                        </div>
+                        <div class="pf-top-bar-wrap"><div class="pf-top-bar" style="width:${w.toFixed(1)}%"></div></div>
+                        <div class="pf-top-value">${fmt(x.val)}</div>
+                        <div class="pf-top-pnl ${pnlClass}">${x.pnl >= 0 ? '+' : ''}${x.pct.toFixed(1)}%</div>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>
+    `;
+}
+
+// ── Allocation chart ───────────────────────────────────────
+const ALLOC_COLORS = [
+    '#22c55e', '#22d3ee', '#a78bfa', '#f59e0b', '#ef4444',
+    '#3b82f6', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6',
+    '#84cc16', '#06b6d4', '#d946ef', '#f43f5e', '#0ea5e9',
+];
+
+function renderAllocChart() {
+    const canvas = document.getElementById('pfAllocChart');
+    const legend = document.getElementById('pfAllocLegend');
+    if (!canvas || !legend) return;
+
+    const pf = loadPortfolioSync();
+    const buckets = new Map();
+    let total = 0;
+    for (const p of products) {
+        const h = pf[p.name];
+        if (!h || h.qty <= 0) continue;
+        const val = h.qty * p.price;
+        const key = _pfAllocMode === 'type' ? (TYPE_LABELS[p.type] || p.type) : p.serie;
+        buckets.set(key, (buckets.get(key) || 0) + val);
+        total += val;
+    }
+
+    if (total === 0) {
+        if (_pfAllocChart) { _pfAllocChart.destroy(); _pfAllocChart = null; }
+        legend.innerHTML = '<div class="pf-alloc-empty">Ajoutez des positions pour voir l\'allocation</div>';
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
+
+    const entries = [...buckets.entries()].sort((a, b) => b[1] - a[1]);
+    const labels = entries.map(e => e[0]);
+    const data = entries.map(e => e[1]);
+    const colors = entries.map((_, i) => ALLOC_COLORS[i % ALLOC_COLORS.length]);
+
+    if (_pfAllocChart) _pfAllocChart.destroy();
+    const ctx = canvas.getContext('2d');
+    _pfAllocChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: 'rgba(0,0,0,0.35)', borderWidth: 2, hoverOffset: 6 }] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '62%',
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: c => `${c.label}: ${fmt(c.parsed)} (${(c.parsed / total * 100).toFixed(1)}%)`,
+                    },
+                },
+            },
+        },
+    });
+
+    legend.innerHTML = entries.map(([k, v], i) => {
+        const pct = (v / total * 100).toFixed(1);
+        return `<div class="pf-alloc-legend-item">
+            <span class="pf-alloc-dot" style="background:${colors[i]}"></span>
+            <span class="pf-alloc-legend-label">${k}</span>
+            <span class="pf-alloc-legend-pct">${pct}%</span>
+        </div>`;
+    }).join('');
+}
+
+// ── Add Catalog (tab) ──────────────────────────────────────
+function renderAddCatalog() {
+    const grid = document.getElementById('pfAddGrid');
+    if (!grid) return;
+    const search = (document.getElementById('pfAddSearch')?.value || '').toLowerCase().trim();
+    const pf = loadPortfolioSync();
+
+    let list = [...products];
+    if (_pfAddTypeFilter) list = list.filter(p => p.type === _pfAddTypeFilter);
+    if (search) list = list.filter(p => p.name.toLowerCase().includes(search) || (p.serie || '').toLowerCase().includes(search) || (p.ext || '').toLowerCase().includes(search));
+    list.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
+    if (list.length === 0) {
+        grid.innerHTML = '<div class="pf-add-empty">Aucun produit ne correspond à votre recherche.</div>';
+        return;
+    }
+
+    grid.innerHTML = list.map(p => {
+        const owned = (pf[p.name]?.qty || 0) > 0;
+        const safe = p.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        const img = p.img || `https://placehold.co/100x130/1a2230/525a66?text=${encodeURIComponent(p.type.toUpperCase())}`;
+        return `<div class="pf-add-item ${owned ? 'owned' : ''}">
+            <div class="pf-add-img"><img src="${img}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'"></div>
+            <div class="pf-add-info">
+                <div class="pf-add-meta">
+                    <span class="product-type type-${p.type}">${TYPE_LABELS[p.type] || p.type}</span>
+                    <span class="pf-add-serie">${p.serie}</span>
+                </div>
+                <h4 class="pf-add-name">${p.name}</h4>
+                <div class="pf-add-price">${fmt(p.price)}</div>
+            </div>
+            <button class="pf-add-btn ${owned ? 'owned' : ''}" onclick="openPfAddModal('${safe}')">
+                ${owned ? '✓ Ajouté' : '+ Ajouter'}
+            </button>
+        </div>`;
+    }).join('');
+}
+
+// ── Quick Add Modal ────────────────────────────────────────
+function openPfAddModal(name) {
+    const p = products.find(pr => pr.name === name);
+    if (!p) return;
+    const pf = loadPortfolioSync();
+    const h = pf[p.name] || { qty: 0, cost: 0 };
+    const modal = document.getElementById('pfAddModal');
+    const body = document.getElementById('pfAddModalBody');
+    const safe = p.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const img = p.img || `https://placehold.co/120x160/1a2230/525a66?text=${encodeURIComponent(p.type.toUpperCase())}`;
+
+    body.innerHTML = `
+        <div class="pf-add-modal-top">
+            <div class="pf-add-modal-img"><img src="${img}" alt="${p.name}" onerror="this.style.display='none'"></div>
+            <div class="pf-add-modal-info">
+                <div class="pf-pos-meta"><span class="product-type type-${p.type}">${TYPE_LABELS[p.type] || p.type}</span><span class="pf-pos-serie">${p.serie}</span></div>
+                <h3>${p.name}</h3>
+                <div class="pf-add-modal-price">Cours actuel · <strong>${fmt(p.price)}</strong></div>
+            </div>
+        </div>
+        <div class="pf-add-modal-form">
+            <div class="pf-field">
+                <label>Quantité</label>
+                <input type="number" id="pfAddQty" min="1" value="${h.qty || 1}" inputmode="numeric">
+            </div>
+            <div class="pf-field">
+                <label>Prix d'achat unitaire (€)</label>
+                <input type="number" id="pfAddCost" min="0" step="0.01" value="${h.cost || p.price.toFixed(2)}" inputmode="decimal">
+            </div>
+        </div>
+        <div class="pf-add-modal-actions">
+            <button class="pf-btn-ghost" onclick="closePfAddModal()">Annuler</button>
+            <button class="pf-btn-primary" onclick="confirmPfAdd('${safe}')">Ajouter au portfolio</button>
+        </div>
+    `;
+    modal.classList.add('open');
+    setTimeout(() => document.getElementById('pfAddQty')?.focus(), 50);
+}
+
+function closePfAddModal() {
+    document.getElementById('pfAddModal')?.classList.remove('open');
+}
+
+function confirmPfAdd(name) {
+    const qty = parseFloat(document.getElementById('pfAddQty')?.value) || 0;
+    const cost = parseFloat(document.getElementById('pfAddCost')?.value) || 0;
+    if (qty <= 0) { showToast('⚠️', 'Quantité invalide', 'Entrez un nombre positif'); return; }
+    const pf = loadPortfolioSync();
+    pf[name] = { qty, cost };
+    savePortfolio(pf);
+    closePfAddModal();
+    showToast('✅', 'Position ajoutée', `${qty}× ${name}`);
+    switchPfTab('positions');
+    renderPortfolio();
 }
 
 let portfolioChartInstance = null;
 
+function _filterPfHistoryByRange(history, range) {
+    if (!history || history.length === 0) return [];
+    if (range === 'all') return history;
+    const days = range === '7d' ? 7 : range === '30d' ? 30 : range === '90d' ? 90 : 365;
+    const cutoff = Date.now() - days * 86400000;
+    return history.filter(h => {
+        const t = new Date(h.date).getTime();
+        return !isNaN(t) && t >= cutoff;
+    });
+}
+
 async function loadPortfolioChart() {
     const wrap = document.getElementById('portfolioChartWrap');
+    if (!wrap) return;
     try {
-        if (!authToken) { wrap.style.display = 'none'; return; }
-        const res = await fetch('/api/portfolio-history', { headers: { 'Authorization': `Bearer ${authToken}` } });
-        const history = await res.json();
-        if (!history || history.length === 0) { wrap.style.display = 'none'; return; }
+        // 1) Essayer la source distante si auth, sinon fallback local
+        let history = null;
+        if (authToken) {
+            try {
+                const res = await fetch('/api/portfolio-history', { headers: { 'Authorization': `Bearer ${authToken}` } });
+                if (res.ok) history = await res.json();
+            } catch {}
+        }
+        if (!history || history.length === 0) history = getPortfolioHistory();
+
+        const filtered = _filterPfHistoryByRange(history, _pfRange);
+        if (!filtered || filtered.length === 0) {
+            wrap.style.display = 'block';
+            const ctx = document.getElementById('portfolioChart').getContext('2d');
+            if (portfolioChartInstance) { portfolioChartInstance.destroy(); portfolioChartInstance = null; }
+            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            return;
+        }
 
         wrap.style.display = 'block';
-        const labels = history.map(h => h.date);
-        const investedData = history.map(h => h.invested);
-        const valueData = history.map(h => h.value);
-        const pnlData = history.map(h => h.pnl);
+        const labels = filtered.map(h => h.date);
+        const investedData = filtered.map(h => h.invested);
+        const valueData = filtered.map(h => h.value);
+        const pnlData = filtered.map(h => h.pnl);
 
         if (portfolioChartInstance) portfolioChartInstance.destroy();
 
         const ctx = document.getElementById('portfolioChart').getContext('2d');
+        // Gradient fill pour Valeur
+        const grad = ctx.createLinearGradient(0, 0, 0, 260);
+        grad.addColorStop(0, 'rgba(34,197,94,0.35)');
+        grad.addColorStop(1, 'rgba(34,197,94,0.02)');
+
         portfolioChartInstance = new Chart(ctx, {
             type: 'line',
             data: {
                 labels,
                 datasets: [
-                    { label: 'Investi', data: investedData, borderColor: '#94a3b8', backgroundColor: 'rgba(148,163,184,0.08)', borderWidth: 2, pointRadius: 3, tension: 0.3, fill: false },
-                    { label: 'Valeur', data: valueData, borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.10)', borderWidth: 2, pointRadius: 3, tension: 0.3, fill: true },
-                    { label: 'P&L', data: pnlData, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.08)', borderWidth: 2, pointRadius: 3, tension: 0.3, borderDash: [5, 3], fill: false },
+                    { label: 'Valeur', data: valueData, borderColor: '#22c55e', backgroundColor: grad, borderWidth: 2.4, pointRadius: 0, pointHoverRadius: 5, tension: 0.35, fill: true },
+                    { label: 'Investi', data: investedData, borderColor: 'rgba(148,163,184,0.8)', borderWidth: 1.5, borderDash: [4, 4], pointRadius: 0, pointHoverRadius: 4, tension: 0.3, fill: false },
+                    { label: 'P&L', data: pnlData, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.08)', borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.3, fill: false },
                 ],
             },
             options: {
@@ -2201,21 +2578,25 @@ async function loadPortfolioChart() {
                 maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    legend: { labels: { color: '#94a3b8', font: { size: 12 } } },
+                    legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: 'circle' } },
                     tooltip: {
-                        callbacks: {
-                            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} €`,
-                        },
+                        backgroundColor: 'rgba(15,19,25,0.95)',
+                        borderColor: 'rgba(34,197,94,0.3)',
+                        borderWidth: 1,
+                        padding: 10,
+                        titleColor: '#f0f6fc',
+                        bodyColor: '#9ba4b0',
+                        callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` },
                     },
                 },
                 scales: {
-                    x: { ticks: { color: '#64748b', maxRotation: 45 }, grid: { color: 'rgba(148,163,184,0.1)' } },
-                    y: { ticks: { color: '#64748b', callback: v => v + ' €' }, grid: { color: 'rgba(148,163,184,0.1)' } },
+                    x: { ticks: { color: '#64748b', maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.06)' } },
+                    y: { ticks: { color: '#64748b', callback: v => fmt(v), font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.06)' } },
                 },
             },
         });
     } catch {
-        wrap.style.display = 'none';
+        if (wrap) wrap.style.display = 'none';
     }
 }
 
@@ -2257,16 +2638,19 @@ function renderPortfolioHistory(remoteHistory) {
     const local = getPortfolioHistory();
     const history = (remoteHistory && remoteHistory.length > 0) ? remoteHistory : local;
     const wrap = document.getElementById('portfolioHistoryWrap');
+    const table = document.getElementById('portfolioHistoryTable');
+    if (!wrap || !table) return;
+
+    wrap.style.display = 'block';
 
     if (!history || history.length === 0) {
-        wrap.style.display = 'none';
+        table.innerHTML = `<div class="pf-add-empty">Aucun historique disponible. L'historique s'accumule à chaque visite quand vous avez des positions.</div>`;
         return;
     }
 
-    wrap.style.display = 'block';
     const reversed = [...history].reverse();
 
-    document.getElementById('portfolioHistoryTable').innerHTML = `
+    table.innerHTML = `
         <div class="pfh-table">
             <div class="pfh-header">
                 <span class="pfh-col-date">Date</span>
@@ -2298,27 +2682,74 @@ async function renderPortfolio() {
     // Sauvegarder un snapshot local
     saveLocalPortfolioSnapshot(pf);
 
-    const sorted = [...products].sort((a, b) => {
-        const aQty = (pf[a.name]?.qty || 0);
-        const bQty = (pf[b.name]?.qty || 0);
-        if (aQty > 0 && bQty === 0) return -1;
-        if (aQty === 0 && bQty > 0) return 1;
-        return a.name.localeCompare(b.name, 'fr');
-    });
-    document.getElementById('portfolioGrid').innerHTML = sorted.map(p => renderPortfolioCard(p, pf)).join('');
-    renderPortfolioSummary(pf);
-    loadPortfolioChart();
+    // 1) Uniquement les produits détenus
+    const search = (document.getElementById('pfPositionSearch')?.value || '').toLowerCase().trim();
+    const sortMode = document.getElementById('pfSortSelect')?.value || 'pnl-desc';
 
-    // Charger l'historique (remote si connecté, sinon local)
+    let positions = products
+        .filter(p => (pf[p.name]?.qty || 0) > 0)
+        .map(p => {
+            const h = pf[p.name];
+            const inv = h.qty * h.cost;
+            const val = h.qty * p.price;
+            const pnl = val - inv;
+            const pct = inv > 0 ? (pnl / inv) * 100 : 0;
+            return { p, h, inv, val, pnl, pct };
+        });
+
+    if (search) positions = positions.filter(x =>
+        x.p.name.toLowerCase().includes(search) ||
+        (x.p.serie || '').toLowerCase().includes(search) ||
+        (x.p.ext || '').toLowerCase().includes(search)
+    );
+
+    const sortFns = {
+        'pnl-desc': (a, b) => b.pnl - a.pnl,
+        'pnl-asc': (a, b) => a.pnl - b.pnl,
+        'pnlpct-desc': (a, b) => b.pct - a.pct,
+        'value-desc': (a, b) => b.val - a.val,
+        'name': (a, b) => a.p.name.localeCompare(b.p.name, 'fr'),
+        'serie': (a, b) => (a.p.serie || '').localeCompare(b.p.serie || '', 'fr'),
+    };
+    positions.sort(sortFns[sortMode] || sortFns['pnl-desc']);
+
+    // 2) Rendu
+    const grid = document.getElementById('portfolioGrid');
+    const empty = document.getElementById('pfEmpty');
+    const hasPositions = Object.values(pf).some(h => h.qty > 0);
+
+    if (!hasPositions) {
+        grid.innerHTML = '';
+        if (empty) empty.style.display = 'flex';
+        document.getElementById('pfAnalytics').style.display = 'none';
+        document.getElementById('pfTopWrap').innerHTML = '';
+        document.querySelector('.pf-positions-header').style.display = 'none';
+    } else {
+        if (empty) empty.style.display = 'none';
+        document.getElementById('pfAnalytics').style.display = '';
+        document.querySelector('.pf-positions-header').style.display = '';
+        grid.innerHTML = positions.length > 0
+            ? positions.map(x => renderPortfolioPositionCard(x.p, pf)).join('')
+            : '<div class="pf-add-empty">Aucune position ne correspond à votre recherche.</div>';
+    }
+
+    renderPortfolioSummary(pf);
+    renderTopPositions(pf);
+    loadPortfolioChart();
+    renderAllocChart();
+}
+
+// Historique dans son propre onglet
+async function renderPortfolioHistoryTab() {
     if (authToken) {
         try {
             const res = await fetch('/api/portfolio-history', { headers: { 'Authorization': `Bearer ${authToken}` } });
             const remote = await res.json();
             renderPortfolioHistory(remote);
-        } catch { renderPortfolioHistory(null); }
-    } else {
-        renderPortfolioHistory(null);
+            return;
+        } catch {}
     }
+    renderPortfolioHistory(null);
 }
 
 // ── Toast Notifications ─────────────────────────────────────
@@ -3705,7 +4136,11 @@ window.switchSection = function(name, ev) {
 };
 // Close sheet on escape
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeMobileSortSheet();
+    if (e.key === 'Escape') {
+        closeMobileSortSheet();
+        closePfAddModal();
+        closePfMenu();
+    }
 });
 // Initial call
 setTimeout(updateMobileSortFab, 100);
