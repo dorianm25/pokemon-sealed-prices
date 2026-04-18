@@ -3662,6 +3662,54 @@ document.getElementById('searchInput').addEventListener('input', render);
 document.getElementById('filterPrix').addEventListener('change', render);
 document.getElementById('sortBy').addEventListener('change', render);
 
+// ── Mobile sort bottom sheet ─────────────────────────────────
+function openMobileSortSheet() {
+    const sheet = document.getElementById('mobileSortSheet');
+    if (!sheet) return;
+    // Sync active from sortBy value
+    const current = document.getElementById('sortBy').value;
+    sheet.querySelectorAll('.mobile-sheet-opt').forEach(b => {
+        b.classList.toggle('active', b.dataset.sort === current);
+    });
+    sheet.classList.add('open');
+    // Close when clicking overlay (not the sheet itself)
+    sheet.onclick = (e) => { if (e.target === sheet) closeMobileSortSheet(); };
+}
+function closeMobileSortSheet() {
+    const sheet = document.getElementById('mobileSortSheet');
+    if (sheet) sheet.classList.remove('open');
+}
+function applyMobileSort(value) {
+    const select = document.getElementById('sortBy');
+    if (select) {
+        select.value = value;
+        select.dispatchEvent(new Event('change'));
+    }
+    closeMobileSortSheet();
+}
+// Show/hide mobile sort FAB based on viewport and current section
+function updateMobileSortFab() {
+    const fab = document.getElementById('mobileSortFab');
+    if (!fab) return;
+    const isMobile = window.matchMedia('(max-width: 640px)').matches;
+    const onCatalogue = currentSection === 'catalogue';
+    fab.classList.toggle('visible', isMobile && onCatalogue);
+}
+window.addEventListener('resize', updateMobileSortFab);
+// Hook into section switching by wrapping switchSection
+const _origSwitchSection = window.switchSection;
+window.switchSection = function(name, ev) {
+    const r = _origSwitchSection.apply(this, arguments);
+    updateMobileSortFab();
+    return r;
+};
+// Close sheet on escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeMobileSortSheet();
+});
+// Initial call
+setTimeout(updateMobileSortFab, 100);
+
 // ── Init ─────────────────────────────────────────────────────
 
 setTheme(getTheme());

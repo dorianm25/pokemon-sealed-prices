@@ -350,6 +350,39 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
     </button>
 
+    <!-- Mobile sort FAB -->
+    <button class="mobile-sort-fab" id="mobileSortFab" onclick="openMobileSortSheet()" title="Trier" aria-label="Trier les produits">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+    </button>
+
+    <!-- Mobile sort bottom sheet -->
+    <div class="mobile-sheet-overlay" id="mobileSortSheet">
+        <div class="mobile-sheet" onclick="event.stopPropagation()">
+            <div class="mobile-sheet-handle"></div>
+            <div class="mobile-sheet-title">Trier les produits</div>
+            <div class="mobile-sheet-options" id="mobileSortOptions">
+                <button class="mobile-sheet-opt" data-sort="serie" onclick="applyMobileSort('serie')">
+                    <span>Par série</span><span class="check">✓</span>
+                </button>
+                <button class="mobile-sheet-opt" data-sort="name" onclick="applyMobileSort('name')">
+                    <span>A → Z</span><span class="check">✓</span>
+                </button>
+                <button class="mobile-sheet-opt" data-sort="price-asc" onclick="applyMobileSort('price-asc')">
+                    <span>Prix croissant</span><span class="check">✓</span>
+                </button>
+                <button class="mobile-sheet-opt" data-sort="price-desc" onclick="applyMobileSort('price-desc')">
+                    <span>Prix décroissant</span><span class="check">✓</span>
+                </button>
+                <button class="mobile-sheet-opt" data-sort="trend-desc" onclick="applyMobileSort('trend-desc')">
+                    <span>Tendance ↑</span><span class="check">✓</span>
+                </button>
+                <button class="mobile-sheet-opt" data-sort="trend-asc" onclick="applyMobileSort('trend-asc')">
+                    <span>Tendance ↓</span><span class="check">✓</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
     <script src="app.js"></script>
     <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});</script>
