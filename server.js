@@ -66,11 +66,19 @@ function verifyToken(token) {
 }
 
 function authMiddleware(req, res, next) {
+    // Token soit dans le header Authorization, soit en query (pour navigator.sendBeacon
+    // qui ne supporte pas les headers custom)
+    let token = null;
     const auth = req.headers.authorization;
-    if (!auth || !auth.startsWith('Bearer ')) {
+    if (auth && auth.startsWith('Bearer ')) {
+        token = auth.slice(7);
+    } else if (req.query && typeof req.query.token === 'string' && req.query.token) {
+        token = req.query.token;
+    }
+    if (!token) {
         return res.status(401).json({ error: 'Non authentifié' });
     }
-    const payload = verifyToken(auth.slice(7));
+    const payload = verifyToken(token);
     if (!payload) {
         return res.status(401).json({ error: 'Token invalide ou expiré' });
     }
@@ -832,6 +840,12 @@ app.get('/api/portfolio', authMiddleware, async (req, res) => {
 });
 
 app.put('/api/portfolio', authMiddleware, async (req, res) => {
+    await writePortfolio(req.userId, req.body);
+    res.json({ ok: true });
+});
+
+// Alias POST pour navigator.sendBeacon (qui ne supporte que POST)
+app.post('/api/portfolio', authMiddleware, async (req, res) => {
     await writePortfolio(req.userId, req.body);
     res.json({ ok: true });
 });

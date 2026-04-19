@@ -2067,46 +2067,120 @@ function getDefaultPortfolio() {
 }
 
 let _portfolioCache = null;
+let _portfolioLoading = null;       // promesse en cours de chargement, pour dédupliquer
+let _saveInflight = null;           // promesse du dernier PUT en cours
+let _saveDirty = false;             // indique qu'un save est en attente (utile pour beforeunload)
 
 async function loadPortfolio() {
+    // Si connecté : serveur seul fait foi. Pas de fallback localStorage qui pourrait
+    // ressusciter un état périmé d'une autre session/device.
     if (authToken) {
-        try {
-            const res = await fetch('/api/portfolio', { headers: { 'Authorization': `Bearer ${authToken}` } });
-            if (res.ok) {
-                const data = await res.json();
-                if (Object.keys(data).length > 0) { _portfolioCache = data; return data; }
+        if (_portfolioLoading) return _portfolioLoading;
+        _portfolioLoading = (async () => {
+            try {
+                const res = await fetch('/api/portfolio', {
+                    headers: { 'Authorization': `Bearer ${authToken}` },
+                    cache: 'no-store',
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    _portfolioCache = data || {};
+                    return _portfolioCache;
+                }
+                // 401 → token périmé → on logout pour forcer re-login propre
+                if (res.status === 401) {
+                    showToast?.('🔒', 'Session expirée', 'Reconnectez-vous');
+                    logout();
+                    return _portfolioCache || {};
+                }
+                showToast?.('⚠️', 'Erreur serveur', 'Portfolio non chargé');
+                return _portfolioCache || {};
+            } catch {
+                showToast?.('⚠️', 'Hors ligne', 'Affichage du dernier état connu');
+                return _portfolioCache || {};
+            } finally {
+                _portfolioLoading = null;
             }
-        } catch {}
+        })();
+        return _portfolioLoading;
     }
+    // Non connecté : on garde l'expérience locale via localStorage
     const saved = localStorage.getItem('pokescelle-portfolio');
-    if (saved) return JSON.parse(saved);
-    return getDefaultPortfolio();
+    if (saved) {
+        try { _portfolioCache = JSON.parse(saved); return _portfolioCache; } catch {}
+    }
+    _portfolioCache = getDefaultPortfolio();
+    return _portfolioCache;
 }
 
 function loadPortfolioSync() {
     if (_portfolioCache) return _portfolioCache;
     const saved = localStorage.getItem('pokescelle-portfolio');
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+        try { return JSON.parse(saved); } catch {}
+    }
     return getDefaultPortfolio();
 }
 
-let _saveTimer = null;
-
-function savePortfolio(pf) {
+// Save désormais immédiat + awaitable. Retourne true si OK, false sinon.
+async function savePortfolio(pf) {
     _portfolioCache = pf;
-    localStorage.setItem('pokescelle-portfolio', JSON.stringify(pf));
+    // Cache local pour mode hors-ligne / non connecté
+    try { localStorage.setItem('pokescelle-portfolio', JSON.stringify(pf)); } catch {}
     updatePortfolioBadge();
-    if (authToken) {
-        clearTimeout(_saveTimer);
-        _saveTimer = setTimeout(() => {
-            fetch('/api/portfolio', {
+
+    if (!authToken) return true;
+
+    // Sérialise les saves : si un PUT est en cours, on attend qu'il finisse
+    // pour envoyer celui-ci avec l'état le plus récent.
+    _saveDirty = true;
+    while (_saveInflight) {
+        try { await _saveInflight; } catch {}
+    }
+    if (!_saveDirty) return true;
+    _saveDirty = false;
+
+    _saveInflight = (async () => {
+        try {
+            const res = await fetch('/api/portfolio', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
                 body: JSON.stringify(pf),
-            }).catch(() => {});
-        }, 500);
-    }
+            });
+            if (!res.ok) {
+                if (res.status === 401) {
+                    showToast?.('🔒', 'Session expirée', 'Reconnectez-vous');
+                    logout();
+                } else {
+                    showToast?.('⚠️', 'Échec sauvegarde', `HTTP ${res.status}`);
+                }
+                return false;
+            }
+            return true;
+        } catch {
+            showToast?.('⚠️', 'Échec sauvegarde', 'Réessayez dans un instant');
+            return false;
+        } finally {
+            _saveInflight = null;
+        }
+    })();
+
+    return _saveInflight;
 }
+
+// Filet de sécurité : si l'utilisateur ferme la page pendant qu'un PUT est
+// en cours ou avec des changements en attente, on tente un beacon final.
+window.addEventListener('beforeunload', () => {
+    if (!authToken) return;
+    if (!_saveInflight && !_saveDirty) return;
+    try {
+        const pf = _portfolioCache || loadPortfolioSync();
+        // sendBeacon = POST. On expose un endpoint qui accepte aussi POST/PUT.
+        const blob = new Blob([JSON.stringify(pf)], { type: 'application/json' });
+        // Ajoute le token en query car sendBeacon ne supporte pas les headers custom
+        navigator.sendBeacon(`/api/portfolio?token=${encodeURIComponent(authToken)}`, blob);
+    } catch {}
+});
 
 async function refreshPortfolio() {
     // Forcer un snapshot et recharger le graphique
@@ -2114,10 +2188,11 @@ async function refreshPortfolio() {
     await renderPortfolio();
 }
 
-function resetPortfolio() {
+async function resetPortfolio() {
     if (!confirm('Réinitialiser le portfolio avec les données par défaut ?')) return;
     const pf = getDefaultPortfolio();
-    savePortfolio(pf);
+    const ok = await savePortfolio(pf);
+    if (ok) showToast('↺', 'Portfolio réinitialisé');
     renderPortfolio();
 }
 
@@ -2197,7 +2272,7 @@ function updatePfConfirmBar() {
     bar.classList.toggle('visible', dirtyCount > 0);
 }
 
-function confirmPfChanges() {
+async function confirmPfChanges() {
     if (_pfPending.size === 0) return;
     const pf = loadPortfolioSync();
     let applied = 0;
@@ -2207,11 +2282,18 @@ function confirmPfChanges() {
         if (orig.qty !== v.qty || orig.cost !== v.cost) applied++;
         pf[name] = { qty: v.qty, cost: v.cost };
     }
-    savePortfolio(pf);
-    _pfPending.clear();
-    updatePfConfirmBar();
-    showToast('✅', applied === 1 ? 'Modification enregistrée' : `${applied} modifications enregistrées`);
-    renderPortfolio();
+    // Indicateur "synchronisation..." pendant l'envoi serveur
+    const bar = document.getElementById('pfConfirmBar');
+    bar?.classList.add('syncing');
+    const ok = await savePortfolio(pf);
+    bar?.classList.remove('syncing');
+    if (ok) {
+        _pfPending.clear();
+        updatePfConfirmBar();
+        showToast('✅', applied === 1 ? 'Modification enregistrée' : `${applied} modifications enregistrées`);
+        renderPortfolio();
+    }
+    // Si !ok, on garde _pfPending pour permettre une nouvelle tentative
 }
 
 function discardPfChanges() {
@@ -2333,14 +2415,14 @@ function renderPortfolioCard(p, pf) {
 }
 
 // Supprime une position (qty=0, cost=0)
-function pfRemovePosition(name) {
+async function pfRemovePosition(name) {
     const p = products.find(pr => pr.name === name);
     const label = p ? p.name : name;
     if (!confirm(`Retirer "${label}" de votre portfolio ?`)) return;
     const pf = loadPortfolioSync();
     if (pf[name]) { pf[name] = { qty: 0, cost: 0 }; }
-    savePortfolio(pf);
-    showToast('🗑️', 'Position retirée', label);
+    const ok = await savePortfolio(pf);
+    if (ok) showToast('🗑️', 'Position retirée', label);
     renderPortfolio();
 }
 
@@ -2632,15 +2714,15 @@ function closePfAddModal() {
     document.getElementById('pfAddModal')?.classList.remove('open');
 }
 
-function confirmPfAdd(name) {
+async function confirmPfAdd(name) {
     const qty = parseFloat(document.getElementById('pfAddQty')?.value) || 0;
     const cost = parseFloat(document.getElementById('pfAddCost')?.value) || 0;
     if (qty <= 0) { showToast('⚠️', 'Quantité invalide', 'Entrez un nombre positif'); return; }
     const pf = loadPortfolioSync();
     pf[name] = { qty, cost };
-    savePortfolio(pf);
+    const ok = await savePortfolio(pf);
     closePfAddModal();
-    showToast('✅', 'Position ajoutée', `${qty}× ${name}`);
+    if (ok) showToast('✅', 'Position ajoutée', `${qty}× ${name}`);
     switchPfTab('positions');
     renderPortfolio();
 }

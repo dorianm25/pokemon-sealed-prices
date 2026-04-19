@@ -6949,6 +6949,21 @@ body { transition: background-color 0.3s, color 0.3s; }
     background: linear-gradient(135deg, var(--green), var(--cyan));
 }
 
+/* État "synchronisation en cours" */
+.pf-confirm-bar.syncing .pf-confirm-bar-actions {
+    pointer-events: none;
+    opacity: 0.65;
+}
+.pf-confirm-bar.syncing .pf-confirm-bar-dot {
+    animation: pf-syncing-pulse 0.9s ease-in-out infinite;
+    background: var(--cyan);
+    box-shadow: 0 0 12px rgba(78, 205, 196, 0.6);
+}
+@keyframes pf-syncing-pulse {
+    0%, 100% { transform: scale(1); opacity: 0.7; }
+    50%      { transform: scale(1.35); opacity: 1; }
+}
+
 @media (max-width: 640px) {
     .pf-confirm-bar { padding: 0 12px; bottom: 16px; }
     .pf-confirm-bar-inner {
