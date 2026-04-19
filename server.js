@@ -3,15 +3,25 @@
 //  Authentification OAuth, recherche ventes, cache JSON
 // ============================================================
 
+import 'dotenv/config';
 import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
+
+// ── Couche DB (libSQL / Turso ou SQLite local) ──────────────
+import {
+    db, DB_MODE, initSchema,
+    getUserById, getUserByUsername, createUser,
+    getPortfolio, setPortfolio, listPortfolioUserIds,
+    getPortfolioHistory, upsertPortfolioHistory,
+    getPriceHistory, upsertPriceHistory,
+    getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
+    getCustomQueries, setCustomQuery,
+} from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 app.use(express.json());
@@ -19,28 +29,11 @@ const PORT = process.env.PORT || 3001;
 
 // ── Auth / Users ────────────────────────────────────────────
 
-const USERS_FILE = path.join(__dirname, 'data', 'users.json');
-const PORTFOLIOS_DIR = path.join(__dirname, 'data', 'portfolios');
-const PORTFOLIO_HISTORY_FILE = path.join(__dirname, 'data', 'portfolio-history.json');
 const TOKEN_SECRET = process.env.TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
 
 async function ensureDataDirs() {
+    // Encore utilisé pour le fichier SQLite local si pas de Turso
     await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-    await fs.mkdir(PORTFOLIOS_DIR, { recursive: true });
-}
-
-async function readUsers() {
-    try {
-        const data = await fs.readFile(USERS_FILE, 'utf-8');
-        return JSON.parse(data);
-    } catch {
-        return {};
-    }
-}
-
-async function writeUsers(users) {
-    await ensureDataDirs();
-    await fs.writeFile(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
 function hashPassword(password, salt) {
@@ -85,20 +78,14 @@ function authMiddleware(req, res, next) {
     next();
 }
 
+// Portfolio via DB — on garde ces alias pour minimiser les changements plus bas
 async function readPortfolio(userId) {
-    try {
-        const file = path.join(PORTFOLIOS_DIR, `${userId}.json`);
-        const data = await fs.readFile(file, 'utf-8');
-        return JSON.parse(data);
-    } catch {
-        return null;
-    }
+    const pf = await getPortfolio(userId);
+    return pf && Object.keys(pf).length > 0 ? pf : null;
 }
 
 async function writePortfolio(userId, portfolio) {
-    await ensureDataDirs();
-    const file = path.join(PORTFOLIOS_DIR, `${userId}.json`);
-    await fs.writeFile(file, JSON.stringify(portfolio, null, 2));
+    await setPortfolio(userId, portfolio);
 }
 
 const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID;
@@ -124,77 +111,32 @@ const EBAY_API_URL = IS_SANDBOX
     ? 'https://api.sandbox.ebay.com'
     : 'https://api.ebay.com';
 
-// ── Cache ────────────────────────────────────────────────────
+// ── Cache & Historique (DB) ─────────────────────────────────
 
-const CACHE_DIR = path.join(__dirname, 'cache');
 const CACHE_TTL = 1 * 60 * 60 * 1000; // 1 heure
-const HISTORY_DIR = path.join(__dirname, 'data', 'history');
-
-async function ensureCacheDir() {
-    await fs.mkdir(CACHE_DIR, { recursive: true });
-}
-
-// ── Historique de prix ───────────────────────────────────────
 
 async function appendHistory(productId, priceData) {
-    await fs.mkdir(HISTORY_DIR, { recursive: true });
-    const file = path.join(HISTORY_DIR, `${productId}.json`);
-    let history = [];
-    try {
-        const raw = await fs.readFile(file, 'utf-8');
-        history = JSON.parse(raw);
-    } catch {}
-
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const entry = {
+    const today = new Date().toISOString().slice(0, 10);
+    await upsertPriceHistory(productId, {
         date: today,
         median: priceData.price,
         low: priceData.low,
         high: priceData.high,
         lastPrice: priceData.lastListing?.price || priceData.price,
         sampleSize: priceData.sampleSize,
-    };
-
-    // Remplacer l'entrée du jour si elle existe, sinon ajouter
-    const idx = history.findIndex(h => h.date === today);
-    if (idx >= 0) {
-        history[idx] = entry;
-    } else {
-        history.push(entry);
-    }
-
-    // Garder max 90 jours
-    if (history.length > 90) history = history.slice(-90);
-
-    await fs.writeFile(file, JSON.stringify(history, null, 2));
+    });
 }
 
 async function readHistory(productId) {
-    try {
-        const file = path.join(HISTORY_DIR, `${productId}.json`);
-        const raw = await fs.readFile(file, 'utf-8');
-        return JSON.parse(raw);
-    } catch {
-        return [];
-    }
+    return getPriceHistory(productId);
 }
 
 async function readCache(key) {
-    try {
-        const file = path.join(CACHE_DIR, `${key}.json`);
-        const stat = await fs.stat(file);
-        if (Date.now() - stat.mtimeMs > CACHE_TTL) return null;
-        const data = await fs.readFile(file, 'utf-8');
-        return JSON.parse(data);
-    } catch {
-        return null;
-    }
+    return dbGetCache(key, CACHE_TTL);
 }
 
 async function writeCache(key, data) {
-    await ensureCacheDir();
-    const file = path.join(CACHE_DIR, `${key}.json`);
-    await fs.writeFile(file, JSON.stringify(data, null, 2));
+    return dbSetCache(key, data);
 }
 
 // ── eBay OAuth ───────────────────────────────────────────────
@@ -522,20 +464,25 @@ function extractItemPrice(item) {
 // fixedPrice : force un prix de marché fixe (ignore eBay)
 // url : fetch cet item spécifique au lieu de chercher
 
-const CUSTOM_QUERIES_FILE = path.join(__dirname, 'data', 'custom-queries.json');
-
+// Custom queries via DB
 async function loadCustomQueries() {
-    try {
-        const data = await fs.readFile(CUSTOM_QUERIES_FILE, 'utf-8');
-        return JSON.parse(data);
-    } catch {
-        return {};
-    }
+    return getCustomQueries();
 }
 
 async function saveCustomQueries(queries) {
-    await ensureDataDirs();
-    await fs.writeFile(CUSTOM_QUERIES_FILE, JSON.stringify(queries, null, 2));
+    // Utilise setCustomQuery individuel si peu de changements, sinon remplacement global
+    // Ici on fait simple : on laisse le helper DB gérer via setCustomQuery
+    // Pour les endpoints qui appelaient saveCustomQueries(allQueries),
+    // on itère. Simple et correct.
+    const existing = await getCustomQueries();
+    const allKeys = new Set([...Object.keys(existing), ...Object.keys(queries)]);
+    for (const key of allKeys) {
+        if (queries[key]) {
+            await setCustomQuery(key, queries[key]);
+        } else if (existing[key]) {
+            await setCustomQuery(key, null);
+        }
+    }
 }
 
 // ── Routes ───────────────────────────────────────────────────
@@ -756,7 +703,7 @@ app.get('/api/status', async (_req, res) => {
     res.json({
         mode: IS_SANDBOX ? 'sandbox' : 'production',
         hasCredentials,
-        cacheDir: CACHE_DIR,
+        storage: DB_MODE,
         trackedProducts: PRODUCTS_TO_TRACK.length,
     });
 });
@@ -821,9 +768,7 @@ app.put('/api/query/:productId', async (req, res) => {
     await saveCustomQueries(customQueries);
 
     // Supprimer le cache pour forcer un refresh
-    try {
-        await fs.unlink(path.join(CACHE_DIR, `${product.id}.json`));
-    } catch {}
+    try { await dbDeleteCache(product.id); } catch {}
 
     res.json({ ok: true });
 });
@@ -842,26 +787,18 @@ app.post('/api/register', async (req, res) => {
         return res.status(400).json({ error: 'Mot de passe trop court (min 4 caractères)' });
     }
 
-    const users = await readUsers();
     const uid = username.toLowerCase().trim();
-
-    if (users[uid]) {
+    const existing = await getUserById(uid);
+    if (existing) {
         return res.status(409).json({ error: 'Ce nom d\'utilisateur existe déjà' });
     }
 
     const { salt, hash } = hashPassword(password);
-    users[uid] = { username: username.trim(), salt, hash, createdAt: new Date().toISOString() };
-    await writeUsers(users);
+    await createUser(uid, username.trim(), salt, hash);
 
-    // Créer un portfolio vide pour le nouvel utilisateur
-    const emptyPortfolio = {};
-    for (const p of PRODUCTS_TO_TRACK) {
-        emptyPortfolio[p.name] = { qty: 0, cost: 0 };
-    }
-    await writePortfolio(uid, emptyPortfolio);
-
+    // Pas besoin de remplir un portfolio vide : l'absence de ligne = qty 0, cost 0
     const token = createToken(uid);
-    res.json({ token, username: users[uid].username });
+    res.json({ token, username: username.trim() });
 });
 
 app.post('/api/login', async (req, res) => {
@@ -870,9 +807,8 @@ app.post('/api/login', async (req, res) => {
         return res.status(400).json({ error: 'Nom d\'utilisateur et mot de passe requis' });
     }
 
-    const users = await readUsers();
     const uid = username.toLowerCase().trim();
-    const user = users[uid];
+    const user = await getUserById(uid);
 
     if (!user || !verifyPassword(password, user.salt, user.hash)) {
         return res.status(401).json({ error: 'Identifiants incorrects' });
@@ -883,8 +819,7 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.get('/api/me', authMiddleware, async (req, res) => {
-    const users = await readUsers();
-    const user = users[req.userId];
+    const user = await getUserById(req.userId);
     if (!user) return res.status(404).json({ error: 'Utilisateur introuvable' });
     res.json({ username: user.username });
 });
@@ -901,68 +836,36 @@ app.put('/api/portfolio', authMiddleware, async (req, res) => {
     res.json({ ok: true });
 });
 
-// ── Portfolio History (par utilisateur) ──────────────────────
+// ── Portfolio History (par utilisateur, via DB) ─────────────
 
-const PORTFOLIO_HISTORY_DIR = path.join(__dirname, 'data', 'portfolio-history');
-
-async function ensureHistoryDir() {
-    await fs.mkdir(PORTFOLIO_HISTORY_DIR, { recursive: true });
-}
-
-async function readPortfolioHistory(userId) {
-    try {
-        if (userId) {
-            const file = path.join(PORTFOLIO_HISTORY_DIR, `${userId}.json`);
-            return JSON.parse(await fs.readFile(file, 'utf-8'));
-        }
-        return JSON.parse(await fs.readFile(PORTFOLIO_HISTORY_FILE, 'utf-8'));
-    } catch {
-        return [];
+async function computeSnapshot(userId) {
+    const pf = await getPortfolio(userId);
+    let totalInvested = 0, totalValue = 0;
+    for (const product of PRODUCTS_TO_TRACK) {
+        const h = pf[product.name];
+        if (!h || h.qty <= 0) continue;
+        totalInvested += h.qty * h.cost;
+        const cached = await readCache(product.id);
+        const price = cached?.price || 0;
+        totalValue += h.qty * price;
     }
-}
-
-async function writePortfolioHistory(userId, history) {
-    await ensureHistoryDir();
-    const file = path.join(PORTFOLIO_HISTORY_DIR, `${userId}.json`);
-    await fs.writeFile(file, JSON.stringify(history, null, 2));
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+        date: today,
+        invested: Math.round(totalInvested * 100) / 100,
+        value: Math.round(totalValue * 100) / 100,
+        pnl: Math.round((totalValue - totalInvested) * 100) / 100,
+    };
 }
 
 async function snapshotPortfolio() {
     console.log('[Portfolio] Snapshot en cours...');
     try {
-        let allFiles;
-        try {
-            allFiles = await fs.readdir(PORTFOLIOS_DIR);
-        } catch {
-            allFiles = [];
-        }
-
-        for (const file of allFiles) {
-            if (!file.endsWith('.json')) continue;
-            const userId = file.replace('.json', '');
+        const userIds = await listPortfolioUserIds();
+        for (const userId of userIds) {
             try {
-                const portfolio = JSON.parse(await fs.readFile(path.join(PORTFOLIOS_DIR, file), 'utf-8'));
-
-                let totalInvested = 0, totalValue = 0;
-                for (const product of PRODUCTS_TO_TRACK) {
-                    const h = portfolio[product.name];
-                    if (!h || h.qty <= 0) continue;
-                    totalInvested += h.qty * h.cost;
-                    const cached = await readCache(product.id);
-                    const price = cached?.price || 0;
-                    totalValue += h.qty * price;
-                }
-
-                const today = new Date().toISOString().slice(0, 10);
-                const entry = { date: today, invested: Math.round(totalInvested * 100) / 100, value: Math.round(totalValue * 100) / 100, pnl: Math.round((totalValue - totalInvested) * 100) / 100 };
-
-                const history = await readPortfolioHistory(userId);
-                const idx = history.findIndex(h => h.date === today);
-                if (idx >= 0) history[idx] = entry;
-                else history.push(entry);
-                if (history.length > 365) history.splice(0, history.length - 365);
-
-                await writePortfolioHistory(userId, history);
+                const entry = await computeSnapshot(userId);
+                await upsertPortfolioHistory(userId, entry);
                 console.log(`[Portfolio] Snapshot ${userId}: investi=${entry.invested}€, valeur=${entry.value}€, P&L=${entry.pnl}€`);
             } catch (err) {
                 console.error(`[Portfolio] Erreur snapshot ${userId}:`, err.message);
@@ -976,36 +879,15 @@ async function snapshotPortfolio() {
 
 // API : historique du portfolio (par utilisateur)
 app.get('/api/portfolio-history', authMiddleware, async (req, res) => {
-    const history = await readPortfolioHistory(req.userId);
+    const history = await getPortfolioHistory(req.userId);
     res.json(history);
 });
 
 // API : forcer un snapshot pour l'utilisateur connecté
 app.post('/api/portfolio-snapshot', authMiddleware, async (req, res) => {
-    const userId = req.userId;
-    const portfolio = await readPortfolio(userId);
-    if (!portfolio) return res.json({ ok: true, entries: 0 });
-
-    let totalInvested = 0, totalValue = 0;
-    for (const product of PRODUCTS_TO_TRACK) {
-        const h = portfolio[product.name];
-        if (!h || h.qty <= 0) continue;
-        totalInvested += h.qty * h.cost;
-        const cached = await readCache(product.id);
-        const price = cached?.price || 0;
-        totalValue += h.qty * price;
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    const entry = { date: today, invested: Math.round(totalInvested * 100) / 100, value: Math.round(totalValue * 100) / 100, pnl: Math.round((totalValue - totalInvested) * 100) / 100 };
-
-    const history = await readPortfolioHistory(userId);
-    const idx = history.findIndex(h => h.date === today);
-    if (idx >= 0) history[idx] = entry;
-    else history.push(entry);
-    if (history.length > 365) history.splice(0, history.length - 365);
-
-    await writePortfolioHistory(userId, history);
+    const entry = await computeSnapshot(req.userId);
+    await upsertPortfolioHistory(req.userId, entry);
+    const history = await getPortfolioHistory(req.userId);
     res.json({ ok: true, entries: history.length });
 });
 
@@ -1020,23 +902,21 @@ async function runDailyCron() {
     const start = Date.now();
     const summary = { refreshed: 0, failed: 0, users: 0, ownedProducts: 0, errors: [] };
 
-    // Collecte des produits détenus
+    // Collecte des produits détenus (DB)
+    const userIds = await listPortfolioUserIds();
+    summary.users = userIds.length;
     const ownedIds = new Set();
-    try {
-        const allFiles = await fs.readdir(PORTFOLIOS_DIR);
-        for (const file of allFiles) {
-            if (!file.endsWith('.json')) continue;
-            try {
-                const portfolio = JSON.parse(await fs.readFile(path.join(PORTFOLIOS_DIR, file), 'utf-8'));
-                for (const product of PRODUCTS_TO_TRACK) {
-                    const h = portfolio[product.name];
-                    if (h && h.qty > 0) ownedIds.add(product.id);
-                }
-            } catch (err) {
-                summary.errors.push(`read ${file}: ${err.message}`);
+    for (const uid of userIds) {
+        try {
+            const pf = await getPortfolio(uid);
+            for (const product of PRODUCTS_TO_TRACK) {
+                const h = pf[product.name];
+                if (h && h.qty > 0) ownedIds.add(product.id);
             }
+        } catch (err) {
+            summary.errors.push(`read pf ${uid}: ${err.message}`);
         }
-    } catch {}
+    }
 
     summary.ownedProducts = ownedIds.size;
     console.log(`[Cron] ${ownedIds.size} produits détenus à rafraichir`);
@@ -1058,12 +938,6 @@ async function runDailyCron() {
 
     // Snapshot
     await snapshotPortfolio();
-
-    // Compte les users
-    try {
-        const allFiles = await fs.readdir(PORTFOLIOS_DIR);
-        summary.users = allFiles.filter(f => f.endsWith('.json')).length;
-    } catch {}
 
     summary.durationMs = Date.now() - start;
     console.log(`[Cron] Terminé en ${Math.round(summary.durationMs / 1000)}s`, summary);
@@ -1105,20 +979,31 @@ function scheduleMidnightSnapshot() {
 
 // ── Start ────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-    const mode = IS_SANDBOX ? 'SANDBOX' : 'PRODUCTION';
-    const creds = EBAY_CLIENT_ID && EBAY_CLIENT_ID !== 'your_app_id_here' ? '✓' : '✗ (configurer .env)';
-    console.log(`
+async function start() {
+    await ensureDataDirs();
+    await initSchema();
+
+    app.listen(PORT, () => {
+        const mode = IS_SANDBOX ? 'SANDBOX' : 'PRODUCTION';
+        const creds = EBAY_CLIENT_ID && EBAY_CLIENT_ID !== 'your_app_id_here' ? '✓' : '✗ (configurer .env)';
+        console.log(`
 ┌─────────────────────────────────────────┐
 │  PokéScellé — Serveur démarré           │
 │  http://localhost:${PORT}                  │
 │  Mode eBay : ${mode.padEnd(26)}│
 │  Credentials : ${creds.padEnd(23)}│
 │  Produits suivis : ${String(PRODUCTS_TO_TRACK.length).padEnd(20)}│
+│  Stockage : ${DB_MODE.padEnd(28)}│
 └─────────────────────────────────────────┘
 `);
 
-    // Snapshot initial au démarrage (après 30s pour laisser le cache se remplir)
-    setTimeout(snapshotPortfolio, 30000);
-    scheduleMidnightSnapshot();
+        // Snapshot initial au démarrage (après 30s pour laisser le cache se remplir)
+        setTimeout(snapshotPortfolio, 30000);
+        scheduleMidnightSnapshot();
+    });
+}
+
+start().catch(err => {
+    console.error('Fatal startup error:', err);
+    process.exit(1);
 });
