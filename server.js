@@ -571,7 +571,10 @@ app.get('/api/price/:productId', async (req, res) => {
 // Beaucoup plus rapide que 218 appels individuels au boot.
 app.get('/api/prices-cached', async (_req, res) => {
     try {
-        const all = await dbGetAllCache(CACHE_TTL);
+        // On renvoie TOUT le cache sans filtre TTL. Le client decide lui-meme
+        // quelles entrees sont fraiches grace a _cachedAt (il a son propre TTL).
+        // Ca permet un render instantane meme si le dernier refresh date > 1h.
+        const all = await dbGetAllCache(null);
         // On filtre pour ne renvoyer que les produits actuellement suivis
         const validIds = new Set(PRODUCTS_TO_TRACK.map(p => p.id));
         const out = {};
