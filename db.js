@@ -6,6 +6,7 @@
 
 import { createClient } from '@libsql/client';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -273,6 +274,34 @@ export async function getAllCache(ttlMs) {
         } catch {}
     }
     return out;
+}
+
+// ── App Secrets (persistant, survit aux redeploys) ──────────
+// Utilisé pour TOKEN_SECRET notamment : si la variable d'env n'est pas
+// definie, on persiste un secret genere une seule fois dans la DB pour
+// qu'il survive aux redemarrages (sinon tous les tokens sont invalides).
+// Utilise la table cache avec un prefixe dedié.
+export async function getOrCreateAppSecret(name) {
+    const key = `__app_secret__${name}`;
+    const r = await db.execute({
+        sql: 'SELECT data FROM cache WHERE key = ?',
+        args: [key],
+    });
+    if (r.rows[0]) {
+        try {
+            const parsed = JSON.parse(r.rows[0].data);
+            if (parsed && typeof parsed.value === 'string' && parsed.value.length >= 32) {
+                return parsed.value;
+            }
+        } catch {}
+    }
+    const value = crypto.randomBytes(32).toString('hex');
+    await db.execute({
+        sql: `INSERT INTO cache (key, data, updated_at) VALUES (?, ?, ?)
+              ON CONFLICT (key) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+        args: [key, JSON.stringify({ value, createdAt: Date.now() }), Date.now()],
+    });
+    return value;
 }
 
 // ── Custom Queries ──────────────────────────────────────────

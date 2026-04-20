@@ -20,6 +20,7 @@ import {
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
     getAllCache as dbGetAllCache,
     getCustomQueries, setCustomQuery,
+    getOrCreateAppSecret,
 } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,7 +31,11 @@ const PORT = process.env.PORT || 3001;
 
 // ── Auth / Users ────────────────────────────────────────────
 
-const TOKEN_SECRET = process.env.TOKEN_SECRET || crypto.randomBytes(32).toString('hex');
+// TOKEN_SECRET : env var prioritaire, sinon secret persistant en DB
+// initialise dans start() avant app.listen(). Ne JAMAIS utiliser une
+// valeur aleatoire en fallback : elle changerait a chaque redeploy et
+// invaliderait toutes les sessions (effet "compte supprime").
+let TOKEN_SECRET = process.env.TOKEN_SECRET || null;
 
 async function ensureDataDirs() {
     // Encore utilisé pour le fichier SQLite local si pas de Turso
@@ -1024,6 +1029,15 @@ function scheduleMidnightSnapshot() {
 async function start() {
     await ensureDataDirs();
     await initSchema();
+
+    // Initialise TOKEN_SECRET : env var prioritaire, sinon secret
+    // persistant dans la DB (genere une seule fois, survit aux redeploys).
+    if (!TOKEN_SECRET) {
+        TOKEN_SECRET = await getOrCreateAppSecret('token');
+        console.log('[auth] TOKEN_SECRET charge depuis la DB (persistant)');
+    } else {
+        console.log('[auth] TOKEN_SECRET charge depuis env var');
+    }
 
     app.listen(PORT, () => {
         const mode = IS_SANDBOX ? 'SANDBOX' : 'PRODUCTION';
