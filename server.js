@@ -18,6 +18,7 @@ import {
     getPortfolioHistory, upsertPortfolioHistory,
     getPriceHistory, upsertPriceHistory,
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
+    getAllCache as dbGetAllCache,
     getCustomQueries, setCustomQuery,
 } from './db.js';
 
@@ -561,6 +562,30 @@ app.get('/api/price/:productId', async (req, res) => {
         res.json({ ...result, source: 'ebay' });
     } catch (err) {
         console.error(`Erreur pour ${productId}:`, err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// API : tous les prix EN CACHE uniquement (pas de fetch eBay).
+// Renvoie en 1 requête tout ce qui est dans la table cache et pas expiré.
+// Beaucoup plus rapide que 218 appels individuels au boot.
+app.get('/api/prices-cached', async (_req, res) => {
+    try {
+        const all = await dbGetAllCache(CACHE_TTL);
+        // On filtre pour ne renvoyer que les produits actuellement suivis
+        const validIds = new Set(PRODUCTS_TO_TRACK.map(p => p.id));
+        const out = {};
+        for (const [id, data] of Object.entries(all)) {
+            if (validIds.has(id)) out[id] = data;
+        }
+        res.json({
+            count: Object.keys(out).length,
+            ttl: CACHE_TTL,
+            generatedAt: Date.now(),
+            prices: out,
+        });
+    } catch (err) {
+        console.error('Erreur /api/prices-cached:', err.message);
         res.status(500).json({ error: err.message });
     }
 });

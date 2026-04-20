@@ -257,6 +257,24 @@ export async function deleteCache(key) {
     await db.execute({ sql: 'DELETE FROM cache WHERE key = ?', args: [key] });
 }
 
+// Lit tout le cache en 1 requête. Retourne { [key]: data } pour les entrées
+// non expirées (si ttlMs est fourni). Inclut aussi updatedAt pour permettre
+// au client de raisonner sur la fraîcheur.
+export async function getAllCache(ttlMs) {
+    const r = await db.execute('SELECT key, data, updated_at FROM cache');
+    const now = Date.now();
+    const out = {};
+    for (const row of r.rows) {
+        const updatedAt = Number(row.updated_at);
+        if (ttlMs && now - updatedAt > ttlMs) continue;
+        try {
+            const data = JSON.parse(row.data);
+            out[row.key] = { ...data, _cachedAt: updatedAt };
+        } catch {}
+    }
+    return out;
+}
+
 // ── Custom Queries ──────────────────────────────────────────
 
 export async function getCustomQueries() {

@@ -708,10 +708,17 @@ async function saveQuery(ebayId, refresh = false) {
         if (refresh) {
             errorEl.style.color = 'var(--green-light)';
             errorEl.textContent = 'Actualisation en cours…';
-            const priceRes = await fetch(`/api/price/${ebayId}`);
+            // Force le bypass du cache serveur via /api/refresh
+            const priceRes = await fetch(`/api/refresh/${ebayId}`, { method: 'POST' });
             const priceData = await priceRes.json();
             if (priceData.price) {
                 applyEbayPrice(priceData);
+                // Met à jour le cache client pour éviter de revoir l'ancienne valeur
+                try {
+                    const cache = loadClientPriceCache();
+                    cache[ebayId] = { cachedAt: Date.now(), data: priceData };
+                    saveClientPriceCache(cache);
+                } catch {}
                 render();
                 renderTrends();
             }
@@ -1866,6 +1873,38 @@ function applyEbayPrice(ep) {
     return localName;
 }
 
+// ── Client-side prices cache (localStorage) ─────────────────
+// Fait passer le boot de ~15s à instantané + ne refetch que les périmés.
+const PRICES_CACHE_KEY = 'pokescelle-prices-cache';
+const PRICES_CACHE_TTL_MS = 60 * 60 * 1000;   // 1h, aligné sur le serveur
+const PRICES_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // purge entrées > 7j
+
+function loadClientPriceCache() {
+    try {
+        const raw = localStorage.getItem(PRICES_CACHE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        const now = Date.now();
+        const out = {};
+        for (const [id, entry] of Object.entries(parsed)) {
+            if (!entry || typeof entry.cachedAt !== 'number') continue;
+            // On purge les entrées vraiment trop vieilles, mais on garde celles
+            // entre 1h et 7j pour affichage instantané (marquées "stale")
+            if (now - entry.cachedAt > PRICES_CACHE_MAX_AGE_MS) continue;
+            out[id] = entry;
+        }
+        return out;
+    } catch { return {}; }
+}
+
+function saveClientPriceCache(cache) {
+    try { localStorage.setItem(PRICES_CACHE_KEY, JSON.stringify(cache)); } catch {}
+}
+
+function isPriceFresh(entry) {
+    return entry && (Date.now() - entry.cachedAt) < PRICES_CACHE_TTL_MS;
+}
+
 async function fetchEbayPrices() {
     const banner = document.getElementById('ebayBanner');
 
@@ -1878,47 +1917,101 @@ async function fetchEbayPrices() {
         return;
     }
 
+    const ids = Object.keys(EBAY_PRODUCT_MAP);
+    const total = ids.length;
+    const clientCache = loadClientPriceCache();
+
+    // ── Phase 1 : applique IMMÉDIATEMENT le cache localStorage (0 réseau) ──
+    let appliedFromCache = 0;
+    for (const [id, entry] of Object.entries(clientCache)) {
+        const name = applyEbayPrice({ id, ...entry.data });
+        if (name) {
+            appliedFromCache++;
+            updateCard(name);
+        }
+    }
+    if (appliedFromCache > 0) {
+        renderTrends();
+        updatePortfolioBadge();
+    }
+
+    // ── Phase 2 : bulk fetch du cache serveur en 1 seule requête ──
     if (banner) {
-        banner.textContent = 'Chargement des prix…';
+        banner.textContent = appliedFromCache > 0 ? 'Actualisation des prix…' : 'Chargement des prix…';
         banner.classList.add('visible');
     }
 
-    const ids = Object.keys(EBAY_PRODUCT_MAP);
-    let updated = 0;
-    const total = ids.length;
+    let serverCache = {};
+    try {
+        const res = await fetch('/api/prices-cached');
+        if (res.ok) {
+            const payload = await res.json();
+            serverCache = payload.prices || {};
+        }
+    } catch {}
 
-    // Chargement progressif : chaque prix arrive et s'affiche en direct
-    for (let i = 0; i < ids.length; i += 3) {
-        const batch = ids.slice(i, i + 3);
+    const now = Date.now();
+    let updatedFromServer = 0;
+    for (const [id, data] of Object.entries(serverCache)) {
+        const name = applyEbayPrice({ id, ...data });
+        if (name) {
+            updatedFromServer++;
+            updateCard(name);
+        }
+        // Met à jour le cache client avec la donnée serveur
+        clientCache[id] = {
+            cachedAt: data._cachedAt || now,
+            data,
+        };
+    }
+
+    // ── Phase 3 : refresh ciblé des produits non couverts par le cache serveur ──
+    // (= cache serveur expiré ou vide pour ce produit)
+    const missingIds = ids.filter(id => !serverCache[id]);
+    let refreshed = 0;
+
+    if (missingIds.length > 0 && banner) {
+        banner.textContent = `Rafraîchissement de ${missingIds.length} prix…`;
+    }
+
+    for (let i = 0; i < missingIds.length; i += 3) {
+        const batch = missingIds.slice(i, i + 3);
         const results = await Promise.allSettled(
             batch.map(id => fetch(`/api/price/${id}`).then(r => r.json()))
         );
-
-        for (const result of results) {
-            if (result.status === 'fulfilled') {
-                const name = applyEbayPrice(result.value);
-                if (name) {
-                    updated++;
-                    updateCard(name);
-                }
+        for (const r of results) {
+            if (r.status !== 'fulfilled' || !r.value || r.value.error) continue;
+            const data = r.value;
+            const name = applyEbayPrice(data);
+            if (name) {
+                refreshed++;
+                updateCard(name);
+                clientCache[data.id] = { cachedAt: Date.now(), data };
             }
         }
-
         if (banner) {
-            banner.textContent = `${updated}/${total} prix chargés…`;
+            banner.textContent = `Rafraîchissement ${i + batch.length}/${missingIds.length}…`;
         }
-
-        if (i + 3 < ids.length) {
+        if (i + 3 < missingIds.length) {
             await new Promise(r => setTimeout(r, 200));
         }
     }
+
+    // Persist le cache client mis à jour
+    saveClientPriceCache(clientCache);
 
     if (banner) {
         banner.textContent = '';
         banner.classList.remove('visible');
     }
 
-    showToast('✅', `${updated} prix mis à jour`, 'Données eBay actualisées');
+    // Toast final : on ne dérange l'utilisateur que si quelque chose a changé
+    const updated = updatedFromServer + refreshed;
+    if (refreshed > 0) {
+        showToast('✅', `${refreshed} prix rafraîchis`, total > refreshed ? `${total - refreshed} déjà à jour` : '');
+    } else if (appliedFromCache === 0 && updated > 0) {
+        showToast('✅', `${updated} prix chargés`, 'Données eBay');
+    }
 
     renderTrends();
     updatePortfolioBadge();
