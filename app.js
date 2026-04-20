@@ -2354,15 +2354,36 @@ function onPortfolioInput(name, field, value) {
 // ── Confirm / Discard bar ───────────────────────────────────
 function updatePfConfirmBar() {
     const bar = document.getElementById('pfConfirmBar');
-    if (!bar) return;
     // Ne compter QUE les changements réellement différents de l'original
     let dirtyCount = 0;
     for (const [name] of _pfPending) {
         if (_pfIsDirty(name)) dirtyCount++;
     }
-    const countEl = document.getElementById('pfConfirmCount');
-    if (countEl) countEl.textContent = dirtyCount === 1 ? '1 modification' : `${dirtyCount} modifications`;
-    bar.classList.toggle('visible', dirtyCount > 0);
+    if (bar) {
+        const countEl = document.getElementById('pfConfirmCount');
+        if (countEl) countEl.textContent = dirtyCount === 1 ? '1 modification' : `${dirtyCount} modifications`;
+        bar.classList.toggle('visible', dirtyCount > 0);
+    }
+    // Bouton Sauvegarder dans le header du portfolio
+    const saveBtn = document.getElementById('pfSaveBtn');
+    if (saveBtn) {
+        const label = saveBtn.querySelector('.pf-save-label');
+        const badge = saveBtn.querySelector('.pf-save-badge');
+        const isDirty = dirtyCount > 0;
+        saveBtn.classList.toggle('dirty', isDirty);
+        saveBtn.disabled = !isDirty;
+        if (label) label.textContent = isDirty ? 'Sauvegarder' : 'Sauvegardé';
+        if (badge) {
+            if (isDirty) {
+                badge.textContent = String(dirtyCount);
+                badge.hidden = false;
+                saveBtn.setAttribute('title', dirtyCount === 1 ? '1 modification à sauvegarder' : `${dirtyCount} modifications à sauvegarder`);
+            } else {
+                badge.hidden = true;
+                saveBtn.setAttribute('title', 'Aucune modification en attente');
+            }
+        }
+    }
 }
 
 async function confirmPfChanges() {
@@ -2377,9 +2398,16 @@ async function confirmPfChanges() {
     }
     // Indicateur "synchronisation..." pendant l'envoi serveur
     const bar = document.getElementById('pfConfirmBar');
+    const saveBtn = document.getElementById('pfSaveBtn');
     bar?.classList.add('syncing');
+    saveBtn?.classList.add('syncing');
+    const savedLabel = saveBtn?.querySelector('.pf-save-label');
+    const previousLabel = savedLabel?.textContent;
+    if (savedLabel) savedLabel.textContent = 'Sauvegarde…';
     const ok = await savePortfolio(pf);
     bar?.classList.remove('syncing');
+    saveBtn?.classList.remove('syncing');
+    if (savedLabel && previousLabel) savedLabel.textContent = previousLabel;
     if (ok) {
         _pfPending.clear();
         updatePfConfirmBar();

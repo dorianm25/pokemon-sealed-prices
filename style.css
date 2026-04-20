@@ -5673,6 +5673,96 @@ body { transition: background-color 0.3s, color 0.3s; }
     outline-offset: 2px;
 }
 
+/* ── Bouton Sauvegarder (header portfolio) ─────────────── */
+.pf-save-btn {
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    cursor: pointer;
+    transition: all var(--dur-fast) var(--ease-out);
+    position: relative;
+    white-space: nowrap;
+}
+.pf-save-btn:disabled {
+    cursor: default;
+    opacity: 0.75;
+}
+.pf-save-btn:not(:disabled):hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(34,197,94,0.35);
+    filter: brightness(1.05);
+}
+.pf-save-btn:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 2px;
+}
+.pf-save-icon { flex-shrink: 0; }
+
+/* État dirty : modifications en attente */
+.pf-save-btn.dirty {
+    background: linear-gradient(135deg, var(--green), var(--cyan));
+    border-color: transparent;
+    color: #051016;
+    box-shadow: var(--shadow-glow-green);
+    animation: pf-save-attention 2.4s ease-in-out infinite;
+}
+[data-theme="light"] .pf-save-btn.dirty { color: #ffffff; }
+
+.pf-save-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: rgba(5, 16, 22, 0.25);
+    color: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+}
+.pf-save-btn:not(.dirty) .pf-save-badge[hidden] { display: none; }
+[data-theme="light"] .pf-save-btn.dirty .pf-save-badge {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* État syncing : envoi au serveur */
+.pf-save-btn.syncing {
+    pointer-events: none;
+    opacity: 0.85;
+    animation: none;
+}
+.pf-save-btn.syncing .pf-save-icon {
+    animation: pf-save-spin 0.9s linear infinite;
+}
+
+@keyframes pf-save-attention {
+    0%, 100% { box-shadow: var(--shadow-glow-green); }
+    50%      { box-shadow: 0 0 0 4px rgba(34,197,94,0.18), var(--shadow-glow-green); }
+}
+@keyframes pf-save-spin {
+    to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .pf-save-btn.dirty { animation: none; }
+    .pf-save-btn.syncing .pf-save-icon { animation: none; }
+}
+
+@media (max-width: 560px) {
+    .pf-save-label { display: none; }
+    .pf-save-btn { padding: 0 10px; min-width: 36px; justify-content: center; }
+}
+
 /* Menu */
 .pf-menu-wrap { position: relative; }
 .pf-menu {
