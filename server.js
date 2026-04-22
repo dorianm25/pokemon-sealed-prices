@@ -1043,20 +1043,47 @@ app.post('/api/portfolio', authMiddleware, async (req, res) => {
 async function computeSnapshot(userId) {
     const pf = await getPortfolio(userId);
     let totalInvested = 0, totalValue = 0;
+    let heldProducts = 0, pricedProducts = 0;
     for (const product of PRODUCTS_TO_TRACK) {
         const h = pf[product.name];
         if (!h || h.qty <= 0) continue;
+        heldProducts++;
         totalInvested += h.qty * h.cost;
+
+        // Cherche un prix : d'abord le cache, sinon le dernier historique connu
+        // (evite d'ecrire value=0 quand le cache vient d'etre vide par un redeploy)
         const cached = await readCache(product.id);
-        const price = cached?.price || 0;
-        totalValue += h.qty * price;
+        let price = cached?.price || 0;
+        if (price <= 0) {
+            try {
+                const hist = await getPriceHistory(product.id);
+                if (hist && hist.length > 0) {
+                    // hist est tri ASC, on prend le dernier
+                    price = Number(hist[hist.length - 1].median) || 0;
+                }
+            } catch {}
+        }
+        if (price > 0) {
+            pricedProducts++;
+            totalValue += h.qty * price;
+        }
     }
+
+    // Si moins de 50% des produits detenus ont un prix, le snapshot n'est pas fiable.
+    // On retourne null pour que le caller skip l'ecriture.
+    const coverage = heldProducts === 0 ? 1 : pricedProducts / heldProducts;
+    if (heldProducts > 0 && coverage < 0.5) {
+        console.warn(`[Portfolio] Snapshot ${userId} skip : couverture prix ${pricedProducts}/${heldProducts} trop faible`);
+        return null;
+    }
+
     const today = new Date().toISOString().slice(0, 10);
     return {
         date: today,
         invested: Math.round(totalInvested * 100) / 100,
         value: Math.round(totalValue * 100) / 100,
         pnl: Math.round((totalValue - totalInvested) * 100) / 100,
+        coverage: Math.round(coverage * 100),   // % de positions dont on connait le prix
     };
 }
 
@@ -1067,8 +1094,12 @@ async function snapshotPortfolio() {
         for (const userId of userIds) {
             try {
                 const entry = await computeSnapshot(userId);
+                if (!entry) {
+                    console.log(`[Portfolio] Snapshot ${userId} skipped (prix indisponibles)`);
+                    continue;
+                }
                 await upsertPortfolioHistory(userId, entry);
-                console.log(`[Portfolio] Snapshot ${userId}: investi=${entry.invested}€, valeur=${entry.value}€, P&L=${entry.pnl}€`);
+                console.log(`[Portfolio] Snapshot ${userId}: investi=${entry.invested}€, valeur=${entry.value}€, P&L=${entry.pnl}€ (${entry.coverage}% couvert)`);
             } catch (err) {
                 console.error(`[Portfolio] Erreur snapshot ${userId}:`, err.message);
             }
@@ -1088,9 +1119,16 @@ app.get('/api/portfolio-history', authMiddleware, async (req, res) => {
 // API : forcer un snapshot pour l'utilisateur connecté
 app.post('/api/portfolio-snapshot', authMiddleware, async (req, res) => {
     const entry = await computeSnapshot(req.userId);
+    if (!entry) {
+        return res.status(409).json({
+            ok: false,
+            error: 'Prix insuffisants pour un snapshot fiable',
+            code: 'INSUFFICIENT_COVERAGE',
+        });
+    }
     await upsertPortfolioHistory(req.userId, entry);
     const history = await getPortfolioHistory(req.userId);
-    res.json({ ok: true, entries: history.length });
+    res.json({ ok: true, entries: history.length, coverage: entry.coverage });
 });
 
 // ── Cron Job quotidien (déclenché par GitHub Actions / UptimeRobot / …) ──
