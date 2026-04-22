@@ -473,6 +473,31 @@
         </div>
     </div>
 
+    <!-- Change password modal -->
+    <div class="modal-overlay" id="changePwModal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeChangePwModal()">&times;</button>
+            <h2 style="margin:0 0 20px;font-size:18px;font-weight:700">Changer le mot de passe</h2>
+            <form id="changePwForm">
+                <div class="field">
+                    <label for="cpwCurrent">Mot de passe actuel</label>
+                    <input type="password" id="cpwCurrent" required autocomplete="current-password">
+                </div>
+                <div class="field">
+                    <label for="cpwNew">Nouveau mot de passe</label>
+                    <input type="password" id="cpwNew" required minlength="4" autocomplete="new-password">
+                    <small style="display:block;margin-top:6px;color:var(--text-secondary);font-size:12px">Minimum 4 caractères</small>
+                </div>
+                <div class="field">
+                    <label for="cpwConfirm">Confirmer le nouveau mot de passe</label>
+                    <input type="password" id="cpwConfirm" required minlength="4" autocomplete="new-password">
+                </div>
+                <div class="auth-error" id="cpwError"></div>
+                <button type="submit" class="btn-primary" id="cpwSubmit">Enregistrer</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Shared portfolio viewer -->
     <div id="sharedPortfolioWrap" style="display:none"></div>
 

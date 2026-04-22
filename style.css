@@ -2365,6 +2365,30 @@ body {
     color: var(--green-light);
 }
 
+.btn-icon-subtle {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all var(--dur-fast) var(--ease-out);
+}
+.btn-icon-subtle:hover {
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+}
+.btn-icon-subtle:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 2px;
+}
+
 .btn-logout {
     font-family: inherit;
     font-size: 11px;

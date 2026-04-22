@@ -2043,6 +2043,9 @@ function updateAuthUI() {
     if (currentUser) {
         area.innerHTML = `<div class="user-info">
             <span class="user-name">${currentUser}</span>
+            <button class="btn-icon-subtle" onclick="openChangePwModal()" title="Changer de mot de passe" aria-label="Changer de mot de passe">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+            </button>
             <button class="btn-logout" onclick="logout()">Déco</button>
         </div>`;
     } else {
@@ -2148,6 +2151,68 @@ document.getElementById('authModal').addEventListener('click', function(e) {
 });
 
 document.getElementById('authForm').addEventListener('submit', handleAuth);
+
+// ── Change password ────────────────────────────────────────
+
+function openChangePwModal() {
+    if (!authToken) return;
+    document.getElementById('changePwModal').classList.add('open');
+    document.getElementById('cpwError').textContent = '';
+    document.getElementById('changePwForm').reset();
+    document.getElementById('cpwCurrent').focus();
+}
+
+function closeChangePwModal() {
+    document.getElementById('changePwModal').classList.remove('open');
+}
+
+async function handleChangePassword(e) {
+    e.preventDefault();
+    const currentPw = document.getElementById('cpwCurrent').value;
+    const newPw = document.getElementById('cpwNew').value;
+    const confirmPw = document.getElementById('cpwConfirm').value;
+    const errorEl = document.getElementById('cpwError');
+    const submitBtn = document.getElementById('cpwSubmit');
+
+    errorEl.textContent = '';
+
+    if (newPw !== confirmPw) {
+        errorEl.textContent = 'Les deux nouveaux mots de passe ne correspondent pas';
+        return;
+    }
+    if (newPw === currentPw) {
+        errorEl.textContent = 'Le nouveau mot de passe doit être différent';
+        return;
+    }
+
+    submitBtn.disabled = true;
+    try {
+        const res = await fetch('/api/change-password', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+            },
+            body: JSON.stringify({ currentPassword: currentPw, newPassword: newPw }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            errorEl.textContent = data.error || 'Erreur inconnue';
+            submitBtn.disabled = false;
+            return;
+        }
+        closeChangePwModal();
+        showToast('🔒', 'Mot de passe modifié');
+    } catch {
+        errorEl.textContent = 'Erreur de connexion au serveur';
+    }
+    submitBtn.disabled = false;
+}
+
+document.getElementById('changePwModal').addEventListener('click', function(e) {
+    if (e.target === this) closeChangePwModal();
+});
+document.getElementById('changePwForm').addEventListener('submit', handleChangePassword);
 
 // ── Portfolio ────────────────────────────────────────────────
 

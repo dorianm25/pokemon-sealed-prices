@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url';
 // ── Couche DB (libSQL / Turso ou SQLite local) ──────────────
 import {
     db, DB_MODE, initSchema,
-    getUserById, getUserByUsername, createUser,
+    getUserById, getUserByUsername, createUser, updateUserPassword,
     getPortfolio, setPortfolio, listPortfolioUserIds,
     getPortfolioHistory, upsertPortfolioHistory,
     getPriceHistory, upsertPriceHistory,
@@ -223,32 +223,151 @@ async function searchEbaySold(query, limit = 20, priceRange = null) {
     return res.json();
 }
 
-function extractPrices(ebayResponse, limits, query) {
+// ── Scoring des résultats eBay (précision des prix) ─────────
+//
+// Chaque item eBay retourné par la recherche est noté 0-100.
+// On elimine les items sous un seuil avant de calculer la médiane.
+// But : virer lots, cartes gradées, produits en langue étrangère,
+// vendeurs douteux, sleeves/playmats mal catalogués en "booster", etc.
+
+const SUSPICIOUS_PATTERNS = [
+    // Lots et multi-packs
+    { re: /\blot\s*de\s*\d+/i,              penalty: 45, safeIfQueryMatch: /\blot\b/i },
+    { re: /\b\d+\s*x\s+/i,                  penalty: 40 },
+    { re: /\bx\s*\d+(?!\s*(mm|cm|g))/i,     penalty: 35 },
+    { re: /\bpack\s*de\s*\d+/i,             penalty: 35 },
+    { re: /\bmultipack\b/i,                 penalty: 40 },
+
+    // Cartes gradées (pas notre cible : on track le scellé)
+    { re: /\b(PSA|CGC|BGS)\s*\d/i,          penalty: 70 },
+    { re: /\b(PSA|CGC|BGS)\b/i,             penalty: 50 },
+    { re: /\b(graded|slab|noté|notee)\b/i,  penalty: 55 },
+
+    // Langues non FR (on track la version française)
+    { re: /\b(japanese|japonais|japonaise|jap)\b/i,     penalty: 55 },
+    { re: /\b(english|anglais|anglaise|engl)\b/i,       penalty: 50 },
+    { re: /\b(italien|italiano|italiana|ita)\b/i,       penalty: 50 },
+    { re: /\b(espagnol|espagnola|espanol|esp)\b/i,      penalty: 50 },
+    { re: /\b(allemand|deutsch|german|ger)\b/i,         penalty: 50 },
+
+    // Contrefacons / produits manifestement non scelles
+    { re: /\b(proxy|fake|reproduction|réplique|replica|custom)\b/i, penalty: 80 },
+    { re: /\b(vide|empty)\b/i,                          penalty: 70 },
+
+    // Accessoires mal catalogues
+    { re: /\b(sleeve|playmat|classeur|binder|tapis)\b/i, penalty: 55 },
+    { re: /\bdeck[\s-]?box\b/i,                          penalty: 50 },
+    { re: /\bjumbo\b/i,                                  penalty: 40 },
+];
+
+function scoreItem(item, product) {
+    let score = 60; // base
+    const title = item.title || '';
+    const queryRaw = (product?.query || '').toLowerCase();
+
+    // Penalites par mot-cle suspect (sauf si legitime dans la query du produit)
+    for (const { re, penalty, safeIfQueryMatch } of SUSPICIOUS_PATTERNS) {
+        if (safeIfQueryMatch && safeIfQueryMatch.test(queryRaw)) continue;
+        if (re.test(title)) score -= penalty;
+    }
+
+    // Bonus : mots significatifs du nom produit retrouvés dans le titre
+    if (product?.name) {
+        const keywords = product.name
+            .toLowerCase()
+            .replace(/[àâäéèêëîïôöùûüç]/g, c => ({ 'à':'a','â':'a','ä':'a','é':'e','è':'e','ê':'e','ë':'e','î':'i','ï':'i','ô':'o','ö':'o','ù':'u','û':'u','ü':'u','ç':'c' }[c] || c))
+            .split(/\s+/)
+            .filter(w => w.length >= 4);
+        if (keywords.length > 0) {
+            const titleNorm = title.toLowerCase().replace(/[àâäéèêëîïôöùûüç]/g, c => ({ 'à':'a','â':'a','ä':'a','é':'e','è':'e','ê':'e','ë':'e','î':'i','ï':'i','ô':'o','ö':'o','ù':'u','û':'u','ü':'u','ç':'c' }[c] || c));
+            const matches = keywords.filter(w => titleNorm.includes(w)).length;
+            score += Math.round((matches / keywords.length) * 25);
+        }
+    }
+
+    // Bonus/penalite selon la fiabilite du vendeur
+    const fb = Number(item.seller?.feedbackScore || 0);
+    const pct = parseFloat(item.seller?.feedbackPercentage || 0);
+    if (fb >= 500 && pct >= 99) score += 10;
+    else if (fb >= 100 && pct >= 98) score += 5;
+    else if (fb < 20 || pct < 95) score -= 15;
+
+    return Math.max(0, Math.min(100, score));
+}
+
+// Mediane ponderee : chaque prix est pondéré par la qualité de son listing.
+// Un item a score 90 pese ~2x plus lourd qu'un item a score 50. Resultat :
+// les listings propres tirent le prix mediane, les listings marginaux pesent moins.
+function weightedMedian(pairs) {
+    // pairs = [{ price, weight }, ...] — trié par prix croissant
+    const total = pairs.reduce((s, p) => s + p.weight, 0);
+    if (total <= 0) return pairs[Math.floor(pairs.length / 2)].price;
+    const half = total / 2;
+    let cum = 0;
+    for (let i = 0; i < pairs.length; i++) {
+        cum += pairs[i].weight;
+        if (cum >= half) {
+            // Lissage entre deux prix si on tombe pile sur la frontière
+            if (cum === half && i + 1 < pairs.length) {
+                return (pairs[i].price + pairs[i + 1].price) / 2;
+            }
+            return pairs[i].price;
+        }
+    }
+    return pairs[pairs.length - 1].price;
+}
+
+function extractPrices(ebayResponse, limits, query, product = null) {
     const items = ebayResponse.itemSummaries || [];
 
     if (items.length === 0) return null;
 
-    const validItems = items.filter(item => {
+    // 1) Pre-filtre : prix valide + dans la fourchette absolue
+    const priceValid = items.filter(item => {
         const val = parseFloat(item.price?.value);
         if (isNaN(val) || val <= 0) return false;
         if (limits && (val < limits.min || val > limits.max)) return false;
         return true;
     });
 
-    if (validItems.length === 0) return null;
+    if (priceValid.length === 0) return null;
 
+    // 2) Score + filtre par seuil de confiance (tri par prix croissant)
+    const scored = priceValid
+        .map(item => ({ item, score: scoreItem(item, product) }))
+        .filter(s => s.score >= 45)
+        .sort((a, b) => parseFloat(a.item.price.value) - parseFloat(b.item.price.value));
+
+    // Si le filtre est trop strict (0 resultat), on relache : priceValid
+    // notes avec leur score reel, tries par prix. Mieux vaut un prix approx qu'aucun.
+    const finalScored = scored.length > 0
+        ? scored
+        : priceValid
+            .map(item => ({ item, score: scoreItem(item, product) }))
+            .sort((a, b) => parseFloat(a.item.price.value) - parseFloat(b.item.price.value));
+    const strictFiltered = scored.length > 0;
+
+    const validItems = finalScored.map(s => s.item);
     const prices = validItems.map(item => parseFloat(item.price.value));
-    prices.sort((a, b) => a - b);
 
-    // Prix médian = plus représentatif du marché
-    const mid = Math.floor(prices.length / 2);
-    const medianPrice = prices.length % 2 === 0
-        ? (prices[mid - 1] + prices[mid]) / 2
-        : prices[mid];
+    // 3) Prix median pondere par le score : les meilleurs listings tirent le prix.
+    // Weight = (score - 40)² pour amplifier l'ecart entre un bon (90) et un passable (50).
+    // Un score 90 pese ~7x plus qu'un score 50, ~14x plus qu'un score 45.
+    const weightedPairs = finalScored.map(s => ({
+        price: parseFloat(s.item.price.value),
+        weight: Math.max(1, Math.pow(s.score - 40, 2)),
+    }));
+    const medianPrice = weightedMedian(weightedPairs);
+
+    // Mediane simple pour reference / telemetrie
+    const sortedP = [...prices].sort((a, b) => a - b);
+    const mid = Math.floor(sortedP.length / 2);
+    const plainMedian = sortedP.length % 2 === 0
+        ? (sortedP[mid - 1] + sortedP[mid]) / 2
+        : sortedP[mid];
 
     // Article le moins cher (1er résultat trié par prix croissant) pour l'image
     const cheapest = validItems[0];
-
     const cheapestPrice = parseFloat(cheapest.price.value);
 
     const lastListing = {
@@ -259,15 +378,24 @@ function extractPrices(ebayResponse, limits, query) {
         image: cheapest.image?.imageUrl || cheapest.thumbnailImages?.[0]?.imageUrl || '',
     };
 
+    // Moyenne des scores (indicateur de qualite globale du sample)
+    const avgScore = Math.round(
+        finalScored.reduce((s, x) => s + x.score, 0) / finalScored.length
+    );
+
     // Lien de recherche affilié
     const searchUrl = toAffiliateUrl(`https://www.ebay.fr/sch/i.html?_nkw=${encodeURIComponent(query)}&_sop=15&LH_BIN=1`);
 
     return {
         price: Math.round(medianPrice * 100) / 100,
+        plainMedian: Math.round(plainMedian * 100) / 100,
         lastPrice: Math.round(cheapestPrice * 100) / 100,
         low: Math.min(...prices),
         high: Math.max(...prices),
         sampleSize: validItems.length,
+        rawSampleSize: priceValid.length,   // avant filtre score
+        filtered: strictFiltered,           // true si le score a ecarté des resultats
+        avgScore,                            // qualite moyenne du sample (0-100)
         lastUpdated: new Date().toISOString(),
         lastListing,
         searchUrl,
@@ -553,7 +681,7 @@ app.get('/api/price/:productId', async (req, res) => {
             const query = custom?.query || product.query;
             const limits = { min: product.minPrice, max: product.maxPrice };
             const ebayData = await searchEbaySold(query, 20, limits);
-            priceData = extractPrices(ebayData, limits, query);
+            priceData = extractPrices(ebayData, limits, query, product);
         }
 
         if (!priceData) {
@@ -615,7 +743,7 @@ app.get('/api/prices', async (req, res) => {
 
             const limits = { min: product.minPrice, max: product.maxPrice };
             const ebayData = await searchEbaySold(product.query, 20, limits);
-            const priceData = extractPrices(ebayData, limits, product.query);
+            const priceData = extractPrices(ebayData, limits, product.query, product);
 
             if (priceData) {
                 const result = { id: product.id, name: product.name, ...priceData };
@@ -667,7 +795,7 @@ async function refreshProductPrice(product) {
         const query = custom?.query || product.query;
         const limits = { min: product.minPrice, max: product.maxPrice };
         const ebayData = await searchEbaySold(query, 20, limits);
-        priceData = extractPrices(ebayData, limits, query);
+        priceData = extractPrices(ebayData, limits, query, product);
     }
 
     if (!priceData) return null;
@@ -851,8 +979,13 @@ app.post('/api/login', async (req, res) => {
     const uid = username.toLowerCase().trim();
     const user = await getUserById(uid);
 
-    if (!user || !verifyPassword(password, user.salt, user.hash)) {
-        return res.status(401).json({ error: 'Identifiants incorrects' });
+    // Messages differencies : un utilisateur qui ne s'y retrouve pas doit savoir
+    // si son compte existe ou si c'est juste le mot de passe qui est faux.
+    if (!user) {
+        return res.status(404).json({ error: `Aucun compte avec le nom "${username.trim()}"`, code: 'USER_NOT_FOUND' });
+    }
+    if (!verifyPassword(password, user.salt, user.hash)) {
+        return res.status(401).json({ error: 'Mot de passe incorrect', code: 'WRONG_PASSWORD' });
     }
 
     const token = createToken(uid);
@@ -863,6 +996,28 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     const user = await getUserById(req.userId);
     if (!user) return res.status(404).json({ error: 'Utilisateur introuvable' });
     res.json({ username: user.username });
+});
+
+// Changer de mot de passe (demande l'ancien pour confirmer)
+app.post('/api/change-password', authMiddleware, async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'Ancien et nouveau mot de passe requis' });
+    }
+    if (newPassword.length < 4) {
+        return res.status(400).json({ error: 'Nouveau mot de passe trop court (min 4 caractères)' });
+    }
+    if (newPassword === currentPassword) {
+        return res.status(400).json({ error: 'Le nouveau mot de passe doit être différent' });
+    }
+    const user = await getUserById(req.userId);
+    if (!user) return res.status(404).json({ error: 'Utilisateur introuvable' });
+    if (!verifyPassword(currentPassword, user.salt, user.hash)) {
+        return res.status(401).json({ error: 'Ancien mot de passe incorrect' });
+    }
+    const { salt, hash } = hashPassword(newPassword);
+    await updateUserPassword(req.userId, salt, hash);
+    res.json({ ok: true });
 });
 
 // ── Portfolio Routes (auth required) ────────────────────────

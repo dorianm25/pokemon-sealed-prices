@@ -111,6 +111,13 @@ export async function createUser(id, username, salt, hash) {
     });
 }
 
+export async function updateUserPassword(id, salt, hash) {
+    await db.execute({
+        sql: 'UPDATE users SET salt = ?, hash = ? WHERE id = ?',
+        args: [salt, hash, id],
+    });
+}
+
 // ── Portfolios ──────────────────────────────────────────────
 
 // Retourne le portfolio d'un user sous forme d'objet { [productName]: { qty, cost } }
