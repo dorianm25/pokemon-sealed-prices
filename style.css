@@ -6069,11 +6069,24 @@ body { transition: background-color 0.3s, color 0.3s; }
 /* Allocation */
 .pf-alloc-body {
     display: grid;
-    grid-template-columns: minmax(0, 180px) 1fr;
-    gap: 16px;
+    grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+    gap: 20px;
     align-items: center;
 }
-#pfAllocChart { max-height: 200px; }
+.pf-alloc-chart-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    max-width: 180px;
+    max-height: 180px;
+    margin: 0 auto;
+}
+.pf-alloc-chart-wrap > canvas {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    height: 100% !important;
+}
 .pf-alloc-legend {
     display: flex;
     flex-direction: column;
@@ -6081,14 +6094,16 @@ body { transition: background-color 0.3s, color 0.3s; }
     max-height: 200px;
     overflow-y: auto;
     padding-right: 4px;
+    min-width: 0;
 }
 .pf-alloc-legend-item {
     display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 10px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
     align-items: center;
-    padding: 4px 0;
+    padding: 3px 0;
     font-size: 12px;
+    min-width: 0;
 }
 .pf-alloc-dot {
     width: 10px;
@@ -6844,8 +6859,9 @@ body { transition: background-color 0.3s, color 0.3s; }
     .pf-stat-primary .pf-stat-value { font-size: 24px; }
     .pf-stat-kpi .pf-hero-kpi-value { font-size: 17px; }
     .pf-chart-card, .pf-alloc-card, .pf-top-card { padding: 16px; }
-    .pf-alloc-body { grid-template-columns: 1fr; }
-    #pfAllocChart { max-height: 220px; }
+    .pf-alloc-body { grid-template-columns: 1fr; justify-items: center; }
+    .pf-alloc-chart-wrap { max-width: 220px; max-height: 220px; }
+    .pf-alloc-legend { max-height: none; width: 100%; }
     .pf-top-row {
         grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.6fr) auto;
     }

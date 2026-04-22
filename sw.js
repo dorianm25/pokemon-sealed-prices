@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pokescelle-v6';
+const CACHE_NAME = 'pokescelle-v7';
 const STATIC_ASSETS = ['/', '/app.js', '/style.css', '/index.html'];
 
 // Assets pour lesquels on veut TOUJOURS la dernière version (network-first)
