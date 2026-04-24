@@ -75,6 +75,8 @@ const products = [
 // ── Helpers ──────────────────────────────────────────────────
 
 function fmt(price) {
+    // Defensif : undefined/null/NaN -> '—' au lieu de crasher tout le render()
+    if (price == null || Number.isNaN(Number(price))) return '—';
     if (price >= 1000) return price.toLocaleString('fr-FR') + ' €';
     return price.toLocaleString('fr-FR', { minimumFractionDigits: price % 1 ? 2 : 0, maximumFractionDigits: 2 }) + ' €';
 }
@@ -340,7 +342,7 @@ function renderCard(p, i) {
         <div class="product-prices">
             <div class="product-price-col">
                 <span class="product-price-label">eBay (médian)</span>
-                <span class="${priceClass}">${fmt(p.price || p.lastPrice || p.lastListing?.price)}</span>
+                <span class="${priceClass}">${fmt(p.price > 0 ? p.price : (p.lastPrice || p.lastListing?.price || p.price))}</span>
             </div>
             <div class="product-price-col" style="text-align:right">
                 <span class="product-price-label">résultats</span>
@@ -364,7 +366,7 @@ function updateCard(productName) {
 
     if (priceEl) {
         priceEl.classList.remove('skeleton');
-        priceEl.textContent = fmt(p.price || p.lastPrice || p.lastListing?.price);
+        priceEl.textContent = fmt(p.price > 0 ? p.price : (p.lastPrice || p.lastListing?.price || p.price));
         priceEl.classList.add('price-updated');
         setTimeout(() => priceEl.classList.remove('price-updated'), 1200);
     }
