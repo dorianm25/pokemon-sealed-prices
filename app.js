@@ -300,6 +300,29 @@ function renderCard(p, i) {
     const priceClass = isLoading ? 'product-price-value skeleton' : 'product-price-value';
     const subClass = isLoading ? 'product-price-sub skeleton' : 'product-price-sub';
 
+    // Vinted : si dispo, on affiche en dessous du prix eBay (sinon rien)
+    const vinted = p.vinted;
+    const vintedRowHtml = vinted ? `
+        <div class="product-price-vinted">
+            <span class="product-price-source">Vinted</span>
+            <span class="product-price-vinted-value">${fmt(vinted.price)}</span>
+            <span class="product-price-vinted-count">${vinted.sampleSize || '—'} rés.</span>
+        </div>` : '';
+
+    const ebayUrl = p.lastListing?.url || p.searchUrl;
+    const vintedUrl = vinted?.lastListing?.url || vinted?.searchUrl;
+    const buyButtonsHtml = (ebayUrl || vintedUrl) ? `
+        <div class="product-buy-row">
+            ${ebayUrl ? `<a class="btn-buy-ebay" href="${ebayUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                eBay
+            </a>` : ''}
+            ${vintedUrl ? `<a class="btn-buy-vinted" href="${vintedUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Vinted
+            </a>` : ''}
+        </div>` : '';
+
     return `<article class="product" data-product-name="${p.name.replace(/"/g, '&quot;')}" style="--i:${i}" onclick="openDetail('${p.name.replace(/'/g, "\\'")}')">
     <div class="product-img">
         ${imgHtml}
@@ -316,18 +339,16 @@ function renderCard(p, i) {
         </div>
         <div class="product-prices">
             <div class="product-price-col">
-                <span class="product-price-label">Dernier prix</span>
-                <span class="${priceClass}">${fmt(p.lastPrice || p.lastListing?.price || p.price)}</span>
+                <span class="product-price-label">eBay (médian)</span>
+                <span class="${priceClass}">${fmt(p.price || p.lastPrice || p.lastListing?.price)}</span>
             </div>
             <div class="product-price-col" style="text-align:right">
                 <span class="product-price-label">résultats</span>
                 <span class="${subClass}">${p.sampleSize || '—'}</span>
             </div>
         </div>
-        ${(p.lastListing?.url || p.searchUrl) ? `<a class="btn-buy-ebay" href="${p.lastListing?.url || p.searchUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            Acheter sur eBay
-        </a>` : ''}
+        ${vintedRowHtml}
+        ${buyButtonsHtml}
     </div>
 </article>`;
 }
@@ -343,7 +364,7 @@ function updateCard(productName) {
 
     if (priceEl) {
         priceEl.classList.remove('skeleton');
-        priceEl.textContent = fmt(p.lastPrice || p.lastListing?.price || p.price);
+        priceEl.textContent = fmt(p.price || p.lastPrice || p.lastListing?.price);
         priceEl.classList.add('price-updated');
         setTimeout(() => priceEl.classList.remove('price-updated'), 1200);
     }
@@ -365,13 +386,55 @@ function updateCard(productName) {
         imgArea.insertAdjacentHTML('beforeend', `<span class="product-trend-badge badge-stable">→ 0%</span>`);
     }
 
-    // Update buy button
+    // Update / inject Vinted row
     const infoArea = card.querySelector('.product-info');
-    if (!infoArea.querySelector('.btn-buy-ebay') && (p.lastListing?.url || p.searchUrl)) {
-        infoArea.insertAdjacentHTML('beforeend', `<a class="btn-buy-ebay" href="${p.lastListing?.url || p.searchUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            Acheter sur eBay
-        </a>`);
+    let vintedRow = infoArea.querySelector('.product-price-vinted');
+    if (p.vinted) {
+        const vintedHtml = `
+            <span class="product-price-source">Vinted</span>
+            <span class="product-price-vinted-value">${fmt(p.vinted.price)}</span>
+            <span class="product-price-vinted-count">${p.vinted.sampleSize || '—'} rés.</span>`;
+        if (vintedRow) {
+            vintedRow.innerHTML = vintedHtml;
+        } else {
+            // Insere apres le bloc des prix eBay
+            const pricesBlock = infoArea.querySelector('.product-prices');
+            if (pricesBlock) {
+                const div = document.createElement('div');
+                div.className = 'product-price-vinted';
+                div.innerHTML = vintedHtml;
+                pricesBlock.insertAdjacentElement('afterend', div);
+            }
+        }
+    } else if (vintedRow) {
+        vintedRow.remove();
+    }
+
+    // Update / inject buy buttons row (eBay + Vinted)
+    let buyRow = infoArea.querySelector('.product-buy-row');
+    const oldSingleBtn = infoArea.querySelector('.btn-buy-ebay:not(.product-buy-row .btn-buy-ebay)');
+    const ebayUrl = p.lastListing?.url || p.searchUrl;
+    const vintedUrl = p.vinted?.lastListing?.url || p.vinted?.searchUrl;
+    if (ebayUrl || vintedUrl) {
+        const btnsHtml = `
+            ${ebayUrl ? `<a class="btn-buy-ebay" href="${ebayUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                eBay
+            </a>` : ''}
+            ${vintedUrl ? `<a class="btn-buy-vinted" href="${vintedUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Vinted
+            </a>` : ''}`;
+        if (buyRow) {
+            buyRow.innerHTML = btnsHtml;
+        } else {
+            // Supprime un eventuel ancien bouton solo (compat ancien render) avant d'inserer
+            if (oldSingleBtn) oldSingleBtn.remove();
+            const div = document.createElement('div');
+            div.className = 'product-buy-row';
+            div.innerHTML = btnsHtml;
+            infoArea.appendChild(div);
+        }
     }
 
     // Update image if available
@@ -419,6 +482,7 @@ function openDetail(productName) {
                         <button class="detail-nav-link active">📊 Aperçu Global</button>
                         ${p.lastListing?.url ? `<a class="detail-nav-link" href="${p.lastListing.url}" target="_blank" rel="noopener">🔗 Voir sur eBay</a>` : ''}
                         ${p.searchUrl ? `<a class="detail-nav-link" href="${p.searchUrl}" target="_blank" rel="noopener">🛒 Rechercher sur eBay</a>` : ''}
+                        ${p.vinted?.searchUrl ? `<a class="detail-nav-link" href="${p.vinted.searchUrl}" target="_blank" rel="noopener">🛍️ Rechercher sur Vinted</a>` : ''}
                         ${ebayId ? `<button class="detail-nav-link" onclick="document.getElementById('detailOverlay').remove();openQueryEditor('${ebayId}','${p.name.replace(/'/g, "\\'")}')">⚙ Modifier la source</button>` : ''}
                         <button class="detail-nav-link" onclick="saveNote('${p.name.replace(/'/g, "\\'")}')">📝 ${getNotes()[p.name] ? 'Modifier la note' : 'Ajouter une note'}</button>
                         <button class="detail-nav-link" onclick="setAlert('${p.name.replace(/'/g, "\\'")}')">🔔 Alerte de prix</button>
@@ -426,7 +490,7 @@ function openDetail(productName) {
                     ${getNotes()[p.name] ? `<div class="detail-note"><strong>📝 Note :</strong> ${getNotes()[p.name]}</div>` : ''}
                     ${p.lastListing ? `
                     <div style="border-top:1px solid var(--border);padding-top:12px">
-                        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Dernier article trouvé</div>
+                        <div style="font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Dernier article eBay</div>
                         <div class="sale-row" style="border:none;padding:0">
                             ${p.lastListing.image ? `<img class="sale-img" src="${p.lastListing.image}" alt="">` : ''}
                             <div class="sale-info">
@@ -435,19 +499,39 @@ function openDetail(productName) {
                             <span class="sale-price">${fmt(p.lastListing.price)}</span>
                         </div>
                     </div>` : ''}
+                    ${p.vinted?.lastListing ? `
+                    <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+                        <div style="font-size:12px;font-weight:600;color:#09b1ba;margin-bottom:8px">Dernier article Vinted</div>
+                        <div class="sale-row" style="border:none;padding:0">
+                            ${p.vinted.lastListing.image ? `<img class="sale-img" src="${p.vinted.lastListing.image}" alt="">` : ''}
+                            <div class="sale-info">
+                                <div class="sale-title">${p.vinted.lastListing.title || ''}</div>
+                            </div>
+                            <span class="sale-price">${fmt(p.vinted.lastListing.price)}</span>
+                        </div>
+                    </div>` : ''}
                 </div>
                 <div class="detail-main">
                     <h3 class="detail-section-title">Indicateurs de performances</h3>
                     <div class="kpi-grid">
                         <div class="kpi-card">
-                            <div class="kpi-label">Prix médian</div>
+                            <div class="kpi-label">eBay médian</div>
                             <div class="kpi-value">${fmt(p.price)}</div>
                             <div class="kpi-sub">${p.sampleSize || 0} résultats</div>
                         </div>
-                        <div class="kpi-card">
-                            <div class="kpi-label">Dernier prix</div>
-                            <div class="kpi-value" style="color:#58a6ff">${fmt(p.lastPrice || p.lastListing?.price)}</div>
-                        </div>
+                        ${p.vinted ? (() => {
+                            const delta = p.price > 0 ? Math.round(((p.vinted.price - p.price) / p.price) * 100) : 0;
+                            const dColor = delta < 0 ? '#3fb950' : delta > 0 ? '#f85149' : 'var(--text-muted)';
+                            const dSign = delta > 0 ? '+' : '';
+                            return `<div class="kpi-card">
+                                <div class="kpi-label">Vinted médian</div>
+                                <div class="kpi-value" style="color:#09b1ba">${fmt(p.vinted.price)}</div>
+                                <div class="kpi-sub">${p.vinted.sampleSize || 0} résultats <span style="color:${dColor};font-weight:600;margin-left:4px">${dSign}${delta}%</span></div>
+                            </div>`;
+                        })() : `<div class="kpi-card">
+                            <div class="kpi-label">Vinted</div>
+                            <div class="kpi-value" style="color:var(--text-muted);font-size:14px">indisponible</div>
+                        </div>`}
                         <div class="kpi-card">
                             <div class="kpi-label">Prix minimum</div>
                             <div class="kpi-value">${fmt(p.low)}</div>
@@ -1866,6 +1950,8 @@ function applyEbayPrice(ep) {
     product.sampleSize = ep.sampleSize || 0;
     product.searchUrl = ep.searchUrl || '';
     product._ebayLoaded = true;
+    // Vinted (optionnel : peut etre absent si l'API a echoue ou si on a un prix fixe)
+    product.vinted = ep.vinted || null;
 
     if (product.old > 0) {
         product.trend = Math.round(((product.price - product.old) / product.old) * 100);
