@@ -1123,20 +1123,146 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     res.json({ username: user.username });
 });
 
-// Liste des comptes : reservee a l'admin (par defaut 'dorian', surchargeable
-// via env var ADMIN_USERNAME). Ne renvoie JAMAIS salt/hash.
+// ── Admin endpoints ─────────────────────────────────────────
+//
+// Accessibles uniquement a l'admin (par defaut 'dorian', surchargeable via
+// env var ADMIN_USERNAME). Ne renvoient JAMAIS de donnees sensibles
+// (salt, hash). Toute action destructive (delete user) est protegee contre
+// l'auto-suppression et journalisee.
+
 const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'dorian').toLowerCase();
-app.get('/api/admin/users', authMiddleware, async (req, res) => {
+
+// Middleware : valide que l'utilisateur authentifie est l'admin
+async function requireAdmin(req, res, next) {
     const me = await getUserById(req.userId);
     if (!me || me.username.toLowerCase() !== ADMIN_USERNAME) {
         return res.status(403).json({ error: 'Reserve admin' });
     }
+    req.adminUser = me;
+    next();
+}
+
+// Liste les comptes (sans salt/hash). Inclut un flag "isAdmin" et le nb de
+// positions dans le portfolio de chaque user pour avoir un apercu rapide.
+app.get('/api/admin/users', authMiddleware, requireAdmin, async (req, res) => {
     const result = await db.execute('SELECT id, username, created_at FROM users ORDER BY created_at DESC');
+    const users = [];
+    for (const r of result.rows) {
+        // Compte les positions non vides du portfolio (utile pour decider qui supprimer)
+        const pf = await getPortfolio(r.id);
+        const positionCount = Object.values(pf).filter(v => v && v.qty > 0).length;
+        users.push({
+            id: r.id,
+            username: r.username,
+            createdAt: r.created_at,
+            isAdmin: r.username.toLowerCase() === ADMIN_USERNAME,
+            positionCount,
+        });
+    }
     res.json({
         adminUsername: ADMIN_USERNAME,
-        count: result.rows.length,
-        users: result.rows.map(r => ({ id: r.id, username: r.username, createdAt: r.created_at })),
+        count: users.length,
+        users,
     });
+});
+
+// Stats globales de l'app (nombre users, portfolios actifs, top produits)
+app.get('/api/admin/stats', authMiddleware, requireAdmin, async (_req, res) => {
+    try {
+        const usersR = await db.execute('SELECT COUNT(*) AS n FROM users');
+        const totalUsers = Number(usersR.rows[0].n);
+
+        // Portfolios non vides : distinct user_id avec au moins 1 ligne qty > 0
+        const activeR = await db.execute('SELECT COUNT(DISTINCT user_id) AS n FROM portfolios WHERE qty > 0');
+        const activeUsers = Number(activeR.rows[0].n);
+
+        // Top 5 produits les plus possedes (somme qty toutes positions confondues)
+        const topR = await db.execute(`
+            SELECT product_name, SUM(qty) AS total_qty, COUNT(DISTINCT user_id) AS holders
+            FROM portfolios
+            WHERE qty > 0
+            GROUP BY product_name
+            ORDER BY total_qty DESC
+            LIMIT 5
+        `);
+        const topProducts = topR.rows.map(r => ({
+            name: r.product_name,
+            totalQty: Number(r.total_qty),
+            holders: Number(r.holders),
+        }));
+
+        // Comptes par jour des 7 derniers jours
+        const since = new Date();
+        since.setDate(since.getDate() - 7);
+        const recentR = await db.execute({
+            sql: 'SELECT COUNT(*) AS n FROM users WHERE created_at >= ?',
+            args: [since.toISOString()],
+        });
+        const newUsersLast7d = Number(recentR.rows[0].n);
+
+        // Volume DB approximatif
+        const phR = await db.execute('SELECT COUNT(*) AS n FROM price_history');
+        const pfHistR = await db.execute('SELECT COUNT(*) AS n FROM portfolio_history');
+
+        res.json({
+            totalUsers,
+            activeUsers,
+            inactiveUsers: totalUsers - activeUsers,
+            newUsersLast7d,
+            trackedProducts: PRODUCTS_TO_TRACK.length,
+            priceHistoryRows: Number(phR.rows[0].n),
+            portfolioHistoryRows: Number(pfHistR.rows[0].n),
+            topProducts,
+        });
+    } catch (e) {
+        console.error('[admin/stats] error:', e);
+        res.status(500).json({ error: 'Erreur stats' });
+    }
+});
+
+// Supprime un compte (et son portfolio + son historique). Bloque l'auto-suppression.
+app.delete('/api/admin/users/:id', authMiddleware, requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    if (id === req.adminUser.id) {
+        return res.status(400).json({ error: 'Impossible de supprimer son propre compte admin' });
+    }
+    const target = await getUserById(id);
+    if (!target) return res.status(404).json({ error: 'Utilisateur introuvable' });
+    try {
+        // Cascade manuelle (pas de FK declaree dans le schema)
+        await db.execute({ sql: 'DELETE FROM portfolios WHERE user_id = ?', args: [id] });
+        await db.execute({ sql: 'DELETE FROM portfolio_history WHERE user_id = ?', args: [id] });
+        await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [id] });
+        console.log(`[admin] ${req.adminUser.username} a supprime le compte ${target.username} (${id})`);
+        res.json({ ok: true, deleted: { id, username: target.username } });
+    } catch (e) {
+        console.error('[admin/delete-user] error:', e);
+        res.status(500).json({ error: 'Erreur suppression' });
+    }
+});
+
+// Genere un nouveau mot de passe temporaire pour un user. Le retourne UNE
+// SEULE FOIS (pas stocke en clair). L'admin doit le transmettre au user via
+// un canal securise (telephone, sms...) qui le change ensuite via l'UI.
+app.post('/api/admin/users/:id/reset-password', authMiddleware, requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    const target = await getUserById(id);
+    if (!target) return res.status(404).json({ error: 'Utilisateur introuvable' });
+    try {
+        // Mot de passe temporaire : 12 chars alphanumeriques lisibles (sans 0/O/1/l ambigus)
+        const ALPH = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+        let tempPassword = '';
+        const bytes = crypto.randomBytes(12);
+        for (let i = 0; i < 12; i++) tempPassword += ALPH[bytes[i] % ALPH.length];
+
+        const { salt, hash } = hashPassword(tempPassword);
+        await updateUserPassword(id, salt, hash);
+        console.log(`[admin] ${req.adminUser.username} a reset le mdp de ${target.username} (${id})`);
+        res.json({ ok: true, username: target.username, tempPassword });
+    } catch (e) {
+        console.error('[admin/reset-password] error:', e);
+        res.status(500).json({ error: 'Erreur reset' });
+    }
 });
 
 // Changer de mot de passe (demande l'ancien pour confirmer)

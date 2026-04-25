@@ -745,6 +745,11 @@ function switchSection(section, e) {
         openAuthModal('login');
         return;
     }
+    if (section === 'admin' && !isAdminUser()) {
+        // Garde-fou cote client (le serveur refuse aussi 403)
+        showToast?.('🔒', 'Accès refusé', 'Section réservée à l\'administrateur');
+        return;
+    }
 
     currentSection = section;
 
@@ -765,6 +770,8 @@ function switchSection(section, e) {
     document.getElementById('sectionPortfolio').style.display = section === 'portfolio' ? 'block' : 'none';
     document.getElementById('sectionTendances').style.display = section === 'tendances' ? 'block' : 'none';
     document.getElementById('sectionSimulation').style.display = section === 'simulation' ? 'block' : 'none';
+    const adminSec = document.getElementById('sectionAdmin');
+    if (adminSec) adminSec.style.display = section === 'admin' ? 'block' : 'none';
 
     // Show/hide sidebar filters
     document.getElementById('sidebarFilters').style.display = section === 'catalogue' ? 'block' : 'none';
@@ -773,6 +780,24 @@ function switchSection(section, e) {
     if (section === 'portfolio') renderPortfolio();
     if (section === 'tendances') renderTrends();
     if (section === 'simulation') renderSimulation();
+    if (section === 'admin') loadAdminPage();
+}
+
+// Helper : verifie si l'utilisateur connecte est l'admin (par defaut 'dorian').
+// Liste alignee avec server.js (ADMIN_USERNAME, default 'dorian').
+function isAdminUser() {
+    return !!currentUser && currentUser.toLowerCase() === 'dorian';
+}
+
+// Met a jour la visibilite du lien Admin dans la sidebar selon le user connecte
+function updateAdminLinkVisibility() {
+    const link = document.getElementById('sidebarLinkAdmin');
+    if (!link) return;
+    link.style.display = isAdminUser() ? 'flex' : 'none';
+    // Si on quitte le compte admin alors qu'on est sur la section admin, on rebascule
+    if (currentSection === 'admin' && !isAdminUser()) {
+        switchSection('catalogue');
+    }
 }
 
 // ── Filter / Sort ────────────────────────────────────────────
@@ -2089,6 +2114,9 @@ function updateAuthUI() {
     document.querySelector('.sidebar-user').onclick = () => {
         if (!currentUser) openAuthModal('login');
     };
+
+    // Lien Admin visible uniquement pour l'admin
+    updateAdminLinkVisibility();
 }
 
 function openAuthModal(mode) {
@@ -4809,6 +4837,200 @@ async function loadPfPerformanceChart(pfItems) {
     } catch {
         if (summaryEl) summaryEl.innerHTML = '<span class="dpp-muted">Erreur chargement</span>';
     }
+}
+
+// ── Page Admin ──────────────────────────────────────────────
+async function loadAdminPage() {
+    const container = document.getElementById('adminContent');
+    if (!container) return;
+    if (!isAdminUser()) {
+        container.innerHTML = '<div class="admin-empty">Accès refusé.</div>';
+        return;
+    }
+    container.innerHTML = '<div class="admin-loading">Chargement…</div>';
+
+    try {
+        const headers = { 'Authorization': `Bearer ${authToken}` };
+        const [statsRes, usersRes] = await Promise.all([
+            fetch('/api/admin/stats', { headers, cache: 'no-store' }),
+            fetch('/api/admin/users', { headers, cache: 'no-store' }),
+        ]);
+        if (!statsRes.ok || !usersRes.ok) throw new Error('HTTP error');
+        const stats = await statsRes.json();
+        const usersData = await usersRes.json();
+
+        container.innerHTML = renderAdminPage(stats, usersData);
+    } catch (e) {
+        container.innerHTML = `<div class="admin-empty">Erreur de chargement (${e.message || 'inconnue'}).</div>`;
+    }
+}
+
+function renderAdminPage(stats, usersData) {
+    const fmtDate = (iso) => {
+        if (!iso) return '—';
+        const d = new Date(iso);
+        return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+    };
+    const daysAgo = (iso) => {
+        if (!iso) return '—';
+        const ms = Date.now() - new Date(iso).getTime();
+        const d = Math.floor(ms / (1000 * 60 * 60 * 24));
+        if (d === 0) return 'aujourd\'hui';
+        if (d === 1) return 'hier';
+        return `il y a ${d} j`;
+    };
+
+    return `
+        <!-- Stats globales -->
+        <div class="admin-stats">
+            <div class="admin-stat">
+                <span class="admin-stat-label">Comptes</span>
+                <span class="admin-stat-value">${stats.totalUsers}</span>
+                <span class="admin-stat-sub">${stats.newUsersLast7d} sur 7 j</span>
+            </div>
+            <div class="admin-stat">
+                <span class="admin-stat-label">Actifs</span>
+                <span class="admin-stat-value">${stats.activeUsers}</span>
+                <span class="admin-stat-sub">${stats.inactiveUsers} sans portfolio</span>
+            </div>
+            <div class="admin-stat">
+                <span class="admin-stat-label">Produits suivis</span>
+                <span class="admin-stat-value">${stats.trackedProducts}</span>
+                <span class="admin-stat-sub">catalogue serveur</span>
+            </div>
+            <div class="admin-stat">
+                <span class="admin-stat-label">Lignes prix</span>
+                <span class="admin-stat-value">${stats.priceHistoryRows.toLocaleString('fr-FR')}</span>
+                <span class="admin-stat-sub">historique snapshots</span>
+            </div>
+        </div>
+
+        <!-- Top produits possedes -->
+        ${stats.topProducts && stats.topProducts.length > 0 ? `
+        <div class="admin-card">
+            <h3 class="admin-card-title">🏅 Top produits dans les portfolios</h3>
+            <div class="admin-top-products">
+                ${stats.topProducts.map((p, i) => `
+                    <div class="admin-top-product-row">
+                        <span class="admin-top-rank">#${i + 1}</span>
+                        <span class="admin-top-name">${p.name}</span>
+                        <span class="admin-top-stat"><strong>${p.totalQty}</strong> exemplaires</span>
+                        <span class="admin-top-stat">${p.holders} possesseur${p.holders > 1 ? 's' : ''}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>` : ''}
+
+        <!-- Liste des comptes -->
+        <div class="admin-card">
+            <h3 class="admin-card-title">👥 Comptes utilisateurs (${usersData.count})</h3>
+            <p class="admin-card-sub">Admin actuel : <code>${usersData.adminUsername}</code></p>
+            <div class="admin-users-table">
+                <div class="admin-users-head">
+                    <span>Nom</span>
+                    <span>Créé</span>
+                    <span>Positions</span>
+                    <span>Actions</span>
+                </div>
+                ${usersData.users.map(u => {
+                    const safeName = u.username.replace(/'/g, "\\'");
+                    return `<div class="admin-user-row${u.isAdmin ? ' is-admin' : ''}">
+                        <div class="admin-user-name">
+                            ${u.username}
+                            ${u.isAdmin ? '<span class="admin-user-badge">ADMIN</span>' : ''}
+                        </div>
+                        <div class="admin-user-date">
+                            ${fmtDate(u.createdAt)}
+                            <span class="admin-user-ago">${daysAgo(u.createdAt)}</span>
+                        </div>
+                        <div class="admin-user-pos">
+                            ${u.positionCount > 0 ? `<span class="admin-user-pos-pill">${u.positionCount}</span>` : '<span class="admin-user-pos-empty">—</span>'}
+                        </div>
+                        <div class="admin-user-actions">
+                            <button class="admin-btn admin-btn-secondary" onclick="adminResetPassword('${u.id}', '${safeName}')" title="Générer un mot de passe temporaire">
+                                🔑 Reset mdp
+                            </button>
+                            ${u.isAdmin
+                                ? '<button class="admin-btn admin-btn-disabled" disabled title="Impossible de supprimer l\'admin">🚫 Protégé</button>'
+                                : `<button class="admin-btn admin-btn-danger" onclick="adminDeleteUser('${u.id}', '${safeName}')" title="Supprimer ce compte">🗑 Supprimer</button>`
+                            }
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>
+    `;
+}
+
+async function adminDeleteUser(userId, username) {
+    if (!isAdminUser()) return;
+    const ok = confirm(`Supprimer définitivement le compte "${username}" ?\n\nCette action supprimera son portfolio et son historique. Irréversible.`);
+    if (!ok) return;
+    try {
+        const res = await fetch(`/api/admin/users/${userId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            showToast('⚠️', 'Erreur', data.error || `HTTP ${res.status}`);
+            return;
+        }
+        showToast('✅', 'Compte supprimé', `${username} retiré`);
+        loadAdminPage();
+    } catch {
+        showToast('⚠️', 'Erreur réseau', 'Suppression échouée');
+    }
+}
+
+async function adminResetPassword(userId, username) {
+    if (!isAdminUser()) return;
+    const ok = confirm(`Générer un nouveau mot de passe temporaire pour "${username}" ?\n\nL'ancien mot de passe sera invalidé immédiatement.`);
+    if (!ok) return;
+    try {
+        const res = await fetch(`/api/admin/users/${userId}/reset-password`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            showToast('⚠️', 'Erreur', data.error || `HTTP ${res.status}`);
+            return;
+        }
+        // Affiche le mdp temporaire dans une modal copiable (1 fois seulement)
+        showAdminTempPasswordModal(username, data.tempPassword);
+        loadAdminPage();
+    } catch {
+        showToast('⚠️', 'Erreur réseau', 'Reset échoué');
+    }
+}
+
+function showAdminTempPasswordModal(username, tempPassword) {
+    // Modal simple injectee dans le body, supprimee a la fermeture
+    const overlay = document.createElement('div');
+    overlay.className = 'admin-modal-overlay';
+    overlay.innerHTML = `
+        <div class="admin-modal">
+            <h3>🔑 Mot de passe temporaire</h3>
+            <p>Compte <strong>${username}</strong> · à transmettre au user via un canal sécurisé.</p>
+            <p class="admin-modal-warn">⚠️ Ne sera affiché qu'une seule fois.</p>
+            <div class="admin-modal-pw">
+                <code id="adminTempPwCode">${tempPassword}</code>
+                <button class="admin-btn admin-btn-secondary" onclick="
+                    navigator.clipboard.writeText('${tempPassword}').then(() => {
+                        this.textContent = '✓ Copié';
+                        setTimeout(() => { this.textContent = '📋 Copier'; }, 1500);
+                    });
+                ">📋 Copier</button>
+            </div>
+            <p class="admin-modal-hint">Le user pourra le changer via l'icône 🔑 dans la topbar.</p>
+            <button class="admin-btn admin-btn-primary" onclick="this.closest('.admin-modal-overlay').remove()">Fermer</button>
+        </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
 }
 
 // ── Indice marche scelle ────────────────────────────────────

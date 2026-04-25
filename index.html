@@ -50,6 +50,10 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                         Simulation
                     </a>
+                    <a href="#" class="sidebar-link sidebar-link-admin" data-section="admin" id="sidebarLinkAdmin" onclick="switchSection('admin', event)" style="display:none">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1l3 6 6 .9-4.5 4.4 1 6.7L12 16l-5.5 3 1-6.7L3 7.9 9 7l3-6z"/></svg>
+                        Admin
+                    </a>
                 </nav>
 
                 <!-- Filters -->
@@ -447,6 +451,23 @@
                 <!-- Disclaimer -->
                 <div class="sim-disclaimer">
                     ⚠️ Ces projections sont purement indicatives et basées sur les tendances actuelles. Le marché du Pokémon scellé est volatile et les performances passées ne garantissent pas les résultats futurs.
+                </div>
+            </section>
+
+            <!-- ═══ ADMIN ═══ -->
+            <section class="section-admin" id="sectionAdmin" style="display:none">
+                <div class="section-header">
+                    <div>
+                        <h1 class="page-title">⚙️ Administration</h1>
+                        <p class="page-desc">Gestion des comptes utilisateurs et statistiques globales</p>
+                    </div>
+                    <button class="btn-icon-subtle" onclick="loadAdminPage()" title="Rafraîchir" aria-label="Rafraîchir">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                    </button>
+                </div>
+
+                <div id="adminContent">
+                    <div class="admin-loading">Chargement…</div>
                 </div>
             </section>
         </main>
