@@ -215,6 +215,19 @@ export async function getPriceHistory(productId) {
     }));
 }
 
+// Recupere toutes les entrees price_history d'un coup (pour calcul de l'indice marche).
+// On ne prend que median != NULL pour eviter les jours sans donnees.
+export async function getAllPriceHistory() {
+    const r = await db.execute(
+        'SELECT product_id, date, median FROM price_history WHERE median IS NOT NULL ORDER BY date ASC'
+    );
+    return r.rows.map(row => ({
+        productId: row.product_id,
+        date: row.date,
+        median: Number(row.median),
+    }));
+}
+
 export async function upsertPriceHistory(productId, entry) {
     await db.execute({
         sql: `INSERT INTO price_history (product_id, date, median, low, high, last_price, sample_size)

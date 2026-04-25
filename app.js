@@ -4409,8 +4409,9 @@ function renderDashboard() {
     const favs = getFavorites();
     const alertsObj = getAlerts();
     const alertsList = Object.entries(alertsObj);
-    const pf = JSON.parse(localStorage.getItem('pokescelle-portfolio') || '{}');
-    const pfItems = Object.entries(pf).filter(([,v]) => v.qty > 0);
+    // Portfolio strictement lie au compte : passe par loadPortfolioSync (vide si non-connecte).
+    const pf = loadPortfolioSync();
+    const pfItems = Object.entries(pf).filter(([,v]) => v && v.qty > 0);
 
     // Portfolio value
     let pfTotal = 0;
@@ -4459,6 +4460,21 @@ function renderDashboard() {
                     <span class="dash-kpi-label">Alertes actives</span>
                 </div>
             </div>
+        </div>
+
+        <div class="dash-section dash-market-index" id="dashMarketIndex">
+            <div class="dmi-head">
+                <div>
+                    <h3 class="dash-section-title">📊 Indice marché scellé</h3>
+                    <p class="dmi-subtitle">Base 100 au 1ᵉʳ jour de tracking — moyenne géométrique pondérée des prix médians</p>
+                </div>
+                <div class="dmi-current">
+                    <span class="dmi-value" id="dmiValue">…</span>
+                    <span class="dmi-date" id="dmiDate"></span>
+                </div>
+            </div>
+            <div class="dmi-variations" id="dmiVariations"></div>
+            <div class="dmi-chart-wrap"><canvas id="marketIndexChart" height="180"></canvas></div>
         </div>
 
         ${favProducts.length > 0 ? `
@@ -4535,6 +4551,112 @@ function renderDashboard() {
             ${currentUser ? '<button class="dash-link" onclick="switchSection(\'portfolio\')">💼 Portfolio</button>' : ''}
         </div>
     `;
+
+    // L'innerHTML est en place : on peut maintenant peupler le chart de l'indice marche.
+    loadMarketIndexChart();
+}
+
+// ── Indice marche scelle ────────────────────────────────────
+let _marketIndexChartInstance = null;
+
+async function loadMarketIndexChart() {
+    const wrap = document.getElementById('dashMarketIndex');
+    if (!wrap) return;
+    const valueEl = document.getElementById('dmiValue');
+    const dateEl = document.getElementById('dmiDate');
+    const variationsEl = document.getElementById('dmiVariations');
+    const canvas = document.getElementById('marketIndexChart');
+    if (!canvas) return;
+
+    try {
+        const res = await fetch('/api/market-index', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+
+        if (!data.points || data.points.length === 0) {
+            valueEl.textContent = '—';
+            dateEl.textContent = 'Pas encore de donnees historiques';
+            variationsEl.innerHTML = '';
+            return;
+        }
+
+        // Header : valeur courante + date
+        valueEl.textContent = data.currentValue != null ? data.currentValue.toFixed(2) : '—';
+        const baselineLabel = data.baseline ? new Date(data.baseline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+        dateEl.textContent = data.currentDate ? `Au ${new Date(data.currentDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · base ${baselineLabel}` : '';
+
+        // Variations : mini-pills
+        const v = data.variations || {};
+        const fmtVar = (val) => {
+            if (val == null || !isFinite(val)) return '—';
+            const sign = val >= 0 ? '+' : '';
+            return `${sign}${val.toFixed(2)} %`;
+        };
+        const varClass = (val) => {
+            if (val == null || !isFinite(val)) return 'dmi-var-flat';
+            return val > 0.5 ? 'dmi-var-up' : val < -0.5 ? 'dmi-var-down' : 'dmi-var-flat';
+        };
+        variationsEl.innerHTML = `
+            <div class="dmi-var ${varClass(v.d1)}"><span class="dmi-var-label">24 h</span><span class="dmi-var-val">${fmtVar(v.d1)}</span></div>
+            <div class="dmi-var ${varClass(v.d7)}"><span class="dmi-var-label">7 j</span><span class="dmi-var-val">${fmtVar(v.d7)}</span></div>
+            <div class="dmi-var ${varClass(v.d30)}"><span class="dmi-var-label">30 j</span><span class="dmi-var-val">${fmtVar(v.d30)}</span></div>
+            <div class="dmi-var ${varClass(v.allTime)}"><span class="dmi-var-label">Depuis base</span><span class="dmi-var-val">${fmtVar(v.allTime)}</span></div>
+        `;
+
+        // Chart
+        const labels = data.points.map(p => p.date);
+        const values = data.points.map(p => p.value);
+        if (_marketIndexChartInstance) _marketIndexChartInstance.destroy();
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createLinearGradient(0, 0, 0, 200);
+        grad.addColorStop(0, 'rgba(56,189,248,0.32)');
+        grad.addColorStop(1, 'rgba(56,189,248,0.02)');
+        _marketIndexChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Indice (base 100)',
+                    data: values,
+                    borderColor: '#38bdf8',
+                    backgroundColor: grad,
+                    borderWidth: 2.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    tension: 0.3,
+                    fill: true,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (c) => `Indice ${c.parsed.y.toFixed(2)}`,
+                            title: (items) => new Date(items[0].label).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }),
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 6, color: 'rgba(148,163,184,0.7)', font: { size: 10 } },
+                        grid: { display: false },
+                    },
+                    y: {
+                        ticks: { color: 'rgba(148,163,184,0.7)', font: { size: 10 }, callback: (v) => v.toFixed(0) },
+                        grid: { color: 'rgba(148,163,184,0.08)' },
+                    },
+                },
+            },
+        });
+    } catch (e) {
+        if (valueEl) valueEl.textContent = '—';
+        if (dateEl) dateEl.textContent = 'Indice indisponible';
+        if (variationsEl) variationsEl.innerHTML = '';
+    }
 }
 
 // ── Events ───────────────────────────────────────────────────

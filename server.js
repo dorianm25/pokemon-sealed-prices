@@ -16,7 +16,7 @@ import {
     getUserById, getUserByUsername, createUser, updateUserPassword,
     getPortfolio, setPortfolio, listPortfolioUserIds,
     getPortfolioHistory, upsertPortfolioHistory,
-    getPriceHistory, upsertPriceHistory,
+    getPriceHistory, upsertPriceHistory, getAllPriceHistory,
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
     getAllCache as dbGetAllCache,
     getCustomQueries, setCustomQuery,
@@ -865,6 +865,119 @@ app.get('/api/trends-7d', async (_req, res) => {
         }
     }
     res.json(result);
+});
+
+// API : indice "marche scelle"
+//
+// Methodologie : equal-weighted geometric. Pour chaque jour D :
+//   - on prend les produits qui ont un prix sur D ET sur la baseline
+//   - index(D) = 100 * geomean( price[D] / price[baseline] )
+// Geomean evite qu'un produit qui x10 ecrase la moyenne ; equal-weighted
+// donne autant de poids a un booster qu'a un display (philosophie : tracker
+// "le marche du scelle" et non "la valeur d'un panier moyen").
+//
+// Baseline = le 1er jour ou on a au moins MIN_PRODUCTS produits avec un prix.
+// Cache 1h pour limiter le cout DB sur Turso (snapshot quotidien => peu de churn).
+const MARKET_INDEX_MIN_PRODUCTS = 20;
+const MARKET_INDEX_CACHE_TTL_MS = 60 * 60 * 1000; // 1h
+let _marketIndexCache = null;
+let _marketIndexCacheAt = 0;
+
+function computeMarketIndex(rows) {
+    // rows: [{ productId, date, median }]
+    // 1) Indexe par date -> { productId: price }
+    const byDate = new Map();
+    for (const r of rows) {
+        if (!byDate.has(r.date)) byDate.set(r.date, {});
+        byDate.get(r.date)[r.productId] = r.median;
+    }
+    const sortedDates = [...byDate.keys()].sort();
+    if (sortedDates.length === 0) return { baseline: null, points: [] };
+
+    // 2) Baseline = 1er jour avec >= MIN_PRODUCTS
+    let baselineDate = null;
+    let baselinePrices = null;
+    for (const d of sortedDates) {
+        const prices = byDate.get(d);
+        if (Object.keys(prices).length >= MARKET_INDEX_MIN_PRODUCTS) {
+            baselineDate = d;
+            baselinePrices = prices;
+            break;
+        }
+    }
+    if (!baselineDate) {
+        // Pas assez de donnees historiques -> on prend le 1er jour dispo malgre tout
+        baselineDate = sortedDates[0];
+        baselinePrices = byDate.get(baselineDate);
+    }
+
+    // 3) Pour chaque date >= baseline, calcule l'index
+    const points = [];
+    for (const d of sortedDates) {
+        if (d < baselineDate) continue;
+        const prices = byDate.get(d);
+        // Geomean sur les produits presents dans baseline ET aujourd'hui
+        let logSum = 0;
+        let n = 0;
+        for (const [pid, price] of Object.entries(prices)) {
+            const base = baselinePrices[pid];
+            if (!base || base <= 0 || price <= 0) continue;
+            logSum += Math.log(price / base);
+            n++;
+        }
+        if (n === 0) continue;
+        const value = 100 * Math.exp(logSum / n);
+        points.push({ date: d, value: Math.round(value * 100) / 100, sampleSize: n });
+    }
+    return {
+        baseline: baselineDate,
+        baselineProducts: Object.keys(baselinePrices).length,
+        points,
+    };
+}
+
+app.get('/api/market-index', async (_req, res) => {
+    try {
+        const now = Date.now();
+        if (_marketIndexCache && (now - _marketIndexCacheAt) < MARKET_INDEX_CACHE_TTL_MS) {
+            return res.json({ ..._marketIndexCache, cached: true });
+        }
+        const rows = await getAllPriceHistory();
+        const result = computeMarketIndex(rows);
+        // Stats annexes : variations sur differentes fenetres
+        const pts = result.points;
+        const last = pts[pts.length - 1] || null;
+        const findBefore = (days) => {
+            const target = new Date();
+            target.setDate(target.getDate() - days);
+            const targetStr = target.toISOString().slice(0, 10);
+            let best = null;
+            for (const p of pts) {
+                if (p.date <= targetStr) best = p;
+            }
+            return best;
+        };
+        const variations = last ? {
+            d1: ((last.value - (findBefore(1)?.value ?? last.value)) / (findBefore(1)?.value ?? last.value)) * 100,
+            d7: ((last.value - (findBefore(7)?.value ?? last.value)) / (findBefore(7)?.value ?? last.value)) * 100,
+            d30: ((last.value - (findBefore(30)?.value ?? last.value)) / (findBefore(30)?.value ?? last.value)) * 100,
+            allTime: last.value - 100,
+        } : null;
+        const payload = {
+            baseline: result.baseline,
+            baselineProducts: result.baselineProducts,
+            currentValue: last?.value ?? null,
+            currentDate: last?.date ?? null,
+            variations,
+            points: pts,
+        };
+        _marketIndexCache = payload;
+        _marketIndexCacheAt = now;
+        res.json({ ...payload, cached: false });
+    } catch (e) {
+        console.error('[market-index] error:', e);
+        res.status(500).json({ error: 'Erreur calcul indice marche' });
+    }
 });
 
 // API : statut

@@ -4313,6 +4313,92 @@ body { transition: background-color 0.3s, color 0.3s; }
     letter-spacing: -0.02em;
 }
 
+/* ── Indice marche scelle ─────────────────────────────── */
+.dash-market-index {
+    background: linear-gradient(140deg, rgba(56,189,248,0.06), rgba(56,189,248,0.01) 60%), var(--surface);
+}
+.dmi-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+.dmi-head .dash-section-title { margin-bottom: 4px; }
+.dmi-subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0;
+    line-height: 1.45;
+    max-width: 480px;
+}
+.dmi-current {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+.dmi-value {
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 800;
+    color: #38bdf8;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+.dmi-date {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.dmi-variations {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.dmi-var {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+.dmi-var-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+.dmi-var-val {
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.dmi-var-up { border-color: rgba(34,197,94,0.35); }
+.dmi-var-up .dmi-var-val { color: #22c55e; }
+.dmi-var-down { border-color: rgba(239,68,68,0.35); }
+.dmi-var-down .dmi-var-val { color: #ef4444; }
+.dmi-var-flat .dmi-var-val { color: var(--text-secondary); }
+.dmi-chart-wrap {
+    position: relative;
+    height: 200px;
+    width: 100%;
+}
+@media (max-width: 640px) {
+    .dmi-current { align-items: flex-start; }
+    .dmi-value { font-size: 24px; }
+    .dmi-variations { grid-template-columns: repeat(2, 1fr); }
+    .dmi-chart-wrap { height: 180px; }
+}
+
 .dash-favs-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
