@@ -4413,30 +4413,73 @@ function renderDashboard() {
     const pf = loadPortfolioSync();
     const pfItems = Object.entries(pf).filter(([,v]) => v && v.qty > 0);
 
-    // Portfolio value
-    let pfTotal = 0;
+    // ── Portfolio P&L ─────────────────────────────────────────
+    let pfTotal = 0, pfInvested = 0;
     pfItems.forEach(([name, data]) => {
         const p = products.find(pr => pr.name === name);
-        if (p) pfTotal += (p.lastPrice || p.price) * data.qty;
+        if (!p) return;
+        pfTotal += (p.lastPrice || p.price) * data.qty;
+        pfInvested += (data.cost || 0) * data.qty;
     });
+    const pfPnl = pfTotal - pfInvested;
+    const pfPnlPct = pfInvested > 0 ? (pfPnl / pfInvested) * 100 : 0;
+    const pnlClass = pfPnl >= 0 ? 'positive' : 'negative';
+    const pnlSign = pfPnl >= 0 ? '+' : '';
 
-    // Best trend
-    const bestTrend = priced.reduce((best, p) => p.trend > best.trend ? p : best, { trend: -999, name: '—' });
+    // ── Hausses / baisses du jour (basees sur trend du produit) ──
+    const upCount = priced.filter(p => (p.trend || 0) > 0).length;
+    const downCount = priced.filter(p => (p.trend || 0) < 0).length;
+    const flatCount = priced.length - upCount - downCount;
 
-    // Top 3 investment scores
+    // ── Top 3 investments (existant) ──────────────────────────
     const scored = priced.map(p => ({ ...p, inv: computeInvestmentScore(p) }))
         .sort((a, b) => b.inv.score - a.inv.score).slice(0, 3);
 
-    // Favorite products
+    // ── Favoris (existant) ────────────────────────────────────
     const favProducts = priced.filter(p => favs.includes(p.name)).slice(0, 6);
 
+    // ── Allocation catalogue par bloc (par valeur mediane totale) ──
+    const blocStats = {};
+    for (const p of priced) {
+        const bloc = p.serie || 'Autre';
+        const value = p.lastPrice || p.price || 0;
+        if (!blocStats[bloc]) blocStats[bloc] = { count: 0, totalValue: 0, avgPrice: 0 };
+        blocStats[bloc].count += 1;
+        blocStats[bloc].totalValue += value;
+    }
+    Object.values(blocStats).forEach(b => { b.avgPrice = b.count ? b.totalValue / b.count : 0; });
+    const blocsSorted = Object.entries(blocStats).sort((a, b) => b[1].totalValue - a[1].totalValue);
+    const blocTotalValue = blocsSorted.reduce((s, [, v]) => s + v.totalValue, 0) || 1;
+
     container.innerHTML = `
-        <div class="dash-kpis">
+        <!-- ═══ KPI HERO STRIP (6 cards) ═══ -->
+        <div class="dash-kpis dash-kpis-6">
             <div class="dash-kpi">
                 <span class="dash-kpi-icon">📦</span>
                 <div>
                     <span class="dash-kpi-value">${priced.length}</span>
                     <span class="dash-kpi-label">Produits suivis</span>
+                    <span class="dash-kpi-sub">
+                        <span class="kpi-chip up">↑ ${upCount}</span>
+                        <span class="kpi-chip down">↓ ${downCount}</span>
+                        <span class="kpi-chip flat">→ ${flatCount}</span>
+                    </span>
+                </div>
+            </div>
+            <div class="dash-kpi" id="kpiMarketIndex">
+                <span class="dash-kpi-icon">📊</span>
+                <div>
+                    <span class="dash-kpi-value" id="kpiMarketValue">…</span>
+                    <span class="dash-kpi-label">Indice marché</span>
+                    <span class="dash-kpi-sub" id="kpiMarketDelta"></span>
+                </div>
+            </div>
+            <div class="dash-kpi">
+                <span class="dash-kpi-icon">💼</span>
+                <div>
+                    <span class="dash-kpi-value">${pfInvested > 0 ? fmt(pfInvested) : '—'}</span>
+                    <span class="dash-kpi-label">Capital investi</span>
+                    <span class="dash-kpi-sub">${pfItems.length} position${pfItems.length > 1 ? 's' : ''}</span>
                 </div>
             </div>
             <div class="dash-kpi">
@@ -4444,13 +4487,15 @@ function renderDashboard() {
                 <div>
                     <span class="dash-kpi-value">${pfItems.length > 0 ? fmt(pfTotal) : '—'}</span>
                     <span class="dash-kpi-label">Valeur portfolio</span>
+                    <span class="dash-kpi-sub">${pfItems.length === 0 ? 'Aucune position' : 'Au cours actuel'}</span>
                 </div>
             </div>
-            <div class="dash-kpi">
-                <span class="dash-kpi-icon">📈</span>
+            <div class="dash-kpi kpi-pnl-${pfPnl >= 0 ? 'pos' : 'neg'}">
+                <span class="dash-kpi-icon">${pfPnl >= 0 ? '🟢' : '🔴'}</span>
                 <div>
-                    <span class="dash-kpi-value positive">+${bestTrend.trend}%</span>
-                    <span class="dash-kpi-label">${bestTrend.name.substring(0, 25)}</span>
+                    <span class="dash-kpi-value ${pnlClass}">${pfInvested > 0 ? `${pnlSign}${fmt(pfPnl)}` : '—'}</span>
+                    <span class="dash-kpi-label">Plus-value latente</span>
+                    <span class="dash-kpi-sub ${pnlClass}">${pfInvested > 0 ? `${pnlSign}${pfPnlPct.toFixed(1)} %` : ''}</span>
                 </div>
             </div>
             <div class="dash-kpi">
@@ -4458,10 +4503,12 @@ function renderDashboard() {
                 <div>
                     <span class="dash-kpi-value">${alertsList.length}</span>
                     <span class="dash-kpi-label">Alertes actives</span>
+                    <span class="dash-kpi-sub">${favs.length} favori${favs.length > 1 ? 's' : ''}</span>
                 </div>
             </div>
         </div>
 
+        <!-- ═══ INDICE MARCHE ═══ -->
         <div class="dash-section dash-market-index" id="dashMarketIndex">
             <div class="dmi-head">
                 <div>
@@ -4477,23 +4524,57 @@ function renderDashboard() {
             <div class="dmi-chart-wrap"><canvas id="marketIndexChart" height="180"></canvas></div>
         </div>
 
-        ${favProducts.length > 0 ? `
-        <div class="dash-section">
-            <h3 class="dash-section-title">⭐ Mes favoris</h3>
-            <div class="dash-favs-grid">
-                ${favProducts.map(p => `
-                    <div class="dash-fav-card" onclick="openDetail('${p.name.replace(/'/g, "\\'")}')">
-                        ${p.lastListing?.image ? `<img src="${p.lastListing.image}" alt="${p.name}" class="dash-fav-img">` : '<div class="dash-fav-img-placeholder">📦</div>'}
-                        <div class="dash-fav-info">
-                            <span class="dash-fav-name">${p.name}</span>
-                            <span class="dash-fav-price">${fmt(p.lastPrice || p.price)}</span>
-                            <span class="dash-fav-trend ${trendClass(p.trend)}">${trendLabel(p.trend)}</span>
-                        </div>
-                    </div>
-                `).join('')}
+        ${pfItems.length > 0 ? `
+        <!-- ═══ PERFORMANCE PORTFOLIO VS MARCHE (si connecte avec positions) ═══ -->
+        <div class="dash-section dash-pf-perf">
+            <div class="dmi-head">
+                <div>
+                    <h3 class="dash-section-title">📈 Mon portfolio vs marché</h3>
+                    <p class="dmi-subtitle">Comparaison normalisée base 100 — ta performance face à l'indice global</p>
+                </div>
+                <div class="dpp-summary" id="dppSummary"></div>
             </div>
+            <div class="dmi-chart-wrap"><canvas id="pfPerfChart" height="200"></canvas></div>
         </div>` : ''}
 
+        <!-- ═══ TOP MOUVEMENTS 7 JOURS ═══ -->
+        <div class="dash-section">
+            <h3 class="dash-section-title">⚡ Mouvements 7 jours</h3>
+            <div class="dash-movers" id="dashMovers">
+                <div class="dash-movers-col">
+                    <h4 class="dash-movers-title up">📈 Top hausses</h4>
+                    <div class="dash-movers-list" id="dashMoversUp"><div class="dash-movers-empty">Chargement…</div></div>
+                </div>
+                <div class="dash-movers-col">
+                    <h4 class="dash-movers-title down">📉 Top baisses</h4>
+                    <div class="dash-movers-list" id="dashMoversDown"><div class="dash-movers-empty">Chargement…</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ ALLOCATION CATALOGUE PAR BLOC ═══ -->
+        <div class="dash-section">
+            <h3 class="dash-section-title">🗂️ Catalogue par bloc</h3>
+            <p class="dmi-subtitle" style="margin-bottom:14px">Répartition des produits suivis et valeur médiane totale par bloc</p>
+            <div class="dash-blocs">
+                ${blocsSorted.map(([bloc, stats]) => {
+                    const pct = (stats.totalValue / blocTotalValue) * 100;
+                    return `<div class="dash-bloc-row">
+                        <div class="dash-bloc-info">
+                            <span class="dash-bloc-name">${bloc}</span>
+                            <span class="dash-bloc-meta">${stats.count} produits · ${fmt(Math.round(stats.avgPrice))} moy</span>
+                        </div>
+                        <div class="dash-bloc-bar"><div class="dash-bloc-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+                        <div class="dash-bloc-val">
+                            <span class="dash-bloc-pct">${pct.toFixed(1)} %</span>
+                            <span class="dash-bloc-total">${fmt(Math.round(stats.totalValue))}</span>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>
+
+        <!-- ═══ TOP 3 INVESTISSEMENTS ═══ -->
         <div class="dash-section">
             <h3 class="dash-section-title">🏆 Top 3 investissements</h3>
             <div class="dash-top3">
@@ -4514,7 +4595,26 @@ function renderDashboard() {
             </div>
         </div>
 
+        ${favProducts.length > 0 ? `
+        <!-- ═══ MES FAVORIS ═══ -->
+        <div class="dash-section">
+            <h3 class="dash-section-title">⭐ Mes favoris</h3>
+            <div class="dash-favs-grid">
+                ${favProducts.map(p => `
+                    <div class="dash-fav-card" onclick="openDetail('${p.name.replace(/'/g, "\\'")}')">
+                        ${p.lastListing?.image ? `<img src="${p.lastListing.image}" alt="${p.name}" class="dash-fav-img">` : '<div class="dash-fav-img-placeholder">📦</div>'}
+                        <div class="dash-fav-info">
+                            <span class="dash-fav-name">${p.name}</span>
+                            <span class="dash-fav-price">${fmt(p.lastPrice || p.price)}</span>
+                            <span class="dash-fav-trend ${trendClass(p.trend)}">${trendLabel(p.trend)}</span>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>` : ''}
+
         ${alertsList.length > 0 ? `
+        <!-- ═══ ALERTES ═══ -->
         <div class="dash-section">
             <h3 class="dash-section-title">🔔 Alertes configurées</h3>
             <div class="dash-alerts">
@@ -4528,22 +4628,33 @@ function renderDashboard() {
         </div>` : ''}
 
         ${pfItems.length > 0 ? `
+        <!-- ═══ DETAIL PORTFOLIO ═══ -->
         <div class="dash-section">
-            <h3 class="dash-section-title">📊 Mon portfolio (${pfItems.length} items)</h3>
+            <h3 class="dash-section-title">📦 Détail positions (${pfItems.length})</h3>
             <div class="dash-pf-grid">
-                ${pfItems.slice(0, 6).map(([name, data]) => {
+                ${pfItems.slice(0, 9).map(([name, data]) => {
                     const p = products.find(pr => pr.name === name);
                     if (!p) return '';
-                    const val = (p.lastPrice || p.price) * data.qty;
-                    return `<div class="dash-pf-item">
+                    const cur = p.lastPrice || p.price || 0;
+                    const val = cur * data.qty;
+                    const inv = (data.cost || 0) * data.qty;
+                    const pnl = val - inv;
+                    const pnlPct = inv > 0 ? (pnl / inv) * 100 : 0;
+                    const cls = pnl >= 0 ? 'positive' : 'negative';
+                    const sign = pnl >= 0 ? '+' : '';
+                    return `<div class="dash-pf-item" onclick="openDetail('${p.name.replace(/'/g, "\\'")}')">
                         <span class="dash-pf-name">${name}</span>
-                        <span class="dash-pf-qty">×${data.qty}</span>
-                        <span class="dash-pf-val">${fmt(val)}</span>
+                        <div class="dash-pf-row">
+                            <span class="dash-pf-qty">×${data.qty}</span>
+                            <span class="dash-pf-val">${fmt(val)}</span>
+                        </div>
+                        ${inv > 0 ? `<span class="dash-pf-pnl ${cls}">${sign}${fmt(pnl)} (${sign}${pnlPct.toFixed(1)} %)</span>` : '<span class="dash-pf-pnl-none">PRU non renseigné</span>'}
                     </div>`;
                 }).join('')}
             </div>
         </div>` : ''}
 
+        <!-- ═══ QUICK LINKS ═══ -->
         <div class="dash-quick-links">
             <button class="dash-link" onclick="switchSection('catalogue')">📋 Catalogue</button>
             <button class="dash-link" onclick="switchSection('tendances')">📊 Tendances</button>
@@ -4552,8 +4663,152 @@ function renderDashboard() {
         </div>
     `;
 
-    // L'innerHTML est en place : on peut maintenant peupler le chart de l'indice marche.
+    // L'innerHTML est en place : on peut maintenant peupler les charts et les sections async.
     loadMarketIndexChart();
+    loadDashTopMovers();
+    if (pfItems.length > 0) loadPfPerformanceChart(pfItems);
+}
+
+// ── Top mouvements 7 jours ──────────────────────────────────
+async function loadDashTopMovers() {
+    const upEl = document.getElementById('dashMoversUp');
+    const downEl = document.getElementById('dashMoversDown');
+    if (!upEl || !downEl) return;
+
+    try {
+        const res = await fetch('/api/trends-7d', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const arr = Object.entries(data).map(([name, d]) => ({ name, ...d }));
+        if (arr.length === 0) {
+            upEl.innerHTML = '<div class="dash-movers-empty">Pas encore d\'historique</div>';
+            downEl.innerHTML = '<div class="dash-movers-empty">Pas encore d\'historique</div>';
+            return;
+        }
+        const ups = arr.filter(d => d.change > 0).sort((a, b) => b.change - a.change).slice(0, 5);
+        const downs = arr.filter(d => d.change < 0).sort((a, b) => a.change - b.change).slice(0, 5);
+
+        const renderRow = (m, klass) => {
+            const safeName = m.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            const sign = m.change >= 0 ? '+' : '';
+            // Largeur de la barre : on cap a 25 % pour rester lisible
+            const barPct = Math.min(Math.abs(m.change) * 4, 100);
+            return `<div class="dash-mover-row" onclick="openDetail('${safeName}')">
+                <div class="dash-mover-info">
+                    <span class="dash-mover-name">${m.name}</span>
+                    <span class="dash-mover-prices">${fmt(m.priceBefore)} → <strong>${fmt(m.priceNow)}</strong></span>
+                </div>
+                <div class="dash-mover-bar-wrap">
+                    <div class="dash-mover-bar ${klass}" style="width:${barPct}%"></div>
+                </div>
+                <span class="dash-mover-pct ${klass}">${sign}${m.change.toFixed(1)} %</span>
+            </div>`;
+        };
+
+        upEl.innerHTML = ups.length > 0
+            ? ups.map(m => renderRow(m, 'up')).join('')
+            : '<div class="dash-movers-empty">Aucune hausse cette semaine</div>';
+        downEl.innerHTML = downs.length > 0
+            ? downs.map(m => renderRow(m, 'down')).join('')
+            : '<div class="dash-movers-empty">Aucune baisse cette semaine</div>';
+    } catch {
+        upEl.innerHTML = '<div class="dash-movers-empty">Indisponible</div>';
+        downEl.innerHTML = '<div class="dash-movers-empty">Indisponible</div>';
+    }
+}
+
+// ── Performance portfolio vs marche ─────────────────────────
+let _pfPerfChartInstance = null;
+
+async function loadPfPerformanceChart(pfItems) {
+    const canvas = document.getElementById('pfPerfChart');
+    const summaryEl = document.getElementById('dppSummary');
+    if (!canvas) return;
+    try {
+        // 1) Recupere les 2 series : portfolio history + market index
+        const [pfRes, miRes] = await Promise.all([
+            authToken
+                ? fetch('/api/portfolio-history', { headers: { 'Authorization': `Bearer ${authToken}` } }).catch(() => null)
+                : Promise.resolve(null),
+            fetch('/api/market-index', { cache: 'no-store' }).catch(() => null),
+        ]);
+        const pfHist = pfRes && pfRes.ok ? await pfRes.json() : [];
+        const mi = miRes && miRes.ok ? await miRes.json() : { points: [] };
+
+        if (!pfHist.length || !mi.points?.length) {
+            if (summaryEl) summaryEl.innerHTML = '<span class="dpp-muted">Pas encore d\'historique portfolio</span>';
+            return;
+        }
+
+        // 2) Normalise les deux series base 100 a la 1ere date commune
+        const pfMap = new Map(pfHist.map(h => [h.date, h.value]));
+        const miMap = new Map(mi.points.map(p => [p.date, p.value]));
+        const commonDates = [...pfMap.keys()].filter(d => miMap.has(d)).sort();
+        if (commonDates.length === 0) {
+            if (summaryEl) summaryEl.innerHTML = '<span class="dpp-muted">Pas encore d\'overlap historique</span>';
+            return;
+        }
+        const baselineDate = commonDates[0];
+        const pfBase = pfMap.get(baselineDate) || 1;
+        const miBase = miMap.get(baselineDate) || 100;
+        const pfNorm = commonDates.map(d => (pfMap.get(d) / pfBase) * 100);
+        const miNorm = commonDates.map(d => (miMap.get(d) / miBase) * 100);
+
+        // 3) Stats pour le header
+        const pfLast = pfNorm[pfNorm.length - 1];
+        const miLast = miNorm[miNorm.length - 1];
+        const delta = pfLast - miLast;
+        const cls = delta >= 0 ? 'positive' : 'negative';
+        const sign = delta >= 0 ? '+' : '';
+        if (summaryEl) {
+            summaryEl.innerHTML = `
+                <div class="dpp-stat">
+                    <span class="dpp-stat-label">Portfolio</span>
+                    <span class="dpp-stat-val">${pfLast.toFixed(2)}</span>
+                </div>
+                <div class="dpp-stat">
+                    <span class="dpp-stat-label">Marché</span>
+                    <span class="dpp-stat-val">${miLast.toFixed(2)}</span>
+                </div>
+                <div class="dpp-stat dpp-stat-hero">
+                    <span class="dpp-stat-label">Écart</span>
+                    <span class="dpp-stat-val ${cls}">${sign}${delta.toFixed(2)} pts</span>
+                </div>
+            `;
+        }
+
+        // 4) Chart
+        if (_pfPerfChartInstance) _pfPerfChartInstance.destroy();
+        const ctx = canvas.getContext('2d');
+        const gradPf = ctx.createLinearGradient(0, 0, 0, 200);
+        gradPf.addColorStop(0, 'rgba(34,197,94,0.30)');
+        gradPf.addColorStop(1, 'rgba(34,197,94,0.02)');
+        _pfPerfChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: commonDates,
+                datasets: [
+                    { label: 'Mon portfolio', data: pfNorm, borderColor: '#22c55e', backgroundColor: gradPf, borderWidth: 2.4, pointRadius: 0, pointHoverRadius: 4, tension: 0.3, fill: true },
+                    { label: 'Indice marché', data: miNorm, borderColor: '#38bdf8', borderWidth: 2, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 4, tension: 0.3, fill: false },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: true, position: 'bottom', labels: { color: 'rgba(226,232,240,0.85)', font: { size: 11 }, boxWidth: 14, boxHeight: 2, padding: 14 } },
+                    tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.parsed.y.toFixed(2)}` } },
+                },
+                scales: {
+                    x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 6, color: 'rgba(148,163,184,0.7)', font: { size: 10 } }, grid: { display: false } },
+                    y: { ticks: { color: 'rgba(148,163,184,0.7)', font: { size: 10 }, callback: (v) => v.toFixed(0) }, grid: { color: 'rgba(148,163,184,0.08)' } },
+                },
+            },
+        });
+    } catch {
+        if (summaryEl) summaryEl.innerHTML = '<span class="dpp-muted">Erreur chargement</span>';
+    }
 }
 
 // ── Indice marche scelle ────────────────────────────────────
@@ -4584,6 +4839,22 @@ async function loadMarketIndexChart() {
         valueEl.textContent = data.currentValue != null ? data.currentValue.toFixed(2) : '—';
         const baselineLabel = data.baseline ? new Date(data.baseline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
         dateEl.textContent = data.currentDate ? `Au ${new Date(data.currentDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} · base ${baselineLabel}` : '';
+
+        // Hero KPI (en haut du dashboard) : valeur + delta 24h
+        const kpiVal = document.getElementById('kpiMarketValue');
+        const kpiDelta = document.getElementById('kpiMarketDelta');
+        if (kpiVal) kpiVal.textContent = data.currentValue != null ? data.currentValue.toFixed(1) : '—';
+        if (kpiDelta && data.variations) {
+            const d24 = data.variations.d1;
+            const d7 = data.variations.d7;
+            const cls24 = d24 > 0.5 ? 'up' : d24 < -0.5 ? 'down' : 'flat';
+            const cls7 = d7 > 0.5 ? 'up' : d7 < -0.5 ? 'down' : 'flat';
+            const sign = (v) => v >= 0 ? '+' : '';
+            kpiDelta.innerHTML = `
+                <span class="kpi-chip ${cls24}">24h ${sign(d24)}${d24.toFixed(1)}%</span>
+                <span class="kpi-chip ${cls7}">7j ${sign(d7)}${d7.toFixed(1)}%</span>
+            `;
+        }
 
         // Variations : mini-pills
         const v = data.variations || {};
