@@ -551,6 +551,7 @@ body {
 /* ============================================================
    SECTIONS
    ============================================================ */
+.section-dashboard,
 .section-catalogue,
 .section-portfolio,
 .section-tendances,
@@ -560,12 +561,14 @@ body {
     padding: 24px;
 }
 
+.section-dashboard::-webkit-scrollbar,
 .section-catalogue::-webkit-scrollbar,
 .section-portfolio::-webkit-scrollbar,
 .section-tendances::-webkit-scrollbar,
 .section-simulation::-webkit-scrollbar {
     width: 6px;
 }
+.section-dashboard::-webkit-scrollbar-thumb,
 .section-catalogue::-webkit-scrollbar-thumb,
 .section-portfolio::-webkit-scrollbar-thumb,
 .section-tendances::-webkit-scrollbar-thumb,
