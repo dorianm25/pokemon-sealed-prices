@@ -1010,6 +1010,22 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     res.json({ username: user.username });
 });
 
+// Liste des comptes : reservee a l'admin (par defaut 'dorian', surchargeable
+// via env var ADMIN_USERNAME). Ne renvoie JAMAIS salt/hash.
+const ADMIN_USERNAME = (process.env.ADMIN_USERNAME || 'dorian').toLowerCase();
+app.get('/api/admin/users', authMiddleware, async (req, res) => {
+    const me = await getUserById(req.userId);
+    if (!me || me.username.toLowerCase() !== ADMIN_USERNAME) {
+        return res.status(403).json({ error: 'Reserve admin' });
+    }
+    const result = await db.execute('SELECT id, username, created_at FROM users ORDER BY created_at DESC');
+    res.json({
+        adminUsername: ADMIN_USERNAME,
+        count: result.rows.length,
+        users: result.rows.map(r => ({ id: r.id, username: r.username, createdAt: r.created_at })),
+    });
+});
+
 // Changer de mot de passe (demande l'ancien pour confirmer)
 app.post('/api/change-password', authMiddleware, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
