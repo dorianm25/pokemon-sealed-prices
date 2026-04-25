@@ -869,11 +869,22 @@ app.get('/api/trends-7d', async (_req, res) => {
 // API : statut
 app.get('/api/status', async (_req, res) => {
     const hasCredentials = !!(EBAY_CLIENT_ID && EBAY_CLIENT_ID !== 'your_app_id_here');
+    // Diagnostic Turso (sans leak du token) : on regarde quels noms d'env vars sont presents
+    const tursoUrl = process.env.TURSO_DATABASE_URL || '';
+    const tursoToken = process.env.TURSO_AUTH_TOKEN || '';
+    const envKeys = Object.keys(process.env).filter(k => /TURSO|DATABASE|LIBSQL/i.test(k));
     res.json({
         mode: IS_SANDBOX ? 'sandbox' : 'production',
         hasCredentials,
         storage: DB_MODE,
         trackedProducts: PRODUCTS_TO_TRACK.length,
+        turso: {
+            urlSet: !!tursoUrl,
+            urlPrefix: tursoUrl ? tursoUrl.slice(0, 20) + '…' : null,
+            tokenSet: !!tursoToken,
+            tokenLen: tursoToken.length || 0,
+            envKeysFound: envKeys,
+        },
     });
 });
 
