@@ -889,44 +889,6 @@ body {
     font-variant-numeric: tabular-nums;
 }
 
-/* Vinted secondary price line — compact, accent teal */
-.product-price-vinted {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    margin-top: 6px;
-    padding: 6px 8px;
-    background: rgba(9, 177, 186, 0.06);
-    border-left: 2px solid #09b1ba;
-    border-radius: 4px;
-    font-size: 12px;
-}
-
-.product-price-source {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #09b1ba;
-}
-
-.product-price-vinted-value {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-primary);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
-    margin-left: auto;
-}
-
-.product-price-vinted-count {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
-}
-
 /* Trend */
 .product-trend {
     font-family: var(--font-mono);
@@ -2820,28 +2782,22 @@ body {
 }
 
 /* ============================================================
-   BUY BUTTONS (eBay + Vinted, affiliate / external)
+   BUY ON EBAY BUTTON (affiliate)
    ============================================================ */
-/* Conteneur : 2 boutons cote a cote (eBay + Vinted), ou 1 seul plein largeur */
-.product-buy-row {
-    display: flex;
-    gap: 6px;
-    margin-top: 12px;
-}
-
-.btn-buy-ebay,
-.btn-buy-vinted {
-    flex: 1;                /* parts egales si les deux sont presents */
+.btn-buy-ebay {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 8px 10px;
+    gap: 8px;
+    width: 100%;
+    margin-top: 12px;
+    padding: 8px 12px;
     font-family: inherit;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.02em;
     color: #fff;
+    background: linear-gradient(135deg, #e53238, #0064d2);
     border: none;
     border-radius: var(--radius-sm);
     cursor: pointer;
@@ -2850,21 +2806,10 @@ body {
     opacity: 0;
     transform: translateY(6px);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-    min-width: 0;
-}
-
-.btn-buy-ebay {
-    background: linear-gradient(135deg, #e53238, #0064d2);
-}
-
-.btn-buy-vinted {
-    background: linear-gradient(135deg, #09b1ba, #0a7a82);
 }
 
 .product:hover .btn-buy-ebay,
-.product:focus-within .btn-buy-ebay,
-.product:hover .btn-buy-vinted,
-.product:focus-within .btn-buy-vinted {
+.product:focus-within .btn-buy-ebay {
     opacity: 1;
     transform: translateY(0);
 }
@@ -2875,21 +2820,13 @@ body {
     box-shadow: 0 4px 12px rgba(229, 50, 56, 0.3);
 }
 
-.btn-buy-vinted:hover {
-    filter: brightness(1.15);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(9, 177, 186, 0.3);
-}
-
-.btn-buy-ebay svg,
-.btn-buy-vinted svg {
+.btn-buy-ebay svg {
     flex-shrink: 0;
     opacity: 0.85;
 }
 
 @media (max-width: 640px) {
-    .btn-buy-ebay,
-    .btn-buy-vinted {
+    .btn-buy-ebay {
         opacity: 1;
         transform: translateY(0);
         font-size: 10px;
@@ -4928,8 +4865,7 @@ body { transition: background-color 0.3s, color 0.3s; }
     .btn-ebay-edit {
         opacity: 1 !important;
     }
-    .btn-buy-ebay,
-    .btn-buy-vinted {
+    .btn-buy-ebay {
         opacity: 1 !important;
         transform: translateY(0) !important;
     }
@@ -5192,25 +5128,12 @@ body { transition: background-color 0.3s, color 0.3s; }
     .product-price-value { font-size: 14px; }
     .product-price-sub { font-size: 10px; }
 
-    .product-buy-row {
+    .btn-buy-ebay {
         margin-top: 8px;
-        gap: 4px;
-    }
-
-    .btn-buy-ebay,
-    .btn-buy-vinted {
         padding: 8px 10px;
         font-size: 10.5px;
         min-height: 36px;
     }
-
-    .product-price-vinted {
-        margin-top: 4px;
-        padding: 4px 6px;
-        font-size: 11px;
-    }
-    .product-price-vinted-value { font-size: 12px; }
-    .product-price-vinted-count { font-size: 9px; }
 
     /* ── DETAIL MODAL : full-screen bottom-sheet ── */
     .detail-overlay {
@@ -5638,8 +5561,7 @@ body { transition: background-color 0.3s, color 0.3s; }
     .product-info { padding: 8px 10px 10px !important; }
     .product-name { font-size: 12.5px; }
     .product-price-value { font-size: 13px; }
-    .btn-buy-ebay,
-    .btn-buy-vinted { font-size: 10px; padding: 6px 8px; }
+    .btn-buy-ebay { font-size: 10px; padding: 6px 8px; }
     .page-title { font-size: 18px !important; }
     .topbar { padding: 0 10px; }
     .topbar-right { gap: 4px; }

@@ -258,9 +258,6 @@ const SUSPICIOUS_PATTERNS = [
     { re: /\b(sleeve|playmat|classeur|binder|tapis)\b/i, penalty: 55 },
     { re: /\bdeck[\s-]?box\b/i,                          penalty: 50 },
     { re: /\bjumbo\b/i,                                  penalty: 40 },
-    // Boites en metal (mini tins) : differents du booster/ETB que l'on track
-    { re: /\bmini[\s-]?tin\b/i,                          penalty: 60 },
-    { re: /\btin\s+(box|pokemon|pokémon)\b/i,            penalty: 45 },
 ];
 
 function scoreItem(item, product) {
@@ -289,15 +286,11 @@ function scoreItem(item, product) {
     }
 
     // Bonus/penalite selon la fiabilite du vendeur
-    // Vinted ne renvoie PAS de feedback dans /api/v2/catalog/items,
-    // on saute donc le seller scoring pour ces items (marqueur _skipSellerScore).
-    if (!item._skipSellerScore) {
-        const fb = Number(item.seller?.feedbackScore || 0);
-        const pct = parseFloat(item.seller?.feedbackPercentage || 0);
-        if (fb >= 500 && pct >= 99) score += 10;
-        else if (fb >= 100 && pct >= 98) score += 5;
-        else if (fb < 20 || pct < 95) score -= 15;
-    }
+    const fb = Number(item.seller?.feedbackScore || 0);
+    const pct = parseFloat(item.seller?.feedbackPercentage || 0);
+    if (fb >= 500 && pct >= 99) score += 10;
+    else if (fb >= 100 && pct >= 98) score += 5;
+    else if (fb < 20 || pct < 95) score -= 15;
 
     return Math.max(0, Math.min(100, score));
 }
@@ -407,210 +400,6 @@ function extractPrices(ebayResponse, limits, query, product = null) {
         lastListing,
         searchUrl,
     };
-}
-
-// ── Vinted API (JWT + Cookie auth, pas d'OAuth officiel) ────
-//
-// Vinted n'a pas d'API publique. On tape l'API interne utilisee par leur
-// SPA : /api/v2/catalog/items. Auth par access_token_web (JWT) recupere
-// sur la homepage + le meme token en header Authorization: Bearer.
-// Le datadome cookie (anti-bot Cloudflare) est inclus dans la jar.
-//
-// Cycle de vie :
-//   1. GET https://www.vinted.fr/  -> Set-Cookie: access_token_web=...
-//   2. Parse la jar (les JWT contiennent '=' donc split naif casse)
-//   3. API call avec Cookie: <jar> + Authorization: Bearer <access_token_web>
-//   4. Si 401 -> refresh la session une fois et re-tente
-
-const VINTED_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-
-let vintedSession = { jar: null, token: null, expires: 0 };
-
-function parseVintedCookies(setCookieArr) {
-    const jar = {};
-    for (const line of setCookieArr || []) {
-        const eq = line.indexOf('=');
-        if (eq === -1) continue;
-        const name = line.slice(0, eq);
-        const rest = line.slice(eq + 1);
-        const value = rest.split(';')[0];
-        jar[name] = value;
-    }
-    return jar;
-}
-
-function vintedCookieHeader(jar) {
-    return Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; ');
-}
-
-async function refreshVintedSession() {
-    const res = await fetch('https://www.vinted.fr/', {
-        headers: {
-            'User-Agent': VINTED_UA,
-            'Accept': 'text/html,application/xhtml+xml',
-            'Accept-Language': 'fr-FR,fr;q=0.9',
-        },
-        redirect: 'manual',
-    });
-    const jar = parseVintedCookies(res.headers.getSetCookie?.() || []);
-    if (!jar.access_token_web) {
-        throw new Error('Vinted: access_token_web manquant dans les cookies');
-    }
-    vintedSession = {
-        jar,
-        token: jar.access_token_web,
-        // Le JWT vit ~30min chez Vinted, on refresh avant pour etre safe
-        expires: Date.now() + 20 * 60 * 1000,
-    };
-    console.log(`[Vinted] Session refresh OK (token ${jar.access_token_web.slice(0, 16)}...)`);
-    return vintedSession;
-}
-
-async function ensureVintedSession(force = false) {
-    if (force || !vintedSession.token || Date.now() >= vintedSession.expires) {
-        await refreshVintedSession();
-    }
-    return vintedSession;
-}
-
-async function searchVintedActive(query, limits, limit = 20, retry = true) {
-    const session = await ensureVintedSession();
-    const params = new URLSearchParams({
-        search_text: query,
-        per_page: String(limit),
-        order: 'relevance',
-        currency: 'EUR',
-    });
-    if (limits?.min && limits.min > 0) params.set('price_from', String(limits.min));
-    if (limits?.max && limits.max < 99999) params.set('price_to', String(limits.max));
-
-    const url = `https://www.vinted.fr/api/v2/catalog/items?${params}`;
-    const res = await fetch(url, {
-        headers: {
-            'User-Agent': VINTED_UA,
-            'Accept': 'application/json, text/plain, */*',
-            'Accept-Language': 'fr-FR,fr;q=0.9',
-            'Cookie': vintedCookieHeader(session.jar),
-            'Authorization': `Bearer ${session.token}`,
-            'Referer': 'https://www.vinted.fr/catalog?search_text=pokemon',
-            'X-Requested-With': 'XMLHttpRequest',
-        },
-    });
-
-    if (res.status === 401 && retry) {
-        // Token expire : on refresh de force et on retente une seule fois
-        await refreshVintedSession();
-        return searchVintedActive(query, limits, limit, false);
-    }
-
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Vinted search failed (${res.status}): ${text.slice(0, 200)}`);
-    }
-    return res.json();
-}
-
-// Adapte un item Vinted au format eBay pour reutiliser scoreItem()
-// Note: Vinted /api/v2/catalog/items ne renvoie PAS feedback_count/reputation
-// dans user (seulement id, login, profile_url, photo, business). On marque
-// donc les items _skipSellerScore pour que scoreItem saute le volet vendeur.
-function normalizeVintedItem(v) {
-    const priceAmount = Number(v.price?.amount ?? v.total_item_price?.amount ?? 0);
-    const photo = v.photo?.url || v.photo?.full_size_url || '';
-    return {
-        title: v.title || '',
-        price: { value: String(priceAmount), currency: v.price?.currency_code || 'EUR' },
-        itemWebUrl: v.url || '',
-        image: { imageUrl: photo },
-        thumbnailImages: photo ? [{ imageUrl: photo }] : [],
-        seller: {},
-        _skipSellerScore: true,
-    };
-}
-
-// Meme logique que extractPrices (eBay), mais adaptee a Vinted :
-// - Pas d'affiliate URL
-// - Le searchUrl pointe vers le catalogue Vinted
-function extractVintedPrices(response, limits, query, product) {
-    const items = (response?.items || []).map(normalizeVintedItem);
-    if (items.length === 0) return null;
-
-    const priceValid = items.filter(item => {
-        const val = parseFloat(item.price?.value);
-        if (isNaN(val) || val <= 0) return false;
-        if (limits && (val < limits.min || val > limits.max)) return false;
-        return true;
-    });
-    if (priceValid.length === 0) return null;
-
-    const scored = priceValid
-        .map(item => ({ item, score: scoreItem(item, product) }))
-        .filter(s => s.score >= 45)
-        .sort((a, b) => parseFloat(a.item.price.value) - parseFloat(b.item.price.value));
-
-    const finalScored = scored.length > 0
-        ? scored
-        : priceValid
-            .map(item => ({ item, score: scoreItem(item, product) }))
-            .sort((a, b) => parseFloat(a.item.price.value) - parseFloat(b.item.price.value));
-    const strictFiltered = scored.length > 0;
-
-    const validItems = finalScored.map(s => s.item);
-    const prices = validItems.map(item => parseFloat(item.price.value));
-
-    const weightedPairs = finalScored.map(s => ({
-        price: parseFloat(s.item.price.value),
-        weight: Math.max(1, Math.pow(s.score - 40, 2)),
-    }));
-    const medianPrice = weightedMedian(weightedPairs);
-
-    const sortedP = [...prices].sort((a, b) => a - b);
-    const mid = Math.floor(sortedP.length / 2);
-    const plainMedian = sortedP.length % 2 === 0
-        ? (sortedP[mid - 1] + sortedP[mid]) / 2
-        : sortedP[mid];
-
-    const cheapest = validItems[0];
-    const cheapestPrice = parseFloat(cheapest.price.value);
-    const lastListing = {
-        title: cheapest.title || '',
-        price: cheapestPrice,
-        currency: cheapest.price?.currency || 'EUR',
-        url: cheapest.itemWebUrl || '',
-        image: cheapest.image?.imageUrl || cheapest.thumbnailImages?.[0]?.imageUrl || '',
-    };
-
-    const avgScore = Math.round(
-        finalScored.reduce((s, x) => s + x.score, 0) / finalScored.length
-    );
-    const searchUrl = `https://www.vinted.fr/catalog?search_text=${encodeURIComponent(query)}&currency=EUR&order=relevance`;
-
-    return {
-        price: Math.round(medianPrice * 100) / 100,
-        plainMedian: Math.round(plainMedian * 100) / 100,
-        lastPrice: Math.round(cheapestPrice * 100) / 100,
-        low: Math.min(...prices),
-        high: Math.max(...prices),
-        sampleSize: validItems.length,
-        rawSampleSize: priceValid.length,
-        filtered: strictFiltered,
-        avgScore,
-        lastUpdated: new Date().toISOString(),
-        lastListing,
-        searchUrl,
-    };
-}
-
-// Fetch Vinted pour un produit donne. Tolerant a l'echec : on log et on
-// retourne null, le prix eBay prime de toute facon.
-async function fetchVintedForProduct(product, query, limits) {
-    try {
-        const resp = await searchVintedActive(query, limits);
-        return extractVintedPrices(resp, limits, query, product);
-    } catch (err) {
-        console.warn(`[Vinted] ${product.id}: ${err.message}`);
-        return null;
-    }
 }
 
 // ── Catalogue de produits à suivre ───────────────────────────
@@ -856,16 +645,53 @@ app.get('/api/price/:productId', async (req, res) => {
     }
 
     try {
+        // Vérifier le cache
         const cached = await readCache(productId);
         if (cached) {
             return res.json({ ...cached, source: 'cache' });
         }
 
-        // refreshProductPrice gere custom-query, fixedPrice, URL directe, eBay + Vinted
-        const result = await refreshProductPrice(product);
-        if (!result) {
+        const customQueries = await loadCustomQueries();
+        const custom = customQueries[productId];
+
+        let priceData;
+
+        // Si un prix fixe est défini, l'utiliser directement
+        if (custom?.fixedPrice) {
+            const fp = custom.fixedPrice;
+            priceData = {
+                price: fp, lastPrice: fp, low: fp, high: fp,
+                sampleSize: 1, lastUpdated: new Date().toISOString(),
+                lastListing: { title: 'Prix fixé manuellement', price: fp, currency: 'EUR', url: '', image: '' },
+                fixedPrice: true,
+            };
+        }
+
+        // Si un lien eBay spécifique est défini, fetch cet item
+        if (!priceData && custom?.url) {
+            const legacyId = extractItemIdFromUrl(custom.url);
+            if (legacyId) {
+                const item = await fetchEbayItem(legacyId);
+                priceData = extractItemPrice(item);
+            }
+        }
+
+        // Sinon, recherche classique avec filtre de prix du produit
+        if (!priceData) {
+            const query = custom?.query || product.query;
+            const limits = { min: product.minPrice, max: product.maxPrice };
+            const ebayData = await searchEbaySold(query, 20, limits);
+            priceData = extractPrices(ebayData, limits, query, product);
+        }
+
+        if (!priceData) {
             return res.json({ error: 'Aucun résultat eBay', name: product.name });
         }
+
+        const result = { id: productId, name: product.name, ...priceData };
+        await writeCache(productId, result);
+        appendHistory(productId, priceData).catch(() => {});
+
         res.json({ ...result, source: 'ebay' });
     } catch (err) {
         console.error(`Erreur pour ${productId}:`, err.message);
@@ -912,11 +738,17 @@ app.get('/api/prices', async (req, res) => {
                 continue;
             }
 
-            // Throttle entre chaque refresh (menage eBay et Vinted)
+            // Throttle entre chaque appel eBay
             await new Promise(r => setTimeout(r, 300));
 
-            const result = await refreshProductPrice(product);
-            if (result) {
+            const limits = { min: product.minPrice, max: product.maxPrice };
+            const ebayData = await searchEbaySold(product.query, 20, limits);
+            const priceData = extractPrices(ebayData, limits, product.query, product);
+
+            if (priceData) {
+                const result = { id: product.id, name: product.name, ...priceData };
+                await writeCache(product.id, result);
+                appendHistory(product.id, priceData).catch(() => {});
                 results.push({ ...result, source: 'ebay' });
             } else {
                 results.push({ id: product.id, name: product.name, price: null, error: 'Aucun résultat' });
@@ -935,14 +767,11 @@ app.get('/api/prices', async (req, res) => {
 });
 
 // Helper : force le refresh d'un produit (ignore le cache, utilise les custom queries)
-// Cherche eBay + Vinted en parallele. Le prix eBay prime (historique + stabilite),
-// Vinted est un bonus : on l'attache en sous-objet result.vinted.
 async function refreshProductPrice(product) {
     const customQueries = await loadCustomQueries();
     const custom = customQueries[product.id];
 
     let priceData;
-    let vintedData = null;
 
     if (custom?.fixedPrice) {
         const fp = custom.fixedPrice;
@@ -965,39 +794,13 @@ async function refreshProductPrice(product) {
     if (!priceData) {
         const query = custom?.query || product.query;
         const limits = { min: product.minPrice, max: product.maxPrice };
-        // eBay + Vinted en parallele (Promise.allSettled : si Vinted plante, eBay reste)
-        const [ebayRes, vintedRes] = await Promise.allSettled([
-            searchEbaySold(query, 20, limits),
-            fetchVintedForProduct(product, query, limits),
-        ]);
-        if (ebayRes.status === 'fulfilled') {
-            priceData = extractPrices(ebayRes.value, limits, query, product);
-        } else {
-            console.error(`[eBay] ${product.id}: ${ebayRes.reason?.message}`);
-        }
-        if (vintedRes.status === 'fulfilled') {
-            vintedData = vintedRes.value;
-        }
+        const ebayData = await searchEbaySold(query, 20, limits);
+        priceData = extractPrices(ebayData, limits, query, product);
     }
 
     if (!priceData) return null;
 
     const result = { id: product.id, name: product.name, ...priceData };
-    if (vintedData) {
-        result.vinted = {
-            price: vintedData.price,
-            lastPrice: vintedData.lastPrice,
-            low: vintedData.low,
-            high: vintedData.high,
-            sampleSize: vintedData.sampleSize,
-            rawSampleSize: vintedData.rawSampleSize,
-            filtered: vintedData.filtered,
-            avgScore: vintedData.avgScore,
-            searchUrl: vintedData.searchUrl,
-            lastListing: vintedData.lastListing,
-            lastUpdated: vintedData.lastUpdated,
-        };
-    }
     await writeCache(product.id, result);
     appendHistory(product.id, priceData).catch(() => {});
     return result;
