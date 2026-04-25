@@ -442,6 +442,7 @@ const PRODUCTS_TO_TRACK = [
     ...serieProducts('me01', 'Méga-Évolution', 'ME01'),
     ...serieProducts('me02', 'Flammes Fantasmagoriques', 'ME02'),
     ...serieProducts('me2.5', 'Héros Transcendants', 'ME2.5'),
+    { id: 'me2.5-dispbundle', query: 'display bundle Héros Transcendants ME2.5', name: 'Display Bundle Héros Transcendants', minPrice: 0, maxPrice: 99999 },
     ...serieProducts('me03', 'Équilibre Parfait', 'ME03'),
     // Épée et Bouclier (séries anciennes — prix plus élevés, limites adaptées)
     { id: 'swsh11-etb',       query: 'ETB Origine Perdue EB11',                    name: 'ETB Origine Perdue',            minPrice: 100, maxPrice: 800 },

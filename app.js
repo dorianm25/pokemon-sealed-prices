@@ -48,6 +48,7 @@ const products = [
     ...serie('ME01', 'Méga-Évolution', 'ME', { etb: { price: 85, old: 54.99, low: 70, high: 100 }, display: { price: 280, old: 215, low: 250, high: 310 }, display18: { price: 65, old: 107, low: 55, high: 75 } }),
     ...serie('ME02', 'Flammes Fantasmagoriques', 'ME', { etb: { price: 80, old: 54.99, low: 65, high: 95 }, display: { price: 250, old: 215, low: 220, high: 280 }, display18: { price: 35, old: 107, low: 30, high: 45 } }),
     ...serie('ME2.5', 'Héros Transcendants', 'ME', { etb: { price: 80, old: 54.99, low: 65, high: 95 } }),
+    { name: 'Display Bundle Héros Transcendants', ext: 'ME2.5 — Héros Transcendants', serie: 'Méga-Évolution', type: 'dispbundle', price: 0, old: 0, trend: 0, low: 0, high: 0 },
     ...serie('ME03', 'Équilibre Parfait', 'ME'),
     // Épée et Bouclier
     ...serie('EB11', 'Origine Perdue', 'EB', { etb: { price: 350, old: 54.99, low: 280, high: 400 }, display: { price: 550, old: 215, low: 250, high: 850 }, tripack: { price: 40, old: 17.99, low: 35, high: 80 }, bundle: { price: 90, old: 35, low: 70, high: 120 }, booster: { price: 15, old: 6.99, low: 10, high: 40 } }),
@@ -261,6 +262,7 @@ function buildEbayMap() {
     // Produits spéciaux
     map['ev35-dispbundle'] = 'Display Bundle Pokémon 151';
     map['ev85-dispbundle'] = 'Display Bundle Évolutions Prismatiques';
+    map['me2.5-dispbundle'] = 'Display Bundle Héros Transcendants';
     map['upc-151'] = 'UPC Pokémon 151';
     map['upc-ev85'] = 'UPC Évolutions Prismatiques';
     map['upc-dracaufeu'] = 'UPC Dracaufeu';
