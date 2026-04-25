@@ -2035,8 +2035,22 @@ function initAuth() {
         currentUser = savedUser;
         fetch('/api/me', { headers: { 'Authorization': `Bearer ${authToken}` } })
             .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-            .then(data => { currentUser = data.username; updateAuthUI(); })
+            .then(data => {
+                currentUser = data.username;
+                updateAuthUI();
+                // Token valide => on charge le portfolio cote serveur,
+                // puis on rafraichit le badge et la vue active.
+                loadPortfolio().then(() => {
+                    updatePortfolioBadge();
+                    if (currentSection === 'dashboard') renderDashboard();
+                    else if (currentSection === 'portfolio') renderPortfolio();
+                });
+            })
             .catch(() => { logout(); });
+    } else {
+        // Pas de session active : on purge tout residu de portefeuille
+        // qu'un precedent utilisateur aurait pu laisser sur ce device.
+        localStorage.removeItem('pokescelle-portfolio');
     }
     updateAuthUI();
 }
@@ -2146,8 +2160,14 @@ function logout() {
     currentUser = null;
     localStorage.removeItem('pokescelle-token');
     localStorage.removeItem('pokescelle-user');
+    // Purge tout etat portfolio en memoire ET en localStorage : le portefeuille
+    // est strictement lie au compte, rien ne doit subsister apres deconnexion.
+    _portfolioCache = null;
+    localStorage.removeItem('pokescelle-portfolio');
     updateAuthUI();
+    updatePortfolioBadge();
     if (currentSection === 'portfolio') switchSection('catalogue');
+    else if (currentSection === 'dashboard') renderDashboard();
 }
 
 document.getElementById('authModal').addEventListener('click', function(e) {
@@ -2234,64 +2254,59 @@ let _saveInflight = null;           // promesse du dernier PUT en cours
 let _saveDirty = false;             // indique qu'un save est en attente (utile pour beforeunload)
 
 async function loadPortfolio() {
-    // Si connecté : serveur seul fait foi. Pas de fallback localStorage qui pourrait
-    // ressusciter un état périmé d'une autre session/device.
-    if (authToken) {
-        if (_portfolioLoading) return _portfolioLoading;
-        _portfolioLoading = (async () => {
-            try {
-                const res = await fetch('/api/portfolio', {
-                    headers: { 'Authorization': `Bearer ${authToken}` },
-                    cache: 'no-store',
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    _portfolioCache = data || {};
-                    return _portfolioCache;
-                }
-                // 401 → token périmé → on logout pour forcer re-login propre
-                if (res.status === 401) {
-                    showToast?.('🔒', 'Session expirée', 'Reconnectez-vous');
-                    logout();
-                    return _portfolioCache || {};
-                }
-                showToast?.('⚠️', 'Erreur serveur', 'Portfolio non chargé');
-                return _portfolioCache || {};
-            } catch {
-                showToast?.('⚠️', 'Hors ligne', 'Affichage du dernier état connu');
-                return _portfolioCache || {};
-            } finally {
-                _portfolioLoading = null;
+    // Portefeuille strictement lie au compte : serveur seul fait foi.
+    // Sans token => portefeuille vide (pas de fallback localStorage qui
+    // exposerait les donnees du precedent utilisateur sur le meme device).
+    if (!authToken) {
+        _portfolioCache = getDefaultPortfolio();
+        return _portfolioCache;
+    }
+    if (_portfolioLoading) return _portfolioLoading;
+    _portfolioLoading = (async () => {
+        try {
+            const res = await fetch('/api/portfolio', {
+                headers: { 'Authorization': `Bearer ${authToken}` },
+                cache: 'no-store',
+            });
+            if (res.ok) {
+                const data = await res.json();
+                _portfolioCache = data || {};
+                return _portfolioCache;
             }
-        })();
-        return _portfolioLoading;
-    }
-    // Non connecté : on garde l'expérience locale via localStorage
-    const saved = localStorage.getItem('pokescelle-portfolio');
-    if (saved) {
-        try { _portfolioCache = JSON.parse(saved); return _portfolioCache; } catch {}
-    }
-    _portfolioCache = getDefaultPortfolio();
-    return _portfolioCache;
+            // 401 → token périmé → on logout pour forcer re-login propre
+            if (res.status === 401) {
+                showToast?.('🔒', 'Session expirée', 'Reconnectez-vous');
+                logout();
+                return _portfolioCache || {};
+            }
+            showToast?.('⚠️', 'Erreur serveur', 'Portfolio non chargé');
+            return _portfolioCache || {};
+        } catch {
+            showToast?.('⚠️', 'Hors ligne', 'Affichage du dernier état connu');
+            return _portfolioCache || {};
+        } finally {
+            _portfolioLoading = null;
+        }
+    })();
+    return _portfolioLoading;
 }
 
 function loadPortfolioSync() {
+    // Sans token => portefeuille vide. Avec token => cache deja charge par loadPortfolio.
+    if (!authToken) return getDefaultPortfolio();
     if (_portfolioCache) return _portfolioCache;
-    const saved = localStorage.getItem('pokescelle-portfolio');
-    if (saved) {
-        try { return JSON.parse(saved); } catch {}
-    }
     return getDefaultPortfolio();
 }
 
 // Save désormais immédiat + awaitable. Retourne true si OK, false sinon.
 async function savePortfolio(pf) {
+    // Sans compte connecte : on refuse toute modif (pas de portefeuille anonyme).
+    if (!authToken) {
+        showToast?.('🔒', 'Connexion requise', 'Connectez-vous pour gerer un portefeuille');
+        return false;
+    }
     _portfolioCache = pf;
-    // Cache local pour mode hors-ligne / non connecté
-    try { localStorage.setItem('pokescelle-portfolio', JSON.stringify(pf)); } catch {}
     updatePortfolioBadge();
-
-    if (!authToken) return true;
 
     // Sérialise les saves : si un PUT est en cours, on attend qu'il finisse
     // pour envoyer celui-ci avec l'état le plus récent.
