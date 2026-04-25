@@ -7954,12 +7954,15 @@ body { transition: background-color 0.3s, color 0.3s; }
     color: #ffffff;
     font-weight: 700;
     font-size: 13px;
-    padding: 8px 16px;
+    padding: 10px 18px;
+    min-height: 44px;   /* Apple HIG : zone tactile 44px */
     border-radius: 8px;
     cursor: pointer;
     flex-shrink: 0;
     transition: transform var(--dur-fast), box-shadow var(--dur-fast);
     font-family: inherit;
+    -webkit-tap-highlight-color: rgba(255,255,255,0.1);
+    touch-action: manipulation;
 }
 .install-prompt-btn:hover {
     transform: translateY(-1px);
@@ -7970,18 +7973,22 @@ body { transition: background-color 0.3s, color 0.3s; }
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    font-size: 22px;
+    font-size: 26px;
     line-height: 1;
-    width: 28px;
-    height: 28px;
+    width: 44px;   /* Apple HIG : 44x44 minimum pour zone tactile */
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
     flex-shrink: 0;
     transition: background var(--dur-fast);
     font-family: inherit;
+    -webkit-tap-highlight-color: rgba(255,255,255,0.1);
+    touch-action: manipulation; /* supprime le delai 300ms iOS */
+    user-select: none;
+    -webkit-user-select: none;
 }
 .install-prompt-close:hover {
     background: rgba(255,255,255,0.06);
