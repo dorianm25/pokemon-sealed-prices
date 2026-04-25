@@ -1,16 +1,56 @@
 {
   "name": "PokéScellé — Tracker de Prix Scellé Pokémon",
   "short_name": "PokéScellé",
-  "description": "Suivez les prix des produits scellés Pokémon en temps réel",
+  "description": "Suivi quotidien des prix Pokémon scellé : ETB, displays, bundles, boosters. Indice marché, portfolio personnel, alertes prix.",
+  "lang": "fr",
+  "dir": "ltr",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui", "browser"],
+  "orientation": "any",
   "background_color": "#0e1117",
-  "theme_color": "#2ea043",
+  "theme_color": "#0e1117",
+  "categories": ["finance", "lifestyle", "entertainment", "shopping"],
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📦</text></svg>",
+      "src": "/icons/icon.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Vue d'ensemble : indice marché, mouvements, portfolio",
+      "url": "/?section=dashboard",
+      "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Catalogue",
+      "short_name": "Catalogue",
+      "description": "Tous les produits suivis avec prix actuels",
+      "url": "/?section=catalogue",
+      "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Portfolio",
+      "short_name": "Portfolio",
+      "description": "Mes positions et plus-values",
+      "url": "/?section=portfolio",
+      "icons": [{ "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
+  ],
+  "prefer_related_applications": false,
+  "edge_side_panel": {
+    "preferred_width": 480
+  }
 }

@@ -2,14 +2,38 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- viewport-fit=cover : permet a l'app de s'etendre sous le notch/home indicator iOS -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>PokéScellé — Tracker de Prix Scellé Pokémon</title>
+    <meta name="description" content="Suivi quotidien des prix Pokémon scellé : ETB, displays, bundles, boosters. Indice marché, portfolio, alertes.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#2ea043">
+
+    <!-- ── PWA / Mobile (Android, Chrome, Edge) ── -->
+    <meta name="theme-color" content="#0e1117">
+    <meta name="application-name" content="PokéScellé">
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+
+    <!-- ── PWA iOS / Safari ── -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="PokéScellé">
+    <meta name="format-detection" content="telephone=no">
+    <link rel="apple-touch-icon" href="/icons/icon.svg">
+    <link rel="mask-icon" href="/icons/icon.svg" color="#2ea043">
+
+    <!-- ── Windows Tile ── -->
+    <meta name="msapplication-TileColor" content="#0e1117">
+    <meta name="msapplication-tap-highlight" content="no">
+
+    <!-- ── Open Graph (partage URL) ── -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="PokéScellé — Tracker de Prix Scellé Pokémon">
+    <meta property="og:description" content="Suivi quotidien des prix Pokémon scellé : ETB, displays, bundles, boosters.">
+    <meta property="og:image" content="/icons/icon.svg">
 </head>
 <body>
 
@@ -471,6 +495,25 @@
                 </div>
             </section>
         </main>
+    </div>
+
+    <!-- Install Prompt PWA (apparait quand le navigateur le permet) -->
+    <div class="install-prompt" id="installPrompt" hidden>
+        <div class="install-prompt-icon">
+            <svg width="32" height="32" viewBox="0 0 192 192" aria-hidden="true">
+                <circle cx="96" cy="96" r="88" fill="#0e1117"/>
+                <path d="M 8 96 a 88 88 0 0 1 176 0 z" fill="#2ea043"/>
+                <rect x="8" y="92" width="176" height="8" fill="#0a0d12"/>
+                <circle cx="96" cy="96" r="22" fill="#0e1117" stroke="#2ea043" stroke-width="4"/>
+                <circle cx="96" cy="96" r="11" fill="#3ddb6b"/>
+            </svg>
+        </div>
+        <div class="install-prompt-text">
+            <strong>Installer PokéScellé</strong>
+            <span>Accès rapide depuis votre écran d'accueil</span>
+        </div>
+        <button class="install-prompt-btn" id="installPromptBtn" type="button">Installer</button>
+        <button class="install-prompt-close" id="installPromptClose" type="button" aria-label="Fermer">&times;</button>
     </div>
 
     <!-- Auth Modal -->

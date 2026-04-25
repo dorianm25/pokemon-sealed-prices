@@ -5502,6 +5502,89 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// ── PWA Install Prompt ───────────────────────────────────────
+// Capture l'event beforeinstallprompt (Chrome/Edge) pour afficher notre
+// propre bouton d'installation au lieu de l'invitation par defaut du
+// navigateur. iOS Safari ne supporte pas cet event => on detecte iOS et
+// on suggere "Partager > Sur l'ecran d'accueil" via une variante du toast.
+let _deferredInstallPrompt = null;
+const INSTALL_DISMISS_KEY = 'pokescelle-install-dismissed';
+
+function shouldShowInstallPrompt() {
+    // Deja installe en standalone ? on cache.
+    if (window.matchMedia('(display-mode: standalone)').matches) return false;
+    if (window.navigator.standalone === true) return false; // iOS standalone
+    // Dismissed il y a moins de 14 jours ? on cache.
+    const dismissedAt = parseInt(localStorage.getItem(INSTALL_DISMISS_KEY) || '0', 10);
+    if (dismissedAt && (Date.now() - dismissedAt) < 14 * 24 * 60 * 60 * 1000) return false;
+    return true;
+}
+
+function showInstallPrompt() {
+    const el = document.getElementById('installPrompt');
+    if (!el || !shouldShowInstallPrompt()) return;
+    el.hidden = false;
+    requestAnimationFrame(() => el.classList.add('visible'));
+}
+
+function hideInstallPrompt(remember = true) {
+    const el = document.getElementById('installPrompt');
+    if (!el) return;
+    el.classList.remove('visible');
+    setTimeout(() => { el.hidden = true; }, 250);
+    if (remember) localStorage.setItem(INSTALL_DISMISS_KEY, String(Date.now()));
+}
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    _deferredInstallPrompt = e;
+    // Petit delai pour ne pas matraquer l'utilisateur des l'arrivee
+    setTimeout(showInstallPrompt, 4000);
+});
+
+window.addEventListener('appinstalled', () => {
+    hideInstallPrompt(false);
+    _deferredInstallPrompt = null;
+    showToast?.('🎉', 'App installée', 'Retrouvez PokéScellé sur votre écran d\'accueil');
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('installPromptBtn');
+    const close = document.getElementById('installPromptClose');
+    if (btn) {
+        btn.addEventListener('click', async () => {
+            if (!_deferredInstallPrompt) return;
+            _deferredInstallPrompt.prompt();
+            const { outcome } = await _deferredInstallPrompt.userChoice;
+            if (outcome === 'accepted') {
+                hideInstallPrompt(false);
+            } else {
+                hideInstallPrompt(true);
+            }
+            _deferredInstallPrompt = null;
+        });
+    }
+    if (close) {
+        close.addEventListener('click', () => hideInstallPrompt(true));
+    }
+
+    // iOS : pas de beforeinstallprompt. On affiche un message d'aide custom
+    // au bout de 6s si on est en mobile Safari et pas en standalone.
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    if (isIOS && isSafari && !isStandalone && shouldShowInstallPrompt()) {
+        const el = document.getElementById('installPrompt');
+        if (el) {
+            const text = el.querySelector('.install-prompt-text');
+            const installBtn = el.querySelector('.install-prompt-btn');
+            if (text) text.innerHTML = '<strong>Installer sur iPhone</strong><span>Touchez ⎙ puis "Sur l\'écran d\'accueil"</span>';
+            if (installBtn) installBtn.style.display = 'none';
+            setTimeout(showInstallPrompt, 6000);
+        }
+    }
+});
+
 // ── Init ─────────────────────────────────────────────────────
 
 setTheme(getTheme());
@@ -5512,6 +5595,16 @@ renderTrends();
 initScrollTopBtn();
 updatePortfolioBadge();
 loadSharedPortfolio();
+
+// Lecture du parametre ?section= pour les app shortcuts du manifest
+(function handleSectionParam() {
+    const params = new URLSearchParams(window.location.search);
+    const section = params.get('section');
+    if (section && ['dashboard', 'catalogue', 'portfolio', 'tendances', 'simulation'].includes(section)) {
+        // Differe pour laisser l'auth s'initialiser
+        setTimeout(() => switchSection(section), 100);
+    }
+})();
 
 fetchEbayPrices().then(() => {
     if (currentSection === 'portfolio') renderPortfolio();
