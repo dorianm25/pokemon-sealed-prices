@@ -5826,20 +5826,140 @@ body { transition: background-color 0.3s, color 0.3s; }
         overflow: hidden;
     }
     .detail-banner {
-        /* Hauteur etendue pour englober la safe zone (Dynamic Island etc.) */
-        height: calc(80px + env(safe-area-inset-top)) !important;
-        padding: calc(14px + env(safe-area-inset-top)) 16px 14px !important;
+        /* Compact : juste assez pour la croix + safe-area DI */
+        height: calc(48px + env(safe-area-inset-top)) !important;
+        padding: calc(8px + env(safe-area-inset-top)) 12px 8px !important;
         flex-shrink: 0;
     }
     .detail-banner-close {
-        /* Sous le Dynamic Island / notch + tap target 44pt */
-        top: max(10px, calc(env(safe-area-inset-top) + 8px)) !important;
+        top: max(8px, calc(env(safe-area-inset-top) + 6px)) !important;
         right: max(10px, calc(env(safe-area-inset-right) + 10px)) !important;
         width: 44px !important;
         height: 44px !important;
         font-size: 22px !important;
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
+    }
+
+    /* ── COMPACT VIEW : tout doit tenir sur 1 ecran iPhone ── */
+    /* Sidebar : tres compact */
+    .detail-sidebar {
+        padding: 10px 14px 8px !important;
+        gap: 6px !important;
+    }
+    .detail-product-name {
+        font-size: 17px !important;
+        margin: 0 0 2px !important;
+        line-height: 1.2 !important;
+    }
+    .detail-product-ext {
+        font-size: 11px !important;
+        margin: 0 !important;
+        line-height: 1.3 !important;
+    }
+    /* Nav links transformes en barre horizontale tactile compacte */
+    .detail-nav {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+        margin: 6px 0 0 !important;
+    }
+    .detail-nav-link {
+        flex: 1 1 calc(50% - 3px) !important;
+        font-size: 11px !important;
+        padding: 8px 6px !important;
+        text-align: center !important;
+        min-height: 36px !important;
+        border-radius: 8px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    /* Cache la note + le 'dernier article' du sidebar pour gagner de l'espace */
+    .detail-sidebar > div:not(.detail-nav) {
+        display: none !important;
+    }
+    .detail-note { display: none !important; }
+
+    /* Main : compact */
+    .detail-main {
+        padding: 10px 14px 14px !important;
+    }
+    .detail-section-title {
+        font-size: 12px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.06em !important;
+        color: var(--text-secondary) !important;
+        margin: 0 0 8px !important;
+        font-weight: 700 !important;
+    }
+    /* KPIs en grille compacte 2x2 */
+    .kpi-grid {
+        grid-template-columns: 1fr 1fr !important;
+        gap: 6px !important;
+        margin-bottom: 10px !important;
+    }
+    .kpi-card {
+        padding: 8px 10px !important;
+        border-radius: 8px !important;
+        gap: 1px !important;
+    }
+    .kpi-label {
+        font-size: 9px !important;
+        letter-spacing: 0.04em !important;
+    }
+    .kpi-value {
+        font-size: 17px !important;
+        line-height: 1.1 !important;
+    }
+    .kpi-sub {
+        font-size: 9px !important;
+    }
+    /* Chart : taille reduite mais lisible */
+    .detail-chart-section {
+        margin-bottom: 8px !important;
+    }
+    .detail-chart-section h4 {
+        font-size: 11px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.06em !important;
+        color: var(--text-secondary) !important;
+        margin-bottom: 4px !important;
+        font-weight: 700 !important;
+    }
+    .detail-chart-section > div {
+        padding: 8px !important;
+        border-radius: 8px !important;
+    }
+    .detail-chart-section canvas {
+        max-height: 130px !important;
+        height: 130px !important;
+    }
+    .detail-chart-section #priceChartEmpty {
+        font-size: 11px !important;
+        margin: 8px 0 !important;
+    }
+    /* Details : encore plus compacts ou caches */
+    .detail-sales {
+        margin-top: 4px !important;
+    }
+    .detail-sales h4 {
+        font-size: 11px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.06em !important;
+        color: var(--text-secondary) !important;
+        margin-bottom: 6px !important;
+        font-weight: 700 !important;
+    }
+    .detail-sales > div {
+        font-size: 11px !important;
+        gap: 4px !important;
+    }
+    .detail-sales > div > div {
+        padding: 4px 6px !important;
+        background: rgba(255,255,255,0.02) !important;
+        border-radius: 4px !important;
     }
     .detail-body {
         flex: 1;
