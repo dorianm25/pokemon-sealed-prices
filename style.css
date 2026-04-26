@@ -9334,13 +9334,17 @@ html, body {
 
 /* Charts : autoriser le scroll vertical de la page meme quand le doigt
    demarre sur le canvas. touch-action: pan-y indique au navigateur que
-   seul le scroll vertical est gere par lui (Chart.js capte les events
-   horizontaux pour ses tooltips/pan, ce qui est OK). */
-canvas {
-    touch-action: pan-y;
+   seul le scroll vertical est gere par lui. Combine avec le filtrage
+   des events Chart.js (events: ['click', 'mouse*', 'touchstart',
+   'touchend'] -- pas de touchmove) cote JS, on a les deux ceintures
+   et bretelles : impossible de bloquer le scroll. */
+canvas,
+.dmi-chart-wrap,
+.sim-chart-wrap,
+.dpp-summary,
+#portfolioChartWrap {
+    touch-action: pan-y !important;
 }
-/* Sur les charts hors modal (dashboard, simulation), c'est encore plus
-   important car ils sont pleinement integres au scroll de la page. */
 .dmi-chart-wrap canvas,
 .sim-chart-wrap canvas,
 #priceChart,

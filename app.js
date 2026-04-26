@@ -6166,6 +6166,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// ── Chart.js : permet le scroll vertical sur mobile ──────────
+// Par defaut Chart.js attache des listeners 'touchmove' qui peuvent
+// bloquer le scroll natif de la page. En supprimant 'touchmove' de la
+// liste d'events, on garde le tap (touchstart/touchend pour les tooltips)
+// mais on laisse le browser gerer le scroll vertical.
+if (typeof Chart !== 'undefined' && Chart.defaults) {
+    Chart.defaults.events = ['mousemove', 'mouseout', 'click', 'touchstart', 'touchend'];
+}
+
 // ── Init ─────────────────────────────────────────────────────
 
 setTheme(getTheme());
