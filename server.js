@@ -17,6 +17,7 @@ import {
     getPortfolio, setPortfolio, listPortfolioUserIds,
     getPortfolioHistory, upsertPortfolioHistory,
     getPriceHistory, upsertPriceHistory, getAllPriceHistory,
+    listTransactions, createTransaction, deleteTransaction,
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
     getAllCache as dbGetAllCache,
     getCustomQueries, setCustomQuery,
@@ -1396,6 +1397,157 @@ app.post('/api/portfolio-snapshot', authMiddleware, async (req, res) => {
     await upsertPortfolioHistory(req.userId, entry);
     const history = await getPortfolioHistory(req.userId);
     res.json({ ok: true, entries: history.length, coverage: entry.coverage });
+});
+
+// ── Transactions (achats/ventes) ────────────────────────────
+//
+// Modele : chaque transaction est un evenement (date, type, qty, prix, frais).
+// Le portfolio (qty actuelles) reste gere a la main par l'utilisateur ; les
+// transactions servent au calcul de P&L realise et au PRU pondere.
+
+app.get('/api/transactions', authMiddleware, async (req, res) => {
+    try {
+        const txs = await listTransactions(req.userId);
+        res.json(txs);
+    } catch (e) {
+        console.error('[transactions/list] error:', e);
+        res.status(500).json({ error: 'Erreur lecture transactions' });
+    }
+});
+
+app.post('/api/transactions', authMiddleware, async (req, res) => {
+    const { productName, type, qty, unitPrice, fees, date, notes } = req.body || {};
+
+    // Validations metier
+    if (!productName || typeof productName !== 'string') {
+        return res.status(400).json({ error: 'Nom de produit requis' });
+    }
+    if (!['buy', 'sell'].includes(type)) {
+        return res.status(400).json({ error: 'Type doit etre "buy" ou "sell"' });
+    }
+    const qtyN = parseInt(qty);
+    const priceN = parseFloat(unitPrice);
+    const feesN = parseFloat(fees) || 0;
+    if (!Number.isFinite(qtyN) || qtyN <= 0) {
+        return res.status(400).json({ error: 'Quantite doit etre un entier positif' });
+    }
+    if (!Number.isFinite(priceN) || priceN < 0) {
+        return res.status(400).json({ error: 'Prix unitaire invalide' });
+    }
+    if (!Number.isFinite(feesN) || feesN < 0) {
+        return res.status(400).json({ error: 'Frais invalides' });
+    }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ error: 'Date doit etre au format YYYY-MM-DD' });
+    }
+
+    const id = crypto.randomUUID();
+    try {
+        await createTransaction(req.userId, {
+            id, productName, type,
+            qty: qtyN, unitPrice: priceN, fees: feesN,
+            date, notes: (notes || '').slice(0, 500),
+        });
+        res.json({ ok: true, id });
+    } catch (e) {
+        console.error('[transactions/create] error:', e);
+        res.status(500).json({ error: 'Erreur creation transaction' });
+    }
+});
+
+app.delete('/api/transactions/:id', authMiddleware, async (req, res) => {
+    try {
+        const ok = await deleteTransaction(req.userId, req.params.id);
+        if (!ok) return res.status(404).json({ error: 'Transaction introuvable' });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[transactions/delete] error:', e);
+        res.status(500).json({ error: 'Erreur suppression' });
+    }
+});
+
+// Stats agregees : pour chaque produit acheté/vendu, calcule le PRU FIFO,
+// la qty restante, le P&L realise (sur les ventes effectuees) et donne
+// les totaux globaux.
+app.get('/api/transactions/stats', authMiddleware, async (req, res) => {
+    try {
+        const txs = await listTransactions(req.userId);
+        // Reordonne par date croissante pour un FIFO chronologique correct
+        const sorted = [...txs].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+        const perProduct = {};
+        let totalBought = 0, totalSold = 0, totalFees = 0;
+        let realizedPnl = 0;
+
+        for (const tx of sorted) {
+            const k = tx.productName;
+            if (!perProduct[k]) perProduct[k] = { lots: [], totalBoughtQty: 0, totalSoldQty: 0, totalBoughtCost: 0, totalSoldRevenue: 0, totalFees: 0, realizedPnl: 0 };
+            const acc = perProduct[k];
+            acc.totalFees += tx.fees;
+            totalFees += tx.fees;
+
+            if (tx.type === 'buy') {
+                // Cout par exemplaire = (qty*unit + frais) / qty
+                const costPerUnit = (tx.qty * tx.unitPrice + tx.fees) / tx.qty;
+                acc.lots.push({ qty: tx.qty, costPerUnit });
+                acc.totalBoughtQty += tx.qty;
+                acc.totalBoughtCost += tx.qty * tx.unitPrice + tx.fees;
+                totalBought += tx.qty * tx.unitPrice + tx.fees;
+            } else { // sell
+                let remaining = tx.qty;
+                let costBasis = 0;
+                while (remaining > 0 && acc.lots.length > 0) {
+                    const lot = acc.lots[0];
+                    const take = Math.min(remaining, lot.qty);
+                    costBasis += take * lot.costPerUnit;
+                    lot.qty -= take;
+                    remaining -= take;
+                    if (lot.qty <= 0) acc.lots.shift();
+                }
+                // Si on vend plus qu'on n'a achete, on tracke quand meme la vente
+                // mais le costBasis reste celui des lots dispo (P&L sera optimiste).
+                const revenue = tx.qty * tx.unitPrice - tx.fees;
+                const pnl = revenue - costBasis;
+                acc.totalSoldQty += tx.qty;
+                acc.totalSoldRevenue += revenue;
+                acc.realizedPnl += pnl;
+                totalSold += revenue;
+                realizedPnl += pnl;
+            }
+        }
+
+        // Aplati les lots restants pour calculer la qty restante et PRU moyen
+        const products = Object.entries(perProduct).map(([name, acc]) => {
+            const remainingQty = acc.lots.reduce((s, l) => s + l.qty, 0);
+            const remainingCost = acc.lots.reduce((s, l) => s + l.qty * l.costPerUnit, 0);
+            const avgCost = remainingQty > 0 ? remainingCost / remainingQty : 0;
+            return {
+                productName: name,
+                boughtQty: acc.totalBoughtQty,
+                soldQty: acc.totalSoldQty,
+                remainingQty,
+                avgCost: Math.round(avgCost * 100) / 100,
+                totalCost: Math.round(acc.totalBoughtCost * 100) / 100,
+                totalRevenue: Math.round(acc.totalSoldRevenue * 100) / 100,
+                realizedPnl: Math.round(acc.realizedPnl * 100) / 100,
+                fees: Math.round(acc.totalFees * 100) / 100,
+            };
+        }).sort((a, b) => Math.abs(b.realizedPnl) - Math.abs(a.realizedPnl));
+
+        res.json({
+            totals: {
+                txCount: txs.length,
+                totalBought: Math.round(totalBought * 100) / 100,
+                totalSold: Math.round(totalSold * 100) / 100,
+                totalFees: Math.round(totalFees * 100) / 100,
+                realizedPnl: Math.round(realizedPnl * 100) / 100,
+            },
+            products,
+        });
+    } catch (e) {
+        console.error('[transactions/stats] error:', e);
+        res.status(500).json({ error: 'Erreur stats' });
+    }
 });
 
 // ── Cron Job quotidien (déclenché par GitHub Actions / UptimeRobot / …) ──

@@ -74,6 +74,10 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                         Simulation
                     </a>
+                    <a href="#" class="sidebar-link" data-section="transactions" id="sidebarLinkTx" onclick="switchSection('transactions', event)" style="display:none">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M16 17l5-5-5-5"/></svg>
+                        Transactions
+                    </a>
                     <a href="#" class="sidebar-link sidebar-link-admin" data-section="admin" id="sidebarLinkAdmin" onclick="switchSection('admin', event)" style="display:none">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1l3 6 6 .9-4.5 4.4 1 6.7L12 16l-5.5 3 1-6.7L3 7.9 9 7l3-6z"/></svg>
                         Admin
@@ -504,6 +508,23 @@
                 </div>
             </section>
 
+            <!-- ═══ TRANSACTIONS ═══ -->
+            <section class="section-transactions" id="sectionTransactions" style="display:none">
+                <div class="section-header">
+                    <div>
+                        <h1 class="page-title">📒 Historique de transactions</h1>
+                        <p class="page-desc">Enregistrez vos achats et ventes pour calculer votre P&L réelle (PRU FIFO)</p>
+                    </div>
+                    <button class="btn-tx-add" onclick="openTxModal()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Ajouter une transaction
+                    </button>
+                </div>
+                <div id="transactionsContent">
+                    <div class="tx-loading">Chargement…</div>
+                </div>
+            </section>
+
             <!-- ═══ ADMIN ═══ -->
             <section class="section-admin" id="sectionAdmin" style="display:none">
                 <div class="section-header">
@@ -684,6 +705,84 @@
                     <div class="kbd-row"><span>Remonter en haut</span><div><kbd>h</kbd></div></div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Modal : ajout de transaction -->
+    <div class="tx-modal-overlay" id="txModal" hidden>
+        <div class="tx-modal">
+            <div class="tx-modal-head">
+                <h3>📒 Nouvelle transaction</h3>
+                <button class="tx-modal-close" onclick="closeTxModal()" type="button" aria-label="Fermer">&times;</button>
+            </div>
+            <form id="txForm" class="tx-form" onsubmit="submitTxForm(event)">
+                <!-- Type buy/sell -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">Type</label>
+                        <div class="tx-type-toggle">
+                            <button type="button" class="tx-type-btn tx-type-buy active" data-type="buy" onclick="setTxType('buy')">
+                                📥 Achat
+                            </button>
+                            <button type="button" class="tx-type-btn tx-type-sell" data-type="sell" onclick="setTxType('sell')">
+                                📤 Vente
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Produit -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label" for="txProduct">Produit</label>
+                        <select class="tx-form-input" id="txProduct" required></select>
+                    </div>
+                </div>
+
+                <!-- Date + Quantité -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field">
+                        <label class="tx-form-label" for="txDate">Date</label>
+                        <input type="date" class="tx-form-input" id="txDate" required>
+                    </div>
+                    <div class="tx-form-field">
+                        <label class="tx-form-label" for="txQty">Quantité</label>
+                        <input type="number" class="tx-form-input" id="txQty" min="1" step="1" value="1" required>
+                    </div>
+                </div>
+
+                <!-- Prix unitaire + Frais -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field">
+                        <label class="tx-form-label" for="txPrice">Prix unitaire (€)</label>
+                        <input type="number" class="tx-form-input" id="txPrice" min="0" step="0.01" required>
+                    </div>
+                    <div class="tx-form-field">
+                        <label class="tx-form-label" for="txFees">Frais (€)</label>
+                        <input type="number" class="tx-form-input" id="txFees" min="0" step="0.01" value="0">
+                    </div>
+                </div>
+
+                <!-- Notes -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label" for="txNotes">Notes (optionnel)</label>
+                        <textarea class="tx-form-input tx-form-textarea" id="txNotes" rows="2" maxlength="500" placeholder="Vendu sur Vinted, achat groupé, etc."></textarea>
+                    </div>
+                </div>
+
+                <!-- Récap calculé -->
+                <div class="tx-form-recap" id="txFormRecap"></div>
+
+                <!-- Erreur éventuelle -->
+                <div class="tx-form-error" id="txFormError"></div>
+
+                <!-- Actions -->
+                <div class="tx-form-actions">
+                    <button type="button" class="tx-btn tx-btn-ghost" onclick="closeTxModal()">Annuler</button>
+                    <button type="submit" class="tx-btn tx-btn-primary" id="txSubmitBtn">Enregistrer</button>
+                </div>
+            </form>
         </div>
     </div>
 

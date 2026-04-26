@@ -74,10 +74,26 @@ const SCHEMA = [
         data TEXT NOT NULL
     )`,
 
+    // Historique de transactions (achats / ventes) par utilisateur
+    `CREATE TABLE IF NOT EXISTS transactions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        qty INTEGER NOT NULL,
+        unit_price REAL NOT NULL,
+        fees REAL NOT NULL DEFAULT 0,
+        date TEXT NOT NULL,
+        notes TEXT,
+        created_at TEXT NOT NULL
+    )`,
+
     // Indexes pour requêtes fréquentes
     `CREATE INDEX IF NOT EXISTS idx_portfolios_user ON portfolios(user_id)`,
     `CREATE INDEX IF NOT EXISTS idx_pf_history_user_date ON portfolio_history(user_id, date)`,
     `CREATE INDEX IF NOT EXISTS idx_price_history_product_date ON price_history(product_id, date)`,
+    `CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, date DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_transactions_user_product ON transactions(user_id, product_name)`,
 ];
 
 export async function initSchema() {
@@ -356,4 +372,54 @@ export async function setCustomQuery(productId, data) {
               ON CONFLICT (product_id) DO UPDATE SET data = excluded.data`,
         args: [productId, JSON.stringify(data)],
     });
+}
+
+// ── Transactions (achats / ventes) ──────────────────────────
+
+export async function listTransactions(userId) {
+    const r = await db.execute({
+        sql: `SELECT id, product_name, type, qty, unit_price, fees, date, notes, created_at
+              FROM transactions WHERE user_id = ?
+              ORDER BY date DESC, created_at DESC`,
+        args: [userId],
+    });
+    return r.rows.map(row => ({
+        id: row.id,
+        productName: row.product_name,
+        type: row.type,
+        qty: Number(row.qty),
+        unitPrice: Number(row.unit_price),
+        fees: Number(row.fees),
+        date: row.date,
+        notes: row.notes || '',
+        createdAt: row.created_at,
+    }));
+}
+
+export async function createTransaction(userId, tx) {
+    await db.execute({
+        sql: `INSERT INTO transactions
+              (id, user_id, product_name, type, qty, unit_price, fees, date, notes, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+            tx.id,
+            userId,
+            tx.productName,
+            tx.type,
+            tx.qty,
+            tx.unitPrice,
+            tx.fees || 0,
+            tx.date,
+            tx.notes || null,
+            new Date().toISOString(),
+        ],
+    });
+}
+
+export async function deleteTransaction(userId, id) {
+    const r = await db.execute({
+        sql: 'DELETE FROM transactions WHERE id = ? AND user_id = ?',
+        args: [id, userId],
+    });
+    return r.rowsAffected > 0;
 }

@@ -750,6 +750,10 @@ function switchSection(section, e) {
         showToast?.('🔒', 'Accès refusé', 'Section réservée à l\'administrateur');
         return;
     }
+    if (section === 'transactions' && !currentUser) {
+        openAuthModal('login');
+        return;
+    }
 
     currentSection = section;
 
@@ -772,6 +776,8 @@ function switchSection(section, e) {
     document.getElementById('sectionSimulation').style.display = section === 'simulation' ? 'block' : 'none';
     const adminSec = document.getElementById('sectionAdmin');
     if (adminSec) adminSec.style.display = section === 'admin' ? 'block' : 'none';
+    const txSec = document.getElementById('sectionTransactions');
+    if (txSec) txSec.style.display = section === 'transactions' ? 'block' : 'none';
 
     // Show/hide sidebar filters
     document.getElementById('sidebarFilters').style.display = section === 'catalogue' ? 'block' : 'none';
@@ -781,6 +787,7 @@ function switchSection(section, e) {
     if (section === 'tendances') renderTrends();
     if (section === 'simulation') renderSimulation();
     if (section === 'admin') loadAdminPage();
+    if (section === 'transactions') loadTransactionsPage();
 }
 
 // Helper : verifie si l'utilisateur connecte est l'admin (par defaut 'dorian').
@@ -792,10 +799,19 @@ function isAdminUser() {
 // Met a jour la visibilite du lien Admin dans la sidebar selon le user connecte
 function updateAdminLinkVisibility() {
     const link = document.getElementById('sidebarLinkAdmin');
-    if (!link) return;
-    link.style.display = isAdminUser() ? 'flex' : 'none';
+    if (link) {
+        link.style.display = isAdminUser() ? 'flex' : 'none';
+    }
+    // Lien Transactions visible des qu'on est connecte (gate identique au portfolio)
+    const txLink = document.getElementById('sidebarLinkTx');
+    if (txLink) {
+        txLink.style.display = currentUser ? 'flex' : 'none';
+    }
     // Si on quitte le compte admin alors qu'on est sur la section admin, on rebascule
     if (currentSection === 'admin' && !isAdminUser()) {
+        switchSection('catalogue');
+    }
+    if (currentSection === 'transactions' && !currentUser) {
         switchSection('catalogue');
     }
 }
@@ -5278,6 +5294,317 @@ function showAdminTempPasswordModal(username, tempPassword) {
     });
     document.body.appendChild(overlay);
 }
+
+// ── Page Transactions ──────────────────────────────────────
+let _txCurrentType = 'buy';   // type courant dans la modal
+let _txList = [];              // cache local
+let _txProductFilter = '';     // filtre courant
+let _txTypeFilter = '';        // 'buy', 'sell' ou ''
+
+async function loadTransactionsPage() {
+    const container = document.getElementById('transactionsContent');
+    if (!container) return;
+    if (!authToken) {
+        container.innerHTML = '<div class="tx-empty">Connectez-vous pour gerer vos transactions.</div>';
+        return;
+    }
+    container.innerHTML = '<div class="tx-loading">Chargement…</div>';
+    try {
+        const headers = { 'Authorization': `Bearer ${authToken}` };
+        const [txRes, statsRes] = await Promise.all([
+            fetch('/api/transactions', { headers, cache: 'no-store' }),
+            fetch('/api/transactions/stats', { headers, cache: 'no-store' }),
+        ]);
+        if (!txRes.ok || !statsRes.ok) throw new Error('HTTP error');
+        _txList = await txRes.json();
+        const stats = await statsRes.json();
+        renderTransactionsPage(_txList, stats);
+    } catch (e) {
+        container.innerHTML = `<div class="tx-empty">Erreur de chargement (${e.message || 'inconnue'}).</div>`;
+    }
+}
+
+function renderTransactionsPage(txs, stats) {
+    const container = document.getElementById('transactionsContent');
+    const fmtDate = (iso) => new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+
+    const t = stats.totals || {};
+    const pnlCls = (t.realizedPnl || 0) >= 0 ? 'positive' : 'negative';
+    const pnlSign = (t.realizedPnl || 0) >= 0 ? '+' : '';
+
+    // Liste filtree
+    let filtered = txs;
+    if (_txProductFilter) filtered = filtered.filter(tx => tx.productName === _txProductFilter);
+    if (_txTypeFilter) filtered = filtered.filter(tx => tx.type === _txTypeFilter);
+
+    // Liste des produits uniques pour le filtre
+    const uniqueProducts = [...new Set(txs.map(tx => tx.productName))].sort();
+
+    container.innerHTML = `
+        <!-- Stats globales -->
+        <div class="tx-stats">
+            <div class="tx-stat">
+                <span class="tx-stat-label">Transactions</span>
+                <span class="tx-stat-value">${t.txCount || 0}</span>
+            </div>
+            <div class="tx-stat">
+                <span class="tx-stat-label">Total acheté</span>
+                <span class="tx-stat-value">${fmt(t.totalBought || 0)}</span>
+                <span class="tx-stat-sub">incl. frais</span>
+            </div>
+            <div class="tx-stat">
+                <span class="tx-stat-label">Total vendu</span>
+                <span class="tx-stat-value">${fmt(t.totalSold || 0)}</span>
+                <span class="tx-stat-sub">net frais</span>
+            </div>
+            <div class="tx-stat tx-stat-pnl">
+                <span class="tx-stat-label">P&L réalisée (FIFO)</span>
+                <span class="tx-stat-value ${pnlCls}">${pnlSign}${fmt(t.realizedPnl || 0)}</span>
+                <span class="tx-stat-sub">sur ventes effectuées</span>
+            </div>
+        </div>
+
+        ${stats.products && stats.products.length > 0 ? `
+        <!-- Stats par produit -->
+        <div class="tx-card">
+            <h3 class="tx-card-title">📊 Par produit</h3>
+            <div class="tx-products-table">
+                <div class="tx-products-head">
+                    <span>Produit</span>
+                    <span>Acheté</span>
+                    <span>Vendu</span>
+                    <span>Restant</span>
+                    <span>PRU FIFO</span>
+                    <span>P&L réalisée</span>
+                </div>
+                ${stats.products.map(p => {
+                    const cls = p.realizedPnl >= 0 ? 'positive' : 'negative';
+                    const sign = p.realizedPnl >= 0 ? '+' : '';
+                    return `<div class="tx-product-row" onclick="filterTxByProduct('${p.productName.replace(/'/g, "\\'")}')">
+                        <span class="tx-product-name">${p.productName}</span>
+                        <span class="tx-product-qty">${p.boughtQty}</span>
+                        <span class="tx-product-qty">${p.soldQty}</span>
+                        <span class="tx-product-qty"><strong>${p.remainingQty}</strong></span>
+                        <span class="tx-product-cost">${p.remainingQty > 0 ? fmt(p.avgCost) : '—'}</span>
+                        <span class="tx-product-pnl ${cls}">${p.soldQty > 0 ? `${sign}${fmt(p.realizedPnl)}` : '—'}</span>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>` : ''}
+
+        <!-- Filtres -->
+        <div class="tx-filters">
+            <div class="tx-filter-group">
+                <span class="tx-filter-label">Type</span>
+                <button class="tx-chip ${_txTypeFilter === '' ? 'active' : ''}" onclick="filterTxByType('')">Tous</button>
+                <button class="tx-chip ${_txTypeFilter === 'buy' ? 'active tx-chip-buy' : ''}" onclick="filterTxByType('buy')">📥 Achats</button>
+                <button class="tx-chip ${_txTypeFilter === 'sell' ? 'active tx-chip-sell' : ''}" onclick="filterTxByType('sell')">📤 Ventes</button>
+            </div>
+            <div class="tx-filter-group">
+                <span class="tx-filter-label">Produit</span>
+                <select class="tx-filter-select" onchange="filterTxByProduct(this.value)">
+                    <option value="" ${_txProductFilter === '' ? 'selected' : ''}>Tous les produits</option>
+                    ${uniqueProducts.map(name => `<option value="${name.replace(/"/g, '&quot;')}" ${_txProductFilter === name ? 'selected' : ''}>${name}</option>`).join('')}
+                </select>
+            </div>
+            <div class="tx-filter-count">${filtered.length} ligne${filtered.length > 1 ? 's' : ''}</div>
+        </div>
+
+        <!-- Liste transactions -->
+        <div class="tx-card">
+            <h3 class="tx-card-title">📒 Liste des transactions</h3>
+            ${filtered.length === 0 ? `
+                <div class="tx-empty-list">
+                    ${txs.length === 0
+                        ? 'Aucune transaction. Cliquez sur <strong>Ajouter une transaction</strong> pour commencer.'
+                        : 'Aucune transaction correspondant aux filtres.'}
+                </div>
+            ` : `
+                <div class="tx-table">
+                    <div class="tx-table-head">
+                        <span>Date</span>
+                        <span>Type</span>
+                        <span>Produit</span>
+                        <span>Qté</span>
+                        <span>Prix u.</span>
+                        <span>Frais</span>
+                        <span>Total</span>
+                        <span></span>
+                    </div>
+                    ${filtered.map(tx => {
+                        const total = tx.qty * tx.unitPrice + (tx.type === 'buy' ? tx.fees : -tx.fees);
+                        const isBuy = tx.type === 'buy';
+                        return `<div class="tx-row tx-row-${tx.type}">
+                            <span class="tx-cell-date">${fmtDate(tx.date)}</span>
+                            <span class="tx-cell-type ${isBuy ? 'tx-buy' : 'tx-sell'}">${isBuy ? '📥 Achat' : '📤 Vente'}</span>
+                            <span class="tx-cell-product" title="${tx.productName}">${tx.productName}</span>
+                            <span class="tx-cell-qty">${tx.qty}</span>
+                            <span class="tx-cell-price">${fmt(tx.unitPrice)}</span>
+                            <span class="tx-cell-fees">${tx.fees > 0 ? fmt(tx.fees) : '—'}</span>
+                            <span class="tx-cell-total ${isBuy ? '' : 'positive'}">${isBuy ? '−' : '+'}${fmt(Math.abs(total))}</span>
+                            <button class="tx-cell-delete" onclick="deleteTx('${tx.id}', '${tx.productName.replace(/'/g, "\\'")}')" title="Supprimer">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 01-2 2H9a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                            </button>
+                            ${tx.notes ? `<div class="tx-cell-notes" title="${tx.notes}">📝 ${tx.notes}</div>` : ''}
+                        </div>`;
+                    }).join('')}
+                </div>
+            `}
+        </div>
+    `;
+}
+
+function filterTxByType(type) {
+    _txTypeFilter = _txTypeFilter === type ? '' : type;
+    loadTransactionsPage();
+}
+
+function filterTxByProduct(name) {
+    _txProductFilter = name === _txProductFilter ? '' : name;
+    loadTransactionsPage();
+}
+
+async function deleteTx(id, productName) {
+    if (!confirm(`Supprimer cette transaction ?\n\nProduit : ${productName}`)) return;
+    try {
+        const res = await fetch(`/api/transactions/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            showToast('⚠️', 'Erreur', data.error || `HTTP ${res.status}`);
+            return;
+        }
+        showToast('✅', 'Transaction supprimée', '');
+        loadTransactionsPage();
+    } catch {
+        showToast('⚠️', 'Erreur réseau', '');
+    }
+}
+
+// ── Modal d'ajout de transaction ──────────────────────────
+function openTxModal() {
+    if (!authToken) {
+        openAuthModal('login');
+        return;
+    }
+    const modal = document.getElementById('txModal');
+    if (!modal) return;
+
+    // Peupler le select produits
+    const select = document.getElementById('txProduct');
+    if (select) {
+        const sortedProducts = [...products].sort((a, b) => a.name.localeCompare(b.name));
+        select.innerHTML = '<option value="">Choisir un produit…</option>' +
+            sortedProducts.map(p => `<option value="${p.name.replace(/"/g, '&quot;')}">${p.name}</option>`).join('');
+    }
+
+    // Date par defaut = aujourd'hui
+    const dateInput = document.getElementById('txDate');
+    if (dateInput) dateInput.value = new Date().toISOString().slice(0, 10);
+
+    // Reset form
+    document.getElementById('txQty').value = '1';
+    document.getElementById('txPrice').value = '';
+    document.getElementById('txFees').value = '0';
+    document.getElementById('txNotes').value = '';
+    document.getElementById('txFormError').textContent = '';
+    setTxType('buy');
+
+    // Listeners pour le recap dynamique
+    ['txQty', 'txPrice', 'txFees'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.oninput = updateTxRecap;
+    });
+    updateTxRecap();
+
+    modal.hidden = false;
+    requestAnimationFrame(() => modal.classList.add('open'));
+}
+
+function closeTxModal() {
+    const modal = document.getElementById('txModal');
+    if (!modal) return;
+    modal.classList.remove('open');
+    setTimeout(() => { modal.hidden = true; }, 200);
+}
+
+function setTxType(type) {
+    _txCurrentType = type;
+    document.querySelectorAll('.tx-type-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.type === type);
+    });
+    updateTxRecap();
+}
+
+function updateTxRecap() {
+    const qty = parseInt(document.getElementById('txQty')?.value) || 0;
+    const price = parseFloat(document.getElementById('txPrice')?.value) || 0;
+    const fees = parseFloat(document.getElementById('txFees')?.value) || 0;
+    const recap = document.getElementById('txFormRecap');
+    if (!recap) return;
+    if (qty <= 0 || price < 0) {
+        recap.innerHTML = '';
+        return;
+    }
+    const total = qty * price + (_txCurrentType === 'buy' ? fees : -fees);
+    const sign = _txCurrentType === 'buy' ? '−' : '+';
+    const word = _txCurrentType === 'buy' ? 'Coût total' : 'Recette nette';
+    recap.innerHTML = `
+        <span class="tx-form-recap-label">${word}</span>
+        <span class="tx-form-recap-val">${sign} ${fmt(Math.abs(total))}</span>
+        <span class="tx-form-recap-detail">${qty} × ${fmt(price)} ${fees > 0 ? `${_txCurrentType === 'buy' ? '+' : '−'} ${fmt(fees)} frais` : ''}</span>
+    `;
+}
+
+async function submitTxForm(event) {
+    event.preventDefault();
+    const errEl = document.getElementById('txFormError');
+    const submitBtn = document.getElementById('txSubmitBtn');
+    errEl.textContent = '';
+
+    const productName = document.getElementById('txProduct').value;
+    const date = document.getElementById('txDate').value;
+    const qty = parseInt(document.getElementById('txQty').value);
+    const unitPrice = parseFloat(document.getElementById('txPrice').value);
+    const fees = parseFloat(document.getElementById('txFees').value) || 0;
+    const notes = document.getElementById('txNotes').value.trim();
+
+    if (!productName) { errEl.textContent = 'Sélectionnez un produit.'; return; }
+    if (!date) { errEl.textContent = 'Date requise.'; return; }
+    if (!qty || qty < 1) { errEl.textContent = 'Quantité invalide.'; return; }
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) { errEl.textContent = 'Prix unitaire invalide.'; return; }
+
+    submitBtn.disabled = true;
+    try {
+        const res = await fetch('/api/transactions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({ productName, type: _txCurrentType, qty, unitPrice, fees, date, notes }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            errEl.textContent = data.error || `HTTP ${res.status}`;
+            submitBtn.disabled = false;
+            return;
+        }
+        showToast('✅', 'Transaction enregistrée', `${_txCurrentType === 'buy' ? 'Achat' : 'Vente'} de ${qty}× ${productName}`);
+        closeTxModal();
+        loadTransactionsPage();
+    } catch {
+        errEl.textContent = 'Erreur réseau.';
+        submitBtn.disabled = false;
+    }
+}
+
+// Permettre escape pour fermer la modal
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const modal = document.getElementById('txModal');
+        if (modal && !modal.hidden) closeTxModal();
+    }
+});
 
 // ── Indice marche scelle ────────────────────────────────────
 let _marketIndexChartInstance = null;
