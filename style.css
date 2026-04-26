@@ -2934,6 +2934,11 @@ body {
     color: var(--text-secondary);
     border-color: var(--border);
 }
+.sim-info-pill-pf {
+    background: rgba(34,197,94,0.12);
+    color: #22c55e;
+    border-color: rgba(34,197,94,0.3);
+}
 
 /* Pessimistic scenario : couleurs rouge plutot que vert */
 .sim-scenario-btn[data-scenario="pessimistic"].active {

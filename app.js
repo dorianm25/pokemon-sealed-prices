@@ -3543,17 +3543,34 @@ function renderSimulation() {
         optimistic:   { label: 'Optimiste',    icon: '🚀', color: '#22c55e', desc: 'Forte croissance portee par la nostalgie et la rarefaction. Hypothese : boom du marche.' },
     };
 
+    // Source des donnees : portefeuille de l'utilisateur si non-vide, sinon catalogue complet
+    const pf = loadPortfolioSync();
+    const pfMap = {};
+    let pfPositions = 0;
+    for (const [name, data] of Object.entries(pf || {})) {
+        if (data && data.qty > 0) {
+            pfMap[name] = data.qty;
+            pfPositions++;
+        }
+    }
+    const usePortfolio = pfPositions > 0;
+    const sourceLabel = usePortfolio
+        ? `<span class="sim-info-pill sim-info-pill-pf">📦 ${pfPositions} position${pfPositions > 1 ? 's' : ''} de votre portefeuille</span>`
+        : `<span class="sim-info-pill sim-info-pill-muted">📚 Catalogue complet (1 ex de chaque)</span>`;
+
     const info = scenarioMeta[simScenario];
     document.getElementById('simInfoBar').innerHTML = `
         <span class="sim-info-label" style="color:${info.color}">${info.icon} ${info.label}</span>
         <span class="sim-info-desc">${info.desc}</span>
+        ${sourceLabel}
         ${simInflation ? '<span class="sim-info-pill">Réel (−3 %/an inflation)</span>' : '<span class="sim-info-pill sim-info-pill-muted">Nominal</span>'}
     `;
 
-    // Grouper par serie
+    // Grouper par serie. Si on simule le portefeuille, on ne garde QUE les produits possedes.
     const seriesMap = {};
     for (const p of products) {
         if (!p._ebayLoaded && p.price <= 0) continue;
+        if (usePortfolio && !pfMap[p.name]) continue; // skip non-possedes en mode portfolio
         const code = p.ext?.split(' — ')[0] || '';
         const name = p.ext?.split(' — ')[1] || '';
         if (!code) continue;
@@ -3562,26 +3579,39 @@ function renderSimulation() {
     }
     const series = Object.values(seriesMap);
 
-    // Calcul des projections globales pour le scenario actif (sur l'horizon simYears)
+    // Calcul des projections (multiplications par qty si mode portefeuille)
     const Y = simYears;
     let totalNow = 0, totalEnd = 0;
-    let totalMid = 0; // a Y/2 pour le KPI intermediate
+    let totalMid = 0;
     const midY = Math.max(1, Math.round(Y / 2));
     const seriesProjections = series.map(s => {
         const age = getSeriesAge(s.code);
         let setNow = 0, setMid = 0, setEnd = 0;
         const prodProj = s.products.map(p => {
             const msrp = MSRP[p.type] || 0;
-            const price = p.price > 0 ? p.price : msrp;
-            if (price <= 0) return null;
-            const projMid = projectPrice(price, p.type, midY, simScenario, age);
-            const projEnd = projectPrice(price, p.type, Y, simScenario, age);
-            // On garde aussi 5/10/20 pour la table (compat) si Y=10 par defaut
-            const proj5 = projectPrice(price, p.type, 5, simScenario, age);
-            const proj10 = projectPrice(price, p.type, 10, simScenario, age);
-            const proj20 = projectPrice(price, p.type, 20, simScenario, age);
-            setNow += price; setMid += projMid; setEnd += projEnd;
-            return { ...p, msrp, projectedMid: projMid, projectedEnd: projEnd, projected5: proj5, projected10: proj10, projected20: proj20 };
+            const unitPrice = p.price > 0 ? p.price : msrp;
+            if (unitPrice <= 0) return null;
+            const qty = usePortfolio ? (pfMap[p.name] || 0) : 1;
+            if (qty <= 0) return null;
+            const priceTotal = unitPrice * qty;
+            const projMid = projectPrice(unitPrice, p.type, midY, simScenario, age) * qty;
+            const projEnd = projectPrice(unitPrice, p.type, Y, simScenario, age) * qty;
+            const proj5 = projectPrice(unitPrice, p.type, 5, simScenario, age) * qty;
+            const proj10 = projectPrice(unitPrice, p.type, 10, simScenario, age) * qty;
+            const proj20 = projectPrice(unitPrice, p.type, 20, simScenario, age) * qty;
+            setNow += priceTotal; setMid += projMid; setEnd += projEnd;
+            return {
+                ...p,
+                msrp,
+                qty,
+                unitPrice,
+                price: priceTotal, // affichee dans la table = total qty x unit
+                projectedMid: projMid,
+                projectedEnd: projEnd,
+                projected5: proj5,
+                projected10: proj10,
+                projected20: proj20,
+            };
         }).filter(Boolean);
 
         totalNow += setNow; totalMid += setMid; totalEnd += setEnd;
@@ -3621,8 +3651,8 @@ function renderSimulation() {
         </div>
     `;
 
-    // Chart de comparaison des 4 scenarios (Chart.js, line)
-    renderSimGrowthChart(seriesMap);
+    // Chart de comparaison des 4 scenarios (Chart.js, line) — meme source de donnees
+    renderSimGrowthChart(seriesMap, usePortfolio ? pfMap : null);
 
     // Render series projections (utilise l'horizon dynamique simYears)
     seriesProjections.sort((a, b) => b.setEnd - a.setEnd);
@@ -3758,7 +3788,7 @@ function renderSimProductTable() {
 // ── Chart de comparaison des 4 scenarios sur l'horizon simYears ──
 let _simGrowthChartInstance = null;
 
-function renderSimGrowthChart(seriesMap) {
+function renderSimGrowthChart(seriesMap, pfMap) {
     const canvas = document.getElementById('simGrowthChart');
     if (!canvas) return;
     const Y = simYears;
@@ -3770,8 +3800,8 @@ function renderSimGrowthChart(seriesMap) {
         optimistic:   { color: '#22c55e', label: 'Optimiste' },
     };
 
-    // Pour chaque scenario, calcule la valeur totale du portefeuille de tracking
-    // pour chaque annee de 0 a Y. Equal-weighted sur tous les produits ayant un prix.
+    // Pour chaque scenario, calcule la valeur totale (portefeuille si pfMap, sinon catalogue)
+    // pour chaque annee de 0 a Y.
     const labels = Array.from({ length: Y + 1 }, (_, i) => `An ${i}`);
     const datasets = scenarios.map(scenario => {
         const data = [];
@@ -3780,9 +3810,11 @@ function renderSimGrowthChart(seriesMap) {
             for (const s of Object.values(seriesMap)) {
                 const age = getSeriesAge(s.code);
                 for (const p of s.products) {
-                    const price = p.price > 0 ? p.price : (MSRP[p.type] || 0);
-                    if (price <= 0) continue;
-                    sum += projectPrice(price, p.type, year, scenario, age);
+                    const unitPrice = p.price > 0 ? p.price : (MSRP[p.type] || 0);
+                    if (unitPrice <= 0) continue;
+                    const qty = pfMap ? (pfMap[p.name] || 0) : 1;
+                    if (qty <= 0) continue;
+                    sum += projectPrice(unitPrice, p.type, year, scenario, age) * qty;
                 }
             }
             data.push(Math.round(sum));
