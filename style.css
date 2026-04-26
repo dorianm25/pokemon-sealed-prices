@@ -5894,27 +5894,34 @@ body { transition: background-color 0.3s, color 0.3s; }
         margin: 0 0 8px !important;
         font-weight: 700 !important;
     }
-    /* KPIs en grille compacte 2x2 */
+    /* KPIs en grille compacte 2x2 -- ultra compact mobile */
     .kpi-grid {
         grid-template-columns: 1fr 1fr !important;
-        gap: 6px !important;
-        margin-bottom: 10px !important;
+        gap: 4px !important;
+        margin-bottom: 8px !important;
     }
     .kpi-card {
-        padding: 8px 10px !important;
-        border-radius: 8px !important;
-        gap: 1px !important;
+        padding: 5px 8px !important;
+        border-radius: 6px !important;
+        gap: 0 !important;
+        min-height: 0 !important;
     }
     .kpi-label {
-        font-size: 9px !important;
+        font-size: 8px !important;
         letter-spacing: 0.04em !important;
+        line-height: 1.2 !important;
+        margin: 0 !important;
     }
     .kpi-value {
-        font-size: 17px !important;
+        font-size: 13px !important;
         line-height: 1.1 !important;
+        font-weight: 700 !important;
+        margin: 1px 0 0 !important;
     }
     .kpi-sub {
-        font-size: 9px !important;
+        font-size: 8px !important;
+        line-height: 1.2 !important;
+        margin: 0 !important;
     }
     /* Chart : taille reduite mais lisible */
     .detail-chart-section {
