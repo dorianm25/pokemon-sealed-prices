@@ -763,9 +763,12 @@ function switchSection(section, e) {
         document.getElementById('sidebarOverlay').classList.remove('open');
     }
 
-    // Update nav
+    // Update nav (sidebar + bottom nav synchronises)
     document.querySelectorAll('.sidebar-link').forEach(link => {
         link.classList.toggle('active', link.dataset.section === section);
+    });
+    document.querySelectorAll('.bottom-nav-item').forEach(link => {
+        link.classList.toggle('active', link.dataset && link.dataset.section === section);
     });
 
     // Show/hide sections
@@ -3282,11 +3285,16 @@ function initScrollTopBtn() {
 // ── Portfolio Badge ─────────────────────────────────────────
 
 function updatePortfolioBadge() {
-    const badge = document.getElementById('portfolioBadge');
-    if (!badge) return;
     const pf = loadPortfolioSync();
     const count = Object.values(pf).filter(h => h.qty > 0).length;
-    badge.textContent = count > 0 ? count : '';
+    const text = count > 0 ? count : '';
+    const badge = document.getElementById('portfolioBadge');
+    if (badge) badge.textContent = text;
+    const bnBadge = document.getElementById('bottomNavPfBadge');
+    if (bnBadge) {
+        bnBadge.textContent = text;
+        bnBadge.style.display = count > 0 ? 'inline-flex' : 'none';
+    }
 }
 
 // ── Favoris ────────────────────────────────────────────────────

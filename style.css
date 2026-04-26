@@ -9292,3 +9292,358 @@ html, body {
     .tx-form-row { grid-template-columns: 1fr; }
     .tx-modal { padding: 18px; border-radius: 14px; }
 }
+
+/* ============================================================
+   📱 MOBILE — BOTTOM NAV (iPhone, Android)
+   Visible uniquement sur les viewports etroits.
+   Sur desktop : completement caché.
+   ============================================================ */
+.bottom-nav {
+    display: none; /* visible via media query mobile uniquement */
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 900;
+    background: rgba(15, 19, 25, 0.92);
+    backdrop-filter: saturate(160%) blur(20px);
+    -webkit-backdrop-filter: saturate(160%) blur(20px);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -2px 16px rgba(0,0,0,0.4);
+}
+
+.bottom-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 8px 6px 6px;
+    min-height: 56px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    transition: color 0.15s var(--ease-out);
+    background: transparent;
+    border: none;
+    font-family: inherit;
+    cursor: pointer;
+    position: relative;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.bottom-nav-item svg {
+    width: 22px;
+    height: 22px;
+    transition: transform 0.18s var(--ease-out);
+}
+
+.bottom-nav-item.active {
+    color: #34c853;
+}
+
+.bottom-nav-item.active svg {
+    transform: translateY(-2px) scale(1.05);
+    filter: drop-shadow(0 2px 6px rgba(52,200,83,0.4));
+}
+
+.bottom-nav-item.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 28px;
+    height: 3px;
+    background: linear-gradient(90deg, #2ea043, #34c853);
+    border-radius: 0 0 3px 3px;
+}
+
+.bottom-nav-item span {
+    font-size: 10px;
+    line-height: 1;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+.bottom-nav-badge {
+    display: none;
+    position: absolute;
+    top: 4px;
+    right: calc(50% - 22px);
+    background: #ef4444;
+    color: #ffffff;
+    font-size: 9px;
+    font-weight: 800;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    border: 2px solid rgba(15, 19, 25, 0.92);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Active state pressed feedback iOS-style */
+.bottom-nav-item:active {
+    color: #22c55e;
+}
+.bottom-nav-item:active svg {
+    transform: scale(0.92);
+}
+
+/* ============================================================
+   📱 MOBILE OPTIMISATIONS GLOBALES
+   (≤ 768px : iPhone Plus / Pro Max et plus petit)
+   ============================================================ */
+@media (max-width: 768px) {
+    /* Affiche la bottom nav */
+    .bottom-nav {
+        display: flex;
+    }
+
+    /* Espace en bas pour ne pas que le contenu passe sous la nav */
+    .section-dashboard,
+    .section-catalogue,
+    .section-portfolio,
+    .section-tendances,
+    .section-simulation,
+    .section-admin,
+    .section-transactions {
+        padding-bottom: calc(72px + env(safe-area-inset-bottom));
+    }
+
+    /* Le install prompt remonte au-dessus de la bottom nav */
+    .install-prompt {
+        bottom: calc(76px + env(safe-area-inset-bottom));
+    }
+
+    /* iOS : evite le zoom auto sur focus si font-size < 16px */
+    input, select, textarea {
+        font-size: 16px !important;
+    }
+
+    /* Topbar plus compact mobile */
+    .topbar {
+        padding-left: max(12px, env(safe-area-inset-left));
+        padding-right: max(12px, env(safe-area-inset-right));
+    }
+
+    /* Cards et containers : padding plus aere */
+    .dash-section,
+    .admin-card,
+    .tx-card {
+        padding: 16px;
+        border-radius: 12px;
+    }
+
+    /* Sidebar : devient plus large car on l'ouvre via le bouton "Plus" */
+    .sidebar {
+        width: 80vw;
+        max-width: 320px;
+    }
+
+    /* Sections : titre plus compact */
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    /* Topbar select / boutons plus tactiles */
+    .topbar select,
+    .theme-toggle,
+    .btn-auth,
+    .btn-logout {
+        min-height: 40px;
+    }
+}
+
+/* ============================================================
+   📱 MOBILE — MODALS = BOTTOM SHEETS
+   (slide up depuis le bas, max-height 90vh, drag handle)
+   ============================================================ */
+@media (max-width: 640px) {
+    /* Modal Auth (login/register) en bottom sheet */
+    .modal-overlay { align-items: flex-end !important; padding: 0 !important; }
+    .modal-overlay .modal {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 92vh !important;
+        margin: 0 !important;
+        border-radius: 20px 20px 0 0 !important;
+        padding-bottom: calc(24px + env(safe-area-inset-bottom)) !important;
+        animation: bottomSheetSlideUp 0.3s var(--ease-out);
+    }
+    @keyframes bottomSheetSlideUp {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+    }
+
+    /* Drag handle iOS-style */
+    .modal-overlay .modal::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 36px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(255,255,255,0.2);
+    }
+
+    /* Modal admin temp password */
+    .admin-modal-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+    .admin-modal {
+        width: 100%;
+        max-width: 100%;
+        border-radius: 20px 20px 0 0;
+        padding-bottom: calc(24px + env(safe-area-inset-bottom));
+        animation: bottomSheetSlideUp 0.3s var(--ease-out);
+    }
+    .admin-modal::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 36px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(255,255,255,0.2);
+    }
+    .admin-modal { position: relative; }
+
+    /* Modal transactions */
+    .tx-modal-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+    .tx-modal {
+        width: 100%;
+        max-width: 100%;
+        max-height: 92vh;
+        border-radius: 20px 20px 0 0;
+        padding-bottom: calc(24px + env(safe-area-inset-bottom));
+        position: relative;
+    }
+    .tx-modal::before {
+        content: '';
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 36px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(255,255,255,0.2);
+    }
+    .tx-modal-overlay.open .tx-modal {
+        animation: bottomSheetSlideUp 0.28s var(--ease-out);
+    }
+
+    /* Modal portfolio add (pfAddModal) */
+    #pfAddModal { align-items: flex-end !important; padding: 0 !important; }
+    #pfAddModal > * {
+        width: 100% !important;
+        max-width: 100% !important;
+        border-radius: 20px 20px 0 0 !important;
+        padding-bottom: calc(24px + env(safe-area-inset-bottom)) !important;
+    }
+
+    /* Topbar : encore plus compact */
+    .topbar {
+        padding-left: max(10px, env(safe-area-inset-left));
+        padding-right: max(10px, env(safe-area-inset-right));
+        gap: 8px;
+    }
+
+    /* Search box plus compact */
+    .search-box input {
+        font-size: 16px;
+        min-height: 38px;
+    }
+
+    /* Sidebar prend toute la largeur quand ouverte */
+    .sidebar {
+        width: 86vw;
+        max-width: 360px;
+    }
+
+    /* Cards de produits : padding interne ajuste */
+    .product {
+        border-radius: 14px;
+    }
+
+    /* Bottom nav : padding ajuste pour iPhones avec home indicator */
+    .bottom-nav-item {
+        padding-top: 6px;
+    }
+}
+
+/* ============================================================
+   📱 MOBILE — TRES PETITS ECRANS (≤ 380px : iPhone SE, etc.)
+   ============================================================ */
+@media (max-width: 380px) {
+    .bottom-nav-item {
+        font-size: 9px;
+        padding: 6px 4px 4px;
+    }
+    .bottom-nav-item svg { width: 20px; height: 20px; }
+    .topbar select { min-width: 90px; font-size: 12px; }
+}
+
+/* ============================================================
+   📱 IPHONE 17 PRO / 16 PRO / 15 PRO (393-430px, dynamic island)
+   Optimisations specifiques pour les nouveaux iPhones avec
+   Dynamic Island (status bar plus haute, ~59pt)
+   ============================================================ */
+@supports (padding: env(safe-area-inset-top)) {
+    @media (min-width: 390px) and (max-width: 440px) {
+        /* Topbar etendue sous le dynamic island */
+        .topbar {
+            padding-top: max(env(safe-area-inset-top), 16px);
+            min-height: calc(var(--topbar-h) + env(safe-area-inset-top));
+        }
+        /* Plus d'air autour des cards principales */
+        .dash-kpis-6,
+        .tx-stats,
+        .admin-stats {
+            gap: 10px;
+        }
+    }
+}
+
+/* ============================================================
+   ACCESSIBILITE TACTILE GLOBALE
+   Tous les boutons interactifs doivent avoir 44pt min (Apple HIG)
+   ============================================================ */
+@media (max-width: 768px) {
+    button,
+    .btn,
+    a.sidebar-link,
+    .product-buy-btn,
+    .pf-add-btn,
+    .filter-chip,
+    .sort-pill,
+    .sim-chip,
+    .tx-chip,
+    .admin-btn {
+        min-height: 40px;
+    }
+    /* tap-highlight discrete pour tous les boutons */
+    button, a, [role="button"] {
+        -webkit-tap-highlight-color: rgba(255,255,255,0.05);
+    }
+}
