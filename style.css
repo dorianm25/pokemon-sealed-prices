@@ -8022,9 +8022,10 @@ body { transition: background-color 0.3s, color 0.3s; }
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
 }
-/* Body : couleur de fond etendue dans la safe zone (sinon zone blanche) */
-body {
-    background-color: var(--bg);
+/* Body + html : couleur de fond etendue dans la safe zone et derriere
+   le rebond/overscroll iOS Safari (sinon zone blanche flash). */
+html, body {
+    background-color: var(--bg-body);
 }
 /* Permet au app-layout d'ignorer la safe zone (le contenu interne s'en occupe) */
 .app-layout {
