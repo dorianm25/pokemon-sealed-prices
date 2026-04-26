@@ -9294,6 +9294,60 @@ html, body {
 }
 
 /* ============================================================
+   📱 MOBILE — FIX CROIX MODAL SOUS LE DYNAMIC ISLAND
+   + AUTORISATION SCROLL VERTICAL SUR LES CHARTS
+   ============================================================ */
+
+/* Toutes les croix de fermeture des modals/overlays doivent etre
+   positionnees SOUS la zone notch/Dynamic Island et avoir un
+   tap target d'au moins 44pt (Apple HIG). */
+.detail-banner-close {
+    top: max(14px, calc(env(safe-area-inset-top) + 8px));
+    right: max(16px, calc(env(safe-area-inset-right) + 12px));
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.modal-close {
+    top: max(12px, calc(env(safe-area-inset-top) + 8px));
+    right: max(14px, calc(env(safe-area-inset-right) + 10px));
+    width: 44px;
+    height: 44px;
+    font-size: 24px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.tx-modal-close,
+.admin-modal .tx-modal-close {
+    width: 44px;
+    height: 44px;
+}
+
+/* Charts : autoriser le scroll vertical de la page meme quand le doigt
+   demarre sur le canvas. touch-action: pan-y indique au navigateur que
+   seul le scroll vertical est gere par lui (Chart.js capte les events
+   horizontaux pour ses tooltips/pan, ce qui est OK). */
+canvas {
+    touch-action: pan-y;
+}
+/* Sur les charts hors modal (dashboard, simulation), c'est encore plus
+   important car ils sont pleinement integres au scroll de la page. */
+.dmi-chart-wrap canvas,
+.sim-chart-wrap canvas,
+#priceChart,
+#portfolioChart,
+#marketIndexChart,
+#pfPerfChart,
+#simGrowthChart {
+    touch-action: pan-y !important;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* ============================================================
    📱 MOBILE — BOTTOM NAV (iPhone, Android)
    Visible uniquement sur les viewports etroits.
    Sur desktop : completement caché.
