@@ -447,20 +447,46 @@
             <!-- ═══ SIMULATION ═══ -->
             <section class="section-simulation" id="sectionSimulation" style="display:none">
                 <h1 class="section-title">Simulation de prix</h1>
-                <p class="section-subtitle">Projection de la valeur de vos produits scellés dans 5, 10 et 20 ans</p>
+                <p class="section-subtitle">Projection de la valeur de vos produits scellés sur l'horizon de votre choix</p>
 
                 <!-- Scenario selector -->
                 <div class="sim-controls">
                     <div class="sim-scenario-bar">
-                        <button class="sim-scenario-btn active" data-scenario="conservative" onclick="setSimScenario('conservative')">🐢 Conservateur</button>
-                        <button class="sim-scenario-btn" data-scenario="moderate" onclick="setSimScenario('moderate')">📊 Modéré</button>
+                        <button class="sim-scenario-btn" data-scenario="pessimistic" onclick="setSimScenario('pessimistic')">📉 Pessimiste</button>
+                        <button class="sim-scenario-btn" data-scenario="conservative" onclick="setSimScenario('conservative')">🐢 Conservateur</button>
+                        <button class="sim-scenario-btn active" data-scenario="moderate" onclick="setSimScenario('moderate')">📊 Modéré</button>
                         <button class="sim-scenario-btn" data-scenario="optimistic" onclick="setSimScenario('optimistic')">🚀 Optimiste</button>
                     </div>
                     <div class="sim-info-bar" id="simInfoBar"></div>
                 </div>
 
+                <!-- Horizon slider + inflation toggle -->
+                <div class="sim-horizon">
+                    <div class="sim-horizon-slider">
+                        <label class="sim-horizon-label" for="simYearsInput">⏱️ Horizon : <strong id="simYearsLabel">10 ans</strong></label>
+                        <input type="range" id="simYearsInput" min="1" max="30" value="10" step="1" oninput="setSimYears(this.value)">
+                        <div class="sim-horizon-ticks">
+                            <span>1</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25</span><span>30</span>
+                        </div>
+                    </div>
+                    <button class="sim-inflation-toggle" id="simInflationBtn" onclick="toggleSimInflation()" type="button">
+                        <span class="sim-inflation-icon">💸</span>
+                        <span>Rendement <strong>réel</strong> (déduit l'inflation 3 %/an)</span>
+                    </button>
+                </div>
+
                 <!-- Global projection -->
                 <div class="sim-global" id="simGlobal"></div>
+
+                <!-- Comparison chart -->
+                <h2 class="trend-section-title">Comparaison des scénarios</h2>
+                <p class="trend-section-desc">Évolution de la valeur totale du catalogue selon les 4 scénarios sur l'horizon choisi (le scénario actif est plein, les autres en pointillés)</p>
+                <div class="sim-chart-wrap"><canvas id="simGrowthChart" height="280"></canvas></div>
+
+                <!-- Investment calculator -->
+                <h2 class="trend-section-title">💰 Calculateur d'investissement</h2>
+                <p class="trend-section-desc">Combien vaudra un investissement donné dans le futur selon chaque scénario</p>
+                <div id="simInvestCalc" class="sim-invest-calc"></div>
 
                 <!-- Series projections -->
                 <h2 class="trend-section-title">Projections par série</h2>

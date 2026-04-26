@@ -3436,12 +3436,30 @@ let simScenario = 'moderate';
 let simFilterType = '';
 let simFilterSeries = '';
 let simSort = 'mult20';
+let simYears = 10;          // Horizon dynamique (1 a 30 ans)
+let simInflation = false;   // Mode rendement reel (deduit ~3%/an d'inflation)
+
+const SIM_INFLATION_RATE = 0.03; // 3 %/an, moyenne historique zone euro
 
 function setSimScenario(scenario) {
     simScenario = scenario;
     document.querySelectorAll('.sim-scenario-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.scenario === scenario);
     });
+    renderSimulation();
+}
+
+function setSimYears(years) {
+    simYears = Math.max(1, Math.min(30, parseInt(years) || 10));
+    const lbl = document.getElementById('simYearsLabel');
+    if (lbl) lbl.textContent = `${simYears} an${simYears > 1 ? 's' : ''}`;
+    renderSimulation();
+}
+
+function toggleSimInflation() {
+    simInflation = !simInflation;
+    const btn = document.getElementById('simInflationBtn');
+    if (btn) btn.classList.toggle('active', simInflation);
     renderSimulation();
 }
 
@@ -3462,17 +3480,26 @@ function setSimSort(sort) {
 
 // Taux de croissance annuel estimé selon le scénario et le type de produit
 function getGrowthRate(type, scenario, seriesAge) {
-    // Base rates par type (les ETB et displays prennent plus de valeur)
+    // Base rates par type (les ETB et displays prennent plus de valeur).
+    // Pessimistic = correction de marche / saturation (croissance faible voire negative).
     const baseRates = {
+        pessimistic:  { etb: -0.02, display: -0.01, display18: -0.03, booster: 0.00, tripack: -0.04, bundle: -0.03, dispbundle: 0.00 },
         conservative: { etb: 0.06, display: 0.08, display18: 0.05, booster: 0.10, tripack: 0.04, bundle: 0.05, dispbundle: 0.07 },
         moderate:     { etb: 0.10, display: 0.12, display18: 0.08, booster: 0.15, tripack: 0.06, bundle: 0.08, dispbundle: 0.10 },
         optimistic:   { etb: 0.15, display: 0.18, display18: 0.12, booster: 0.22, tripack: 0.10, bundle: 0.12, dispbundle: 0.15 },
     };
-    let rate = baseRates[scenario]?.[type] || baseRates[scenario]?.etb || 0.08;
+    let rate = baseRates[scenario]?.[type];
+    if (rate === undefined) rate = baseRates[scenario]?.etb ?? 0.08;
 
-    // Bonus d'âge : les séries plus anciennes ont prouvé leur valeur
-    if (seriesAge >= 5) rate *= 1.15;
-    if (seriesAge >= 10) rate *= 1.10;
+    // Bonus d'age : les series plus anciennes ont prouve leur valeur.
+    // Ne s'applique qu'aux scenarios positifs (sinon on accelere une chute).
+    if (rate > 0) {
+        if (seriesAge >= 5) rate *= 1.15;
+        if (seriesAge >= 10) rate *= 1.10;
+    }
+
+    // Mode rendement reel : on deduit l'inflation
+    if (simInflation) rate -= SIM_INFLATION_RATE;
 
     return rate;
 }
@@ -3509,19 +3536,21 @@ function projectPrice(currentPrice, type, years, scenario, seriesAge) {
 }
 
 function renderSimulation() {
-    const scenarioLabels = {
-        conservative: { label: 'Conservateur', desc: 'Croissance lente et stable, similaire aux placements classiques. Hypothèse : le marché Pokémon continue mais ralentit.', color: 'var(--blue)' },
-        moderate:     { label: 'Modéré', desc: 'Croissance soutenue basée sur les tendances actuelles du marché scellé Pokémon. Hypothèse : la demande reste forte.', color: 'var(--orange)' },
-        optimistic:   { label: 'Optimiste', desc: 'Forte croissance portée par la nostalgie grandissante et la raréfaction des produits scellés. Hypothèse : boom du marché.', color: 'var(--green-light)' },
+    const scenarioMeta = {
+        pessimistic:  { label: 'Pessimiste',   icon: '📉', color: '#ef4444', desc: 'Correction du marche : saturation de l\'offre, baisse de la demande. Hypothese : crash partiel.' },
+        conservative: { label: 'Conservateur', icon: '🐢', color: '#38bdf8', desc: 'Croissance lente et stable, similaire aux placements classiques. Hypothese : le marche continue mais ralentit.' },
+        moderate:     { label: 'Modéré',       icon: '📊', color: '#f59e0b', desc: 'Croissance soutenue basee sur les tendances actuelles du marche scelle. Hypothese : la demande reste forte.' },
+        optimistic:   { label: 'Optimiste',    icon: '🚀', color: '#22c55e', desc: 'Forte croissance portee par la nostalgie et la rarefaction. Hypothese : boom du marche.' },
     };
 
-    const info = scenarioLabels[simScenario];
+    const info = scenarioMeta[simScenario];
     document.getElementById('simInfoBar').innerHTML = `
-        <span class="sim-info-label" style="color:${info.color}">📋 ${info.label}</span>
+        <span class="sim-info-label" style="color:${info.color}">${info.icon} ${info.label}</span>
         <span class="sim-info-desc">${info.desc}</span>
+        ${simInflation ? '<span class="sim-info-pill">Réel (−3 %/an inflation)</span>' : '<span class="sim-info-pill sim-info-pill-muted">Nominal</span>'}
     `;
 
-    // Grouper par série
+    // Grouper par serie
     const seriesMap = {};
     for (const p of products) {
         if (!p._ebayLoaded && p.price <= 0) continue;
@@ -3533,65 +3562,76 @@ function renderSimulation() {
     }
     const series = Object.values(seriesMap);
 
-    // Calcul des projections globales
-    let totalNow = 0, total5 = 0, total10 = 0, total20 = 0;
+    // Calcul des projections globales pour le scenario actif (sur l'horizon simYears)
+    const Y = simYears;
+    let totalNow = 0, totalEnd = 0;
+    let totalMid = 0; // a Y/2 pour le KPI intermediate
+    const midY = Math.max(1, Math.round(Y / 2));
     const seriesProjections = series.map(s => {
         const age = getSeriesAge(s.code);
-        let setNow = 0, set5 = 0, set10 = 0, set20 = 0;
+        let setNow = 0, setMid = 0, setEnd = 0;
         const prodProj = s.products.map(p => {
             const msrp = MSRP[p.type] || 0;
             const price = p.price > 0 ? p.price : msrp;
             if (price <= 0) return null;
-            const p5 = projectPrice(price, p.type, 5, simScenario, age);
-            const p10 = projectPrice(price, p.type, 10, simScenario, age);
-            const p20 = projectPrice(price, p.type, 20, simScenario, age);
-            setNow += price; set5 += p5; set10 += p10; set20 += p20;
-            return { ...p, msrp, projected5: p5, projected10: p10, projected20: p20 };
+            const projMid = projectPrice(price, p.type, midY, simScenario, age);
+            const projEnd = projectPrice(price, p.type, Y, simScenario, age);
+            // On garde aussi 5/10/20 pour la table (compat) si Y=10 par defaut
+            const proj5 = projectPrice(price, p.type, 5, simScenario, age);
+            const proj10 = projectPrice(price, p.type, 10, simScenario, age);
+            const proj20 = projectPrice(price, p.type, 20, simScenario, age);
+            setNow += price; setMid += projMid; setEnd += projEnd;
+            return { ...p, msrp, projectedMid: projMid, projectedEnd: projEnd, projected5: proj5, projected10: proj10, projected20: proj20 };
         }).filter(Boolean);
 
-        totalNow += setNow; total5 += set5; total10 += set10; total20 += set20;
-        return { ...s, setNow, set5, set10, set20, prodProj, age };
+        totalNow += setNow; totalMid += setMid; totalEnd += setEnd;
+        return { ...s, setNow, setMid, setEnd, prodProj, age };
     });
 
-    // Render global KPIs
-    const mult5 = totalNow > 0 ? total5 / totalNow : 0;
-    const mult10 = totalNow > 0 ? total10 / totalNow : 0;
-    const mult20 = totalNow > 0 ? total20 / totalNow : 0;
+    // KPIs globaux : actuel, mid, end + CAGR
+    const multEnd = totalNow > 0 ? totalEnd / totalNow : 0;
+    const multMid = totalNow > 0 ? totalMid / totalNow : 0;
+    // CAGR = (Vend / Vnow)^(1/Y) - 1 -- en %
+    const cagr = totalNow > 0 ? (Math.pow(multEnd, 1 / Y) - 1) * 100 : 0;
+    const cagrCls = cagr >= 5 ? 'positive' : cagr <= 0 ? 'negative' : '';
+    const cagrSign = cagr >= 0 ? '+' : '';
 
     document.getElementById('simGlobal').innerHTML = `
-        <div class="sim-kpi-grid">
+        <div class="sim-kpi-grid sim-kpi-grid-4">
             <div class="sim-kpi sim-kpi-now">
                 <div class="sim-kpi-label">Valeur actuelle</div>
                 <div class="sim-kpi-value">${fmt(totalNow)}</div>
                 <div class="sim-kpi-sub">Tous les sets combinés</div>
             </div>
-            <div class="sim-kpi sim-kpi-5">
-                <div class="sim-kpi-label">Dans 5 ans</div>
-                <div class="sim-kpi-value">${fmt(Math.round(total5))}</div>
-                <div class="sim-kpi-sub">×${mult5.toFixed(1)} · +${((mult5 - 1) * 100).toFixed(0)}%</div>
+            <div class="sim-kpi sim-kpi-mid">
+                <div class="sim-kpi-label">Dans ${midY} an${midY > 1 ? 's' : ''}</div>
+                <div class="sim-kpi-value">${fmt(Math.round(totalMid))}</div>
+                <div class="sim-kpi-sub">×${multMid.toFixed(2)} · ${multMid >= 1 ? '+' : ''}${((multMid - 1) * 100).toFixed(0)} %</div>
             </div>
-            <div class="sim-kpi sim-kpi-10">
-                <div class="sim-kpi-label">Dans 10 ans</div>
-                <div class="sim-kpi-value">${fmt(Math.round(total10))}</div>
-                <div class="sim-kpi-sub">×${mult10.toFixed(1)} · +${((mult10 - 1) * 100).toFixed(0)}%</div>
+            <div class="sim-kpi sim-kpi-end" style="border-color:${info.color}55">
+                <div class="sim-kpi-label">Dans ${Y} an${Y > 1 ? 's' : ''}</div>
+                <div class="sim-kpi-value" style="color:${info.color}">${fmt(Math.round(totalEnd))}</div>
+                <div class="sim-kpi-sub">×${multEnd.toFixed(2)} · ${multEnd >= 1 ? '+' : ''}${((multEnd - 1) * 100).toFixed(0)} %</div>
             </div>
-            <div class="sim-kpi sim-kpi-20">
-                <div class="sim-kpi-label">Dans 20 ans</div>
-                <div class="sim-kpi-value">${fmt(Math.round(total20))}</div>
-                <div class="sim-kpi-sub">×${mult20.toFixed(1)} · +${((mult20 - 1) * 100).toFixed(0)}%</div>
+            <div class="sim-kpi sim-kpi-cagr">
+                <div class="sim-kpi-label">Rendement annualisé (CAGR)</div>
+                <div class="sim-kpi-value ${cagrCls}">${cagrSign}${cagr.toFixed(2)} %</div>
+                <div class="sim-kpi-sub">Sur ${Y} an${Y > 1 ? 's' : ''} ${simInflation ? '(reel)' : '(nominal)'}</div>
             </div>
         </div>
     `;
 
-    // Render series projections
-    seriesProjections.sort((a, b) => b.set20 - a.set20);
+    // Chart de comparaison des 4 scenarios (Chart.js, line)
+    renderSimGrowthChart(seriesMap);
+
+    // Render series projections (utilise l'horizon dynamique simYears)
+    seriesProjections.sort((a, b) => b.setEnd - a.setEnd);
     document.getElementById('simSeriesGrid').innerHTML = `
         <div class="sim-series-grid">
             ${seriesProjections.map(s => {
-                const m5 = s.setNow > 0 ? s.set5 / s.setNow : 0;
-                const m10 = s.setNow > 0 ? s.set10 / s.setNow : 0;
-                const m20 = s.setNow > 0 ? s.set20 / s.setNow : 0;
-                const heatClass = m20 >= 8 ? 'sim-heat-fire' : m20 >= 4 ? 'sim-heat-hot' : m20 >= 2.5 ? 'sim-heat-warm' : 'sim-heat-cool';
+                const mMid = s.setNow > 0 ? s.setMid / s.setNow : 0;
+                const mEnd = s.setNow > 0 ? s.setEnd / s.setNow : 0;
+                const heatClass = mEnd >= 8 ? 'sim-heat-fire' : mEnd >= 4 ? 'sim-heat-hot' : mEnd >= 2.5 ? 'sim-heat-warm' : mEnd >= 1.2 ? 'sim-heat-cool' : 'sim-heat-cold';
                 return `<div class="sim-series-card ${heatClass}">
                     <div class="sim-series-header">
                         <span class="sim-series-code">${s.code}</span>
@@ -3602,34 +3642,30 @@ function renderSimulation() {
                             <span class="sim-bar-label">Actuel</span>
                             <span class="sim-bar-value">${fmt(Math.round(s.setNow))}</span>
                         </div>
-                        <div class="sim-bar-segment sim-bar-5" style="flex:${m5.toFixed(1)}">
-                            <span class="sim-bar-label">5 ans</span>
-                            <span class="sim-bar-value">${fmt(Math.round(s.set5))}</span>
+                        <div class="sim-bar-segment sim-bar-5" style="flex:${Math.max(0.5, mMid).toFixed(1)}">
+                            <span class="sim-bar-label">${midY} an${midY > 1 ? 's' : ''}</span>
+                            <span class="sim-bar-value">${fmt(Math.round(s.setMid))}</span>
                         </div>
-                        <div class="sim-bar-segment sim-bar-10" style="flex:${Math.min(m10, 6).toFixed(1)}">
-                            <span class="sim-bar-label">10 ans</span>
-                            <span class="sim-bar-value">${fmt(Math.round(s.set10))}</span>
-                        </div>
-                        <div class="sim-bar-segment sim-bar-20" style="flex:${Math.min(m20, 10).toFixed(1)}">
-                            <span class="sim-bar-label">20 ans</span>
-                            <span class="sim-bar-value">${fmt(Math.round(s.set20))}</span>
+                        <div class="sim-bar-segment sim-bar-20" style="flex:${Math.max(0.5, Math.min(mEnd, 10)).toFixed(1)}">
+                            <span class="sim-bar-label">${Y} ans</span>
+                            <span class="sim-bar-value">${fmt(Math.round(s.setEnd))}</span>
                         </div>
                     </div>
                     <div class="sim-series-mults">
-                        <span>×${m5.toFixed(1)} à 5 ans</span>
-                        <span>×${m10.toFixed(1)} à 10 ans</span>
-                        <span class="sim-mult-main">×${m20.toFixed(1)} à 20 ans</span>
+                        <span>×${mMid.toFixed(2)} à ${midY} an${midY > 1 ? 's' : ''}</span>
+                        <span class="sim-mult-main">×${mEnd.toFixed(2)} à ${Y} ans</span>
                     </div>
                 </div>`;
             }).join('')}
         </div>
     `;
 
-    // Store all products globally for filtering
+    // Store all products globally for filtering / calculator
     window._simAllProds = seriesProjections.flatMap(s => s.prodProj.map(p => ({ ...p, seriesCode: s.code, seriesName: s.name })));
     window._simSeriesList = seriesProjections.map(s => ({ code: s.code, name: s.name }));
 
     renderSimProductTable();
+    renderSimInvestCalc();
 }
 
 function renderSimProductTable() {
@@ -3697,11 +3733,11 @@ function renderSimProductTable() {
                 <span class="sim-col-5">5 ans</span>
                 <span class="sim-col-10">10 ans</span>
                 <span class="sim-col-20">20 ans</span>
-                <span class="sim-col-mult">×Multi</span>
+                <span class="sim-col-mult">×Multi 20 ans</span>
             </div>
             ${filtered.map((p, i) => {
                 const mult = p.price > 0 ? p.projected20 / p.price : 0;
-                const multClass = mult >= 10 ? 'sim-mult-fire' : mult >= 5 ? 'sim-mult-hot' : mult >= 3 ? 'sim-mult-warm' : '';
+                const multClass = mult >= 10 ? 'sim-mult-fire' : mult >= 5 ? 'sim-mult-hot' : mult >= 3 ? 'sim-mult-warm' : mult < 1 ? 'sim-mult-cold' : '';
                 return `<div class="sim-prod-row">
                     <span class="sim-col-rank">${i + 1}</span>
                     <div class="sim-col-name">
@@ -3712,11 +3748,189 @@ function renderSimProductTable() {
                     <span class="sim-col-5">${fmt(Math.round(p.projected5))}</span>
                     <span class="sim-col-10">${fmt(Math.round(p.projected10))}</span>
                     <span class="sim-col-20">${fmt(Math.round(p.projected20))}</span>
-                    <span class="sim-col-mult ${multClass}">×${mult.toFixed(1)}</span>
+                    <span class="sim-col-mult ${multClass}">×${mult.toFixed(2)}</span>
                 </div>`;
             }).join('')}
         </div>
     `;
+}
+
+// ── Chart de comparaison des 4 scenarios sur l'horizon simYears ──
+let _simGrowthChartInstance = null;
+
+function renderSimGrowthChart(seriesMap) {
+    const canvas = document.getElementById('simGrowthChart');
+    if (!canvas) return;
+    const Y = simYears;
+    const scenarios = ['pessimistic', 'conservative', 'moderate', 'optimistic'];
+    const meta = {
+        pessimistic:  { color: '#ef4444', label: 'Pessimiste' },
+        conservative: { color: '#38bdf8', label: 'Conservateur' },
+        moderate:     { color: '#f59e0b', label: 'Modéré' },
+        optimistic:   { color: '#22c55e', label: 'Optimiste' },
+    };
+
+    // Pour chaque scenario, calcule la valeur totale du portefeuille de tracking
+    // pour chaque annee de 0 a Y. Equal-weighted sur tous les produits ayant un prix.
+    const labels = Array.from({ length: Y + 1 }, (_, i) => `An ${i}`);
+    const datasets = scenarios.map(scenario => {
+        const data = [];
+        for (let year = 0; year <= Y; year++) {
+            let sum = 0;
+            for (const s of Object.values(seriesMap)) {
+                const age = getSeriesAge(s.code);
+                for (const p of s.products) {
+                    const price = p.price > 0 ? p.price : (MSRP[p.type] || 0);
+                    if (price <= 0) continue;
+                    sum += projectPrice(price, p.type, year, scenario, age);
+                }
+            }
+            data.push(Math.round(sum));
+        }
+        const isActive = scenario === simScenario;
+        return {
+            label: meta[scenario].label,
+            data,
+            borderColor: meta[scenario].color,
+            backgroundColor: isActive ? meta[scenario].color + '22' : 'transparent',
+            borderWidth: isActive ? 3 : 1.5,
+            borderDash: isActive ? [] : [4, 4],
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0.3,
+            fill: isActive,
+        };
+    });
+
+    if (_simGrowthChartInstance) _simGrowthChartInstance.destroy();
+    const ctx = canvas.getContext('2d');
+    _simGrowthChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: { color: 'rgba(226,232,240,0.85)', font: { size: 11 }, boxWidth: 14, boxHeight: 2, padding: 14, usePointStyle: false },
+                },
+                tooltip: {
+                    callbacks: {
+                        title: (items) => `Année ${items[0].dataIndex} (${new Date().getFullYear() + items[0].dataIndex})`,
+                        label: (c) => `${c.dataset.label} : ${fmt(c.parsed.y)}`,
+                    },
+                },
+            },
+            scales: {
+                x: { ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8, color: 'rgba(148,163,184,0.7)', font: { size: 10 } }, grid: { display: false } },
+                y: {
+                    ticks: { color: 'rgba(148,163,184,0.7)', font: { size: 10 }, callback: (v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k €` : `${v} €` },
+                    grid: { color: 'rgba(148,163,184,0.08)' },
+                },
+            },
+        },
+    });
+}
+
+// ── Calculateur d'investissement personnel ─────────────────
+function renderSimInvestCalc() {
+    const wrap = document.getElementById('simInvestCalc');
+    if (!wrap) return;
+    const allProds = window._simAllProds || [];
+    if (!allProds.length) {
+        wrap.innerHTML = '<p class="sim-info-desc" style="text-align:center;padding:20px">Chargement des produits…</p>';
+        return;
+    }
+
+    // Garde le state via dataset, ou defaults
+    const amount = parseFloat(wrap.dataset.amount) || 1000;
+    const productName = wrap.dataset.product || allProds[0].name;
+    const product = allProds.find(p => p.name === productName) || allProds[0];
+
+    const qty = product.price > 0 ? Math.floor(amount / product.price) : 0;
+    const realInvested = qty * product.price;
+    const reste = amount - realInvested;
+
+    // Projection sur tous les scenarios pour Y annees
+    const Y = simYears;
+    const scenarios = [
+        { id: 'pessimistic', label: 'Pessimiste', icon: '📉', color: '#ef4444' },
+        { id: 'conservative', label: 'Conservateur', icon: '🐢', color: '#38bdf8' },
+        { id: 'moderate', label: 'Modéré', icon: '📊', color: '#f59e0b' },
+        { id: 'optimistic', label: 'Optimiste', icon: '🚀', color: '#22c55e' },
+    ];
+    const projs = scenarios.map(s => {
+        const futureUnit = projectPrice(product.price, product.type, Y, s.id, getSeriesAge(product.seriesCode));
+        const futureTotal = futureUnit * qty;
+        const pnl = futureTotal - realInvested;
+        const cagr = realInvested > 0 ? (Math.pow(futureTotal / realInvested, 1 / Y) - 1) * 100 : 0;
+        return { ...s, futureUnit, futureTotal, pnl, cagr };
+    });
+
+    wrap.innerHTML = `
+        <div class="sim-calc-form">
+            <div class="sim-calc-field">
+                <label class="sim-calc-label">Montant à investir</label>
+                <div class="sim-calc-input-wrap">
+                    <input type="number" class="sim-calc-input" id="simCalcAmount" value="${amount}" min="10" step="50" oninput="updateSimInvestCalc()">
+                    <span class="sim-calc-input-suffix">€</span>
+                </div>
+            </div>
+            <div class="sim-calc-field">
+                <label class="sim-calc-label">Produit</label>
+                <select class="sim-calc-input" id="simCalcProduct" onchange="updateSimInvestCalc()">
+                    ${allProds
+                        .filter(p => p.price > 0)
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(p => `<option value="${p.name.replace(/"/g, '&quot;')}" ${p.name === product.name ? 'selected' : ''}>${p.name} — ${fmt(p.price)}</option>`)
+                        .join('')}
+                </select>
+            </div>
+            <div class="sim-calc-field">
+                <label class="sim-calc-label">Horizon</label>
+                <div class="sim-calc-input sim-calc-input-readonly">${Y} an${Y > 1 ? 's' : ''}</div>
+            </div>
+        </div>
+
+        <div class="sim-calc-summary">
+            <div class="sim-calc-summary-row">
+                <span class="sim-calc-summary-label">Quantité achetable</span>
+                <span class="sim-calc-summary-val"><strong>${qty}</strong> exemplaire${qty > 1 ? 's' : ''}</span>
+            </div>
+            <div class="sim-calc-summary-row">
+                <span class="sim-calc-summary-label">Investi réellement</span>
+                <span class="sim-calc-summary-val">${fmt(realInvested)} ${reste > 0.01 ? `<span class="sim-calc-rest">+ ${fmt(Math.round(reste * 100) / 100)} restants</span>` : ''}</span>
+            </div>
+        </div>
+
+        <div class="sim-calc-grid">
+            ${projs.map(s => {
+                const cls = s.pnl >= 0 ? 'positive' : 'negative';
+                const sign = s.pnl >= 0 ? '+' : '';
+                return `<div class="sim-calc-scenario" style="border-color:${s.color}55">
+                    <div class="sim-calc-scenario-head">
+                        <span class="sim-calc-scenario-icon">${s.icon}</span>
+                        <span class="sim-calc-scenario-label" style="color:${s.color}">${s.label}</span>
+                    </div>
+                    <div class="sim-calc-scenario-val">${qty > 0 ? fmt(Math.round(s.futureTotal)) : '—'}</div>
+                    <div class="sim-calc-scenario-pnl ${cls}">${qty > 0 ? `${sign}${fmt(Math.round(s.pnl))} (${sign}${s.cagr.toFixed(2)} %/an)` : ''}</div>
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+}
+
+function updateSimInvestCalc() {
+    const wrap = document.getElementById('simInvestCalc');
+    if (!wrap) return;
+    const amount = document.getElementById('simCalcAmount')?.value;
+    const product = document.getElementById('simCalcProduct')?.value;
+    if (amount) wrap.dataset.amount = amount;
+    if (product) wrap.dataset.product = product;
+    renderSimInvestCalc();
 }
 
 // ── Score d'investissement ─────────────────────────────────
