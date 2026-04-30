@@ -781,6 +781,8 @@ function switchSection(section, e) {
     if (adminSec) adminSec.style.display = section === 'admin' ? 'block' : 'none';
     const txSec = document.getElementById('sectionTransactions');
     if (txSec) txSec.style.display = section === 'transactions' ? 'block' : 'none';
+    const moversSec = document.getElementById('sectionMovers');
+    if (moversSec) moversSec.style.display = section === 'movers' ? 'block' : 'none';
 
     // Show/hide sidebar filters
     document.getElementById('sidebarFilters').style.display = section === 'catalogue' ? 'block' : 'none';
@@ -791,6 +793,7 @@ function switchSection(section, e) {
     if (section === 'simulation') renderSimulation();
     if (section === 'admin') loadAdminPage();
     if (section === 'transactions') loadTransactionsPage();
+    if (section === 'movers') loadMoversPage();
 }
 
 // Helper : verifie si l'utilisateur connecte est l'admin (par defaut 'dorian').
@@ -6165,6 +6168,186 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 });
+
+// ── Page Mouvements de prix ──────────────────────────────
+let _moversPeriod = 1;       // jours (1, 7, 30)
+let _moversFilter = 'all';   // 'all' | 'up' | 'down' | 'pf'
+let _moversSort = 'pct_desc';// 'pct_desc' | 'pct_asc' | 'eur_desc' | 'eur_asc'
+let _moversCache = null;
+
+async function loadMoversPage() {
+    const container = document.getElementById('moversContent');
+    if (!container) return;
+    container.innerHTML = '<div class="movers-loading">Chargement…</div>';
+    try {
+        const res = await fetch(`/api/movers?days=${_moversPeriod}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        _moversCache = await res.json();
+        renderMoversPage();
+    } catch (e) {
+        container.innerHTML = `<div class="movers-empty">Erreur de chargement (${e.message || 'inconnue'}).</div>`;
+    }
+}
+
+function renderMoversPage() {
+    if (!_moversCache) return;
+    const container = document.getElementById('moversContent');
+    let items = [..._moversCache.items];
+
+    // Filtrage portfolio (si filtre actif et user connecte)
+    let pfNames = null;
+    if (_moversFilter === 'pf' && currentUser) {
+        const pf = loadPortfolioSync();
+        pfNames = new Set(Object.entries(pf).filter(([, v]) => v && v.qty > 0).map(([k]) => k));
+        items = items.filter(it => pfNames.has(it.name));
+    }
+
+    // Filtrage hausse/baisse
+    if (_moversFilter === 'up') items = items.filter(it => it.deltaPct > 0);
+    if (_moversFilter === 'down') items = items.filter(it => it.deltaPct < 0);
+
+    // Tri
+    const sortFns = {
+        pct_desc: (a, b) => b.deltaPct - a.deltaPct,
+        pct_asc: (a, b) => a.deltaPct - b.deltaPct,
+        eur_desc: (a, b) => b.deltaEur - a.deltaEur,
+        eur_asc: (a, b) => a.deltaEur - b.deltaEur,
+    };
+    items.sort(sortFns[_moversSort] || sortFns.pct_desc);
+
+    // Stats globales
+    const allUp = _moversCache.items.filter(it => it.deltaPct > 0);
+    const allDown = _moversCache.items.filter(it => it.deltaPct < 0);
+    const allFlat = _moversCache.items.filter(it => it.deltaPct === 0);
+    const avgPct = _moversCache.items.length > 0
+        ? _moversCache.items.reduce((s, it) => s + it.deltaPct, 0) / _moversCache.items.length
+        : 0;
+    const avgClass = avgPct > 0.3 ? 'positive' : avgPct < -0.3 ? 'negative' : '';
+    const avgSign = avgPct >= 0 ? '+' : '';
+
+    const periodLabel = _moversPeriod === 1 ? '24 heures'
+        : _moversPeriod === 7 ? '7 jours'
+        : _moversPeriod === 30 ? '30 jours' : `${_moversPeriod} jours`;
+
+    container.innerHTML = `
+        <!-- Stats globales sur la periode -->
+        <div class="movers-stats">
+            <div class="movers-stat movers-stat-up">
+                <div class="movers-stat-icon">📈</div>
+                <div>
+                    <div class="movers-stat-value">${allUp.length}</div>
+                    <div class="movers-stat-label">en hausse</div>
+                </div>
+            </div>
+            <div class="movers-stat movers-stat-down">
+                <div class="movers-stat-icon">📉</div>
+                <div>
+                    <div class="movers-stat-value">${allDown.length}</div>
+                    <div class="movers-stat-label">en baisse</div>
+                </div>
+            </div>
+            <div class="movers-stat movers-stat-flat">
+                <div class="movers-stat-icon">➖</div>
+                <div>
+                    <div class="movers-stat-value">${allFlat.length}</div>
+                    <div class="movers-stat-label">stables</div>
+                </div>
+            </div>
+            <div class="movers-stat movers-stat-avg">
+                <div class="movers-stat-icon">📊</div>
+                <div>
+                    <div class="movers-stat-value ${avgClass}">${avgSign}${avgPct.toFixed(2)} %</div>
+                    <div class="movers-stat-label">variation moyenne</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sélecteurs période -->
+        <div class="movers-controls">
+            <div class="movers-period-bar">
+                <button class="movers-period-btn ${_moversPeriod === 1 ? 'active' : ''}" onclick="setMoversPeriod(1)">24h</button>
+                <button class="movers-period-btn ${_moversPeriod === 7 ? 'active' : ''}" onclick="setMoversPeriod(7)">7j</button>
+                <button class="movers-period-btn ${_moversPeriod === 30 ? 'active' : ''}" onclick="setMoversPeriod(30)">30j</button>
+            </div>
+            <div class="movers-filter-bar">
+                <button class="movers-chip ${_moversFilter === 'all' ? 'active' : ''}" onclick="setMoversFilter('all')">Tous</button>
+                <button class="movers-chip ${_moversFilter === 'up' ? 'active up' : ''}" onclick="setMoversFilter('up')">📈 Hausses</button>
+                <button class="movers-chip ${_moversFilter === 'down' ? 'active down' : ''}" onclick="setMoversFilter('down')">📉 Baisses</button>
+                ${currentUser ? `<button class="movers-chip ${_moversFilter === 'pf' ? 'active pf' : ''}" onclick="setMoversFilter('pf')">💼 Mon portfolio</button>` : ''}
+            </div>
+            <div class="movers-sort-wrap">
+                <select class="movers-sort" onchange="setMoversSort(this.value)">
+                    <option value="pct_desc" ${_moversSort === 'pct_desc' ? 'selected' : ''}>% Variation ↓</option>
+                    <option value="pct_asc" ${_moversSort === 'pct_asc' ? 'selected' : ''}>% Variation ↑</option>
+                    <option value="eur_desc" ${_moversSort === 'eur_desc' ? 'selected' : ''}>€ Variation ↓</option>
+                    <option value="eur_asc" ${_moversSort === 'eur_asc' ? 'selected' : ''}>€ Variation ↑</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Compteur -->
+        <div class="movers-count">${items.length} item${items.length > 1 ? 's' : ''} sur la période <strong>${periodLabel}</strong></div>
+
+        <!-- Liste -->
+        <div class="movers-list">
+            ${items.length === 0 ? `
+                <div class="movers-empty">
+                    ${_moversFilter === 'pf'
+                        ? 'Aucun item de votre portfolio n\'a bougé sur cette période.'
+                        : 'Aucun item ne correspond aux filtres.'}
+                </div>
+            ` : items.map(it => {
+                const pctCls = it.deltaPct > 0.3 ? 'up' : it.deltaPct < -0.3 ? 'down' : 'flat';
+                const sign = it.deltaPct >= 0 ? '+' : '';
+                const eurSign = it.deltaEur >= 0 ? '+' : '';
+                // Bar width : on cap a 30% pour rester lisible
+                const barPct = Math.min(Math.abs(it.deltaPct) * 3, 100);
+                const inPf = pfNames && pfNames.has(it.name);
+                const safeName = it.name.replace(/'/g, "\\'");
+                return `<div class="mover-row mover-row-${pctCls}" onclick="openDetail('${safeName}')">
+                    <div class="mover-info">
+                        <div class="mover-name">
+                            ${it.name}
+                            ${inPf ? '<span class="mover-pf-badge">💼</span>' : ''}
+                        </div>
+                        <div class="mover-prices">
+                            <span class="mover-price-before">${fmt(it.priceBefore)}</span>
+                            <span class="mover-arrow">→</span>
+                            <span class="mover-price-now"><strong>${fmt(it.priceNow)}</strong></span>
+                        </div>
+                    </div>
+                    <div class="mover-bar-wrap">
+                        <div class="mover-bar mover-bar-${pctCls}" style="width:${barPct}%"></div>
+                    </div>
+                    <div class="mover-deltas">
+                        <span class="mover-delta-pct mover-delta-${pctCls}">${sign}${it.deltaPct.toFixed(2)} %</span>
+                        <span class="mover-delta-eur mover-delta-${pctCls}">${eurSign}${fmt(it.deltaEur)}</span>
+                    </div>
+                </div>`;
+            }).join('')}
+        </div>
+
+        <!-- Footer info -->
+        <div class="movers-footer">
+            Comparé du <strong>${new Date(_moversCache.targetDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</strong> à aujourd'hui · ${_moversCache.count} items avec historique
+        </div>
+    `;
+}
+
+function setMoversPeriod(days) {
+    _moversPeriod = days;
+    loadMoversPage();
+}
+
+function setMoversFilter(filter) {
+    _moversFilter = filter;
+    renderMoversPage();
+}
+
+function setMoversSort(sort) {
+    _moversSort = sort;
+    renderMoversPage();
+}
 
 // ── Chart.js : permet le scroll vertical sur mobile ──────────
 // Par defaut Chart.js attache des listeners 'touchmove' qui peuvent

@@ -868,6 +868,55 @@ app.get('/api/trends-7d', async (_req, res) => {
     res.json(result);
 });
 
+// API : mouvements de prix sur N jours (1, 7, 30, etc.)
+// Retourne pour CHAQUE produit avec historique : prix avant, prix maintenant,
+// variation en € et %, dates de comparaison. Trie cote front.
+app.get('/api/movers', async (req, res) => {
+    const days = Math.max(1, Math.min(365, parseInt(req.query.days) || 1));
+    const target = new Date();
+    target.setDate(target.getDate() - days);
+    const targetStr = target.toISOString().slice(0, 10);
+
+    const items = [];
+    for (const p of PRODUCTS_TO_TRACK) {
+        const history = await readHistory(p.id);
+        if (history.length < 2) continue;
+        const now = history[history.length - 1];
+        // Cherche l'entree la plus proche de la date cible (pas plus recente que la cible)
+        let old = null;
+        for (const h of history) {
+            if (h.date <= targetStr) old = h;
+        }
+        // Fallback : si pas d'entree assez ancienne, prend la plus ancienne dispo
+        if (!old && history.length > 1) old = history[0];
+        if (!old || old.date === now.date) continue;
+
+        const priceBefore = old.median || old.lastPrice || 0;
+        const priceNow = now.median || now.lastPrice || 0;
+        if (priceBefore <= 0 || priceNow <= 0) continue;
+
+        const deltaEur = priceNow - priceBefore;
+        const deltaPct = (deltaEur / priceBefore) * 100;
+        items.push({
+            id: p.id,
+            name: p.name,
+            type: p.id.split('-').pop(),  // suffix du produit (etb, display, etc.)
+            priceBefore: Math.round(priceBefore * 100) / 100,
+            priceNow: Math.round(priceNow * 100) / 100,
+            deltaEur: Math.round(deltaEur * 100) / 100,
+            deltaPct: Math.round(deltaPct * 100) / 100,
+            dateBefore: old.date,
+            dateNow: now.date,
+        });
+    }
+    res.json({
+        days,
+        targetDate: targetStr,
+        count: items.length,
+        items,
+    });
+});
+
 // API : indice "marche scelle"
 //
 // Methodologie : equal-weighted geometric. Pour chaque jour D :

@@ -70,6 +70,10 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                         Tendances
                     </a>
+                    <a href="#" class="sidebar-link" data-section="movers" onclick="switchSection('movers', event)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 6l-9.5 9.5-5-5L1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                        Mouvements
+                    </a>
                     <a href="#" class="sidebar-link" data-section="simulation" onclick="switchSection('simulation', event)">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                         Simulation
@@ -206,6 +210,10 @@
                         <p class="page-desc">Suivez la performance de vos produits scellés en temps réel</p>
                     </div>
                     <div class="pf-hero-actions">
+                        <button class="pf-scan-btn" onclick="openBarcodeScanner()" title="Scanner un code-barres" aria-label="Scanner un code-barres">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="7" y1="14" x2="7" y2="14"/></svg>
+                            <span class="pf-scan-label">Scanner</span>
+                        </button>
                         <button class="pf-save-btn" id="pfSaveBtn" onclick="confirmPfChanges()" disabled aria-live="polite">
                             <svg class="pf-save-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                             <span class="pf-save-label">Sauvegardé</span>
@@ -505,6 +513,22 @@
                 <!-- Disclaimer -->
                 <div class="sim-disclaimer">
                     ⚠️ Ces projections sont purement indicatives et basées sur les tendances actuelles. Le marché du Pokémon scellé est volatile et les performances passées ne garantissent pas les résultats futurs.
+                </div>
+            </section>
+
+            <!-- ═══ MOUVEMENTS DE PRIX ═══ -->
+            <section class="section-movers" id="sectionMovers" style="display:none">
+                <div class="section-header">
+                    <div>
+                        <h1 class="page-title">📈 Mouvements de prix</h1>
+                        <p class="page-desc">Quels items ont monté ou baissé sur la période choisie</p>
+                    </div>
+                    <button class="btn-icon-subtle" onclick="loadMoversPage()" title="Rafraîchir" aria-label="Rafraîchir">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                    </button>
+                </div>
+                <div id="moversContent">
+                    <div class="movers-loading">Chargement…</div>
                 </div>
             </section>
 
