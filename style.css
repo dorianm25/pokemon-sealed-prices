@@ -5950,9 +5950,8 @@ body { transition: background-color 0.3s, color 0.3s; }
         padding: 8px !important;
         border-radius: 8px !important;
     }
-    .detail-chart-section canvas {
-        max-height: 130px !important;
-        height: 130px !important;
+    .detail-chart-canvas-wrap {
+        height: 150px !important;
     }
     .detail-chart-section #priceChartEmpty {
         font-size: 11px !important;
@@ -9461,6 +9460,20 @@ html, body {
     border-radius: 12px;
     padding: 16px;
     border: 1px solid var(--border);
+}
+/* Wrapper a hauteur fixe : indispensable pour Chart.js avec
+   responsive=true + maintainAspectRatio=false (sinon le canvas
+   grossit a l'infini car parent et canvas s'adaptent l'un a l'autre). */
+.detail-chart-canvas-wrap {
+    position: relative;
+    width: 100%;
+    height: 240px;
+}
+.detail-chart-canvas-wrap canvas {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    height: 100% !important;
 }
 
 /* Period bar : segmented control style */

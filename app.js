@@ -473,7 +473,9 @@ function openDetail(productName) {
                             </div>
                         </div>
                         <div class="detail-chart-card">
-                            <canvas id="priceChart" height="200"></canvas>
+                            <div class="detail-chart-canvas-wrap">
+                                <canvas id="priceChart"></canvas>
+                            </div>
                             <p id="priceChartEmpty" style="color:var(--text-muted);font-size:13px;text-align:center;display:none;margin:20px 0">
                                 Les données s'accumulent jour après jour. Revenez demain pour voir l'évolution !
                             </p>
