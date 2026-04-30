@@ -5930,15 +5930,23 @@ body { transition: background-color 0.3s, color 0.3s; }
     .detail-chart-section {
         margin-bottom: 8px !important;
     }
-    .detail-chart-section h4 {
+    .detail-chart-head h4 {
         font-size: 11px !important;
         text-transform: uppercase !important;
         letter-spacing: 0.06em !important;
         color: var(--text-secondary) !important;
-        margin-bottom: 4px !important;
         font-weight: 700 !important;
+        margin: 0 !important;
     }
-    .detail-chart-section > div {
+    .chart-period-bar {
+        gap: 2px !important;
+    }
+    .chart-period-btn {
+        padding: 4px 8px !important;
+        font-size: 11px !important;
+        min-height: 28px !important;
+    }
+    .detail-chart-card {
         padding: 8px !important;
         border-radius: 8px !important;
     }
@@ -9426,6 +9434,110 @@ html, body {
     .tx-cell-delete { grid-row: 1; grid-column: 2; align-self: start; }
     .tx-form-row { grid-template-columns: 1fr; }
     .tx-modal { padding: 18px; border-radius: 14px; }
+}
+
+/* ============================================================
+   DETAIL PRODUIT — CHART PERIOD BAR + STATS
+   ============================================================ */
+.detail-chart-section {
+    margin-bottom: 20px;
+}
+.detail-chart-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+.detail-chart-head h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0;
+}
+.detail-chart-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid var(--border);
+}
+
+/* Period bar : segmented control style */
+.chart-period-bar {
+    display: inline-flex;
+    gap: 3px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    padding: 3px;
+}
+.chart-period-btn {
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all var(--dur-fast);
+    font-family: inherit;
+    letter-spacing: 0.02em;
+    min-height: 32px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+.chart-period-btn:hover { color: var(--text-primary); }
+.chart-period-btn.active {
+    background: linear-gradient(90deg, #2ea043, #34c853);
+    color: #ffffff;
+    box-shadow: 0 1px 4px rgba(46,160,67,0.3);
+}
+
+/* Stats sous le chart */
+.chart-period-stats {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+.chart-period-stats:empty { display: none; }
+.cps-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.cps-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+.cps-val {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+.cps-val.positive { color: #22c55e; }
+.cps-val.negative { color: #ef4444; }
+.cps-val.flat { color: var(--text-secondary); }
+
+@media (max-width: 540px) {
+    .chart-period-stats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .cps-label { font-size: 9px; }
+    .cps-val { font-size: 11px; }
+    .detail-chart-head { gap: 6px; }
+    .chart-period-bar { gap: 1px; padding: 2px; }
+    .chart-period-btn {
+        padding: 4px 8px !important;
+        font-size: 11px !important;
+        min-height: 28px !important;
+    }
 }
 
 /* ============================================================

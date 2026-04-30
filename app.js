@@ -462,12 +462,22 @@ function openDetail(productName) {
                         </div>
                     </div>
                     <div class="detail-chart-section">
-                        <h4 style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:12px">Évolution des prix</h4>
-                        <div style="background:var(--bg-card);border-radius:12px;padding:16px;border:1px solid var(--border)">
+                        <div class="detail-chart-head">
+                            <h4>Évolution des prix</h4>
+                            <div class="chart-period-bar" id="chartPeriodBar">
+                                <button class="chart-period-btn" data-period="1" onclick="setChartPeriod(1)">24h</button>
+                                <button class="chart-period-btn" data-period="7" onclick="setChartPeriod(7)">7j</button>
+                                <button class="chart-period-btn active" data-period="30" onclick="setChartPeriod(30)">30j</button>
+                                <button class="chart-period-btn" data-period="90" onclick="setChartPeriod(90)">90j</button>
+                                <button class="chart-period-btn" data-period="0" onclick="setChartPeriod(0)">Tout</button>
+                            </div>
+                        </div>
+                        <div class="detail-chart-card">
                             <canvas id="priceChart" height="200"></canvas>
                             <p id="priceChartEmpty" style="color:var(--text-muted);font-size:13px;text-align:center;display:none;margin:20px 0">
                                 Les données s'accumulent jour après jour. Revenez demain pour voir l'évolution !
                             </p>
+                            <div class="chart-period-stats" id="chartPeriodStats"></div>
                         </div>
                     </div>
                     <div class="detail-sales">
@@ -503,113 +513,190 @@ function openDetail(productName) {
 }
 
 let priceChartInstance = null;
+let _priceChartHistory = [];   // cache pour switching de periode sans refetch
+let _priceChartPeriod = 30;     // periode courante en jours (0 = tout)
 
 async function loadPriceChart(productId) {
     try {
         const res = await fetch(`/api/history/${productId}`);
-        const history = await res.json();
-
-        const canvas = document.getElementById('priceChart');
+        _priceChartHistory = await res.json();
+        renderPriceChartForPeriod(_priceChartPeriod);
+    } catch (e) {
         const emptyMsg = document.getElementById('priceChartEmpty');
-        if (!canvas) return;
-
-        if (history.length < 1) {
-            canvas.style.display = 'none';
-            if (emptyMsg) emptyMsg.style.display = 'block';
-            return;
+        if (emptyMsg) {
+            emptyMsg.style.display = 'block';
+            emptyMsg.textContent = 'Erreur de chargement de l\'historique';
         }
-
-        if (priceChartInstance) priceChartInstance.destroy();
-
-        const labels = history.map(h => {
-            const d = new Date(h.date);
-            return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
-        });
-
-        priceChartInstance = new Chart(canvas, {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [
-                    {
-                        label: 'Prix médian',
-                        data: history.map(h => h.median),
-                        borderColor: '#2ea043',
-                        backgroundColor: 'rgba(46,160,67,0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.3,
-                        pointRadius: history.length > 14 ? 0 : 4,
-                        pointHoverRadius: 5,
-                    },
-                    {
-                        label: 'Dernier prix',
-                        data: history.map(h => h.lastPrice),
-                        borderColor: '#58a6ff',
-                        backgroundColor: 'transparent',
-                        borderWidth: 2,
-                        borderDash: [5, 3],
-                        tension: 0.3,
-                        pointRadius: history.length > 14 ? 0 : 4,
-                        pointHoverRadius: 5,
-                    },
-                    {
-                        label: 'Min',
-                        data: history.map(h => h.low),
-                        borderColor: 'rgba(255,255,255,0.15)',
-                        backgroundColor: 'transparent',
-                        borderWidth: 1,
-                        borderDash: [2, 2],
-                        tension: 0.3,
-                        pointRadius: 0,
-                    },
-                    {
-                        label: 'Max',
-                        data: history.map(h => h.high),
-                        borderColor: 'rgba(255,255,255,0.15)',
-                        backgroundColor: 'transparent',
-                        borderWidth: 1,
-                        borderDash: [2, 2],
-                        tension: 0.3,
-                        pointRadius: 0,
-                    },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { intersect: false, mode: 'index' },
-                plugins: {
-                    legend: {
-                        labels: { color: '#8b949e', usePointStyle: true, pointStyle: 'line', padding: 16, font: { size: 12 } },
-                    },
-                    tooltip: {
-                        backgroundColor: '#1a2030',
-                        titleColor: '#e6edf3',
-                        bodyColor: '#8b949e',
-                        borderColor: '#30363d',
-                        borderWidth: 1,
-                        padding: 10,
-                        callbacks: {
-                            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} €`,
-                        },
-                    },
-                },
-                scales: {
-                    x: {
-                        ticks: { color: '#484f58', font: { size: 11 } },
-                        grid: { color: 'rgba(255,255,255,0.04)' },
-                    },
-                    y: {
-                        ticks: { color: '#484f58', font: { size: 11 }, callback: v => v + ' €' },
-                        grid: { color: 'rgba(255,255,255,0.04)' },
-                    },
-                },
-            },
-        });
-    } catch (err) {
-        console.error('Erreur chargement historique:', err);
     }
+}
+
+function setChartPeriod(days) {
+    _priceChartPeriod = days;
+    document.querySelectorAll('.chart-period-btn').forEach(b => {
+        b.classList.toggle('active', String(b.dataset.period) === String(days));
+    });
+    renderPriceChartForPeriod(days);
+}
+
+function renderPriceChartForPeriod(days) {
+    const canvas = document.getElementById('priceChart');
+    const emptyMsg = document.getElementById('priceChartEmpty');
+    const statsEl = document.getElementById('chartPeriodStats');
+    if (!canvas) return;
+
+    let history = [..._priceChartHistory];
+
+    // Filtrage par periode (0 = tout)
+    if (days > 0 && history.length > 0) {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - days);
+        const cutoffStr = cutoff.toISOString().slice(0, 10);
+        history = history.filter(h => h.date >= cutoffStr);
+        // Si 24h et qu'on n'a qu'une entree dans la fenetre, on ajoute la
+        // derniere entree avant pour avoir au moins 2 points (sinon graphique vide)
+        if (days === 1 && history.length < 2 && _priceChartHistory.length > 1) {
+            const latest = _priceChartHistory[_priceChartHistory.length - 1];
+            const previous = _priceChartHistory[_priceChartHistory.length - 2];
+            history = [previous, latest];
+        }
+    }
+
+    // Etat vide
+    if (history.length < 1) {
+        canvas.style.display = 'none';
+        if (emptyMsg) {
+            emptyMsg.style.display = 'block';
+            emptyMsg.textContent = days === 1
+                ? 'Pas encore de variation 24h disponible'
+                : days > 0
+                    ? `Pas encore de données sur les ${days} derniers jours`
+                    : 'Les données s\'accumulent jour après jour. Revenez demain pour voir l\'évolution !';
+        }
+        if (statsEl) statsEl.innerHTML = '';
+        if (priceChartInstance) { priceChartInstance.destroy(); priceChartInstance = null; }
+        return;
+    }
+
+    canvas.style.display = '';
+    if (emptyMsg) emptyMsg.style.display = 'none';
+
+    // Stats sur la periode visible (variation, min, max)
+    const first = history[0];
+    const last = history[history.length - 1];
+    const firstPrice = first.median || first.lastPrice || 0;
+    const lastPrice = last.median || last.lastPrice || 0;
+    const deltaEur = lastPrice - firstPrice;
+    const deltaPct = firstPrice > 0 ? (deltaEur / firstPrice) * 100 : 0;
+    const cls = deltaPct > 0.3 ? 'positive' : deltaPct < -0.3 ? 'negative' : 'flat';
+    const sign = deltaPct >= 0 ? '+' : '';
+    const minVal = Math.min(...history.map(h => h.median || h.lastPrice || Infinity).filter(v => isFinite(v)));
+    const maxVal = Math.max(...history.map(h => h.median || h.lastPrice || 0));
+
+    if (statsEl) {
+        statsEl.innerHTML = `
+            <div class="cps-row">
+                <span class="cps-label">Variation</span>
+                <span class="cps-val ${cls}">${sign}${deltaEur.toFixed(2)} € (${sign}${deltaPct.toFixed(2)} %)</span>
+            </div>
+            <div class="cps-row">
+                <span class="cps-label">Min · Max</span>
+                <span class="cps-val">${minVal.toFixed(2)} € · ${maxVal.toFixed(2)} €</span>
+            </div>
+            <div class="cps-row">
+                <span class="cps-label">Points</span>
+                <span class="cps-val">${history.length} jour${history.length > 1 ? 's' : ''}</span>
+            </div>
+        `;
+    }
+
+    if (priceChartInstance) priceChartInstance.destroy();
+
+    const labels = history.map(h => {
+        const d = new Date(h.date);
+        return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+    });
+
+    priceChartInstance = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Prix médian',
+                    data: history.map(h => h.median),
+                    borderColor: '#2ea043',
+                    backgroundColor: 'rgba(46,160,67,0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: history.length > 14 ? 0 : 4,
+                    pointHoverRadius: 5,
+                },
+                {
+                    label: 'Dernier prix',
+                    data: history.map(h => h.lastPrice),
+                    borderColor: '#58a6ff',
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    borderDash: [5, 3],
+                    tension: 0.3,
+                    pointRadius: history.length > 14 ? 0 : 4,
+                    pointHoverRadius: 5,
+                },
+                {
+                    label: 'Min',
+                    data: history.map(h => h.low),
+                    borderColor: 'rgba(255,255,255,0.15)',
+                    backgroundColor: 'transparent',
+                    borderWidth: 1,
+                    borderDash: [2, 2],
+                    tension: 0.3,
+                    pointRadius: 0,
+                },
+                {
+                    label: 'Max',
+                    data: history.map(h => h.high),
+                    borderColor: 'rgba(255,255,255,0.15)',
+                    backgroundColor: 'transparent',
+                    borderWidth: 1,
+                    borderDash: [2, 2],
+                    tension: 0.3,
+                    pointRadius: 0,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+                legend: {
+                    labels: { color: '#8b949e', usePointStyle: true, pointStyle: 'line', padding: 16, font: { size: 12 } },
+                },
+                tooltip: {
+                    backgroundColor: '#1a2030',
+                    titleColor: '#e6edf3',
+                    bodyColor: '#8b949e',
+                    borderColor: '#30363d',
+                    borderWidth: 1,
+                    padding: 10,
+                    callbacks: {
+                        label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} €`,
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    ticks: { color: '#484f58', font: { size: 11 } },
+                    grid: { color: 'rgba(255,255,255,0.04)' },
+                },
+                y: {
+                    ticks: { color: '#484f58', font: { size: 11 }, callback: v => v + ' €' },
+                    grid: { color: 'rgba(255,255,255,0.04)' },
+                },
+            },
+        },
+    });
 }
 
 // ── eBay Query Editor ───────────────────────────────────────
