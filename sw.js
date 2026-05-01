@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pokescelle-v32';
+const CACHE_NAME = 'pokescelle-v33';
 // Assets a pre-cacher au moment de l'install (necessaires au demarrage offline)
 const STATIC_ASSETS = [
     '/',

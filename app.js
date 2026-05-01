@@ -6438,53 +6438,69 @@ function setMoversSort(sort) {
     renderMoversPage();
 }
 
-// ── Scanner code-barres EAN ──────────────────────────────
-let _scannerStream = null;
-let _scannerLoop = null;
-let _scannerBarcodeDetector = null;
-let _scannerLastEan = null;       // pour eviter le double-trigger
-let _scannerFoundProduct = null;   // produit identifie pour ajout portfolio
+// ── Scanner code-barres EAN (ZXing principal, BarcodeDetector si dispo) ──
+let _scannerControls = null;       // ZXing controls (.stop())
+let _scannerStream = null;          // MediaStream (pour cleanup hard)
+let _scannerLastEan = null;         // pour eviter le double-trigger
+let _scannerFoundProduct = null;     // produit identifie pour ajout portfolio
+let _scannerCodeReader = null;      // instance ZXing reutilisable
 
 async function openBarcodeScanner() {
     const overlay = document.getElementById('scannerOverlay');
     if (!overlay) return;
 
-    // Detection de l'API native (iOS 17+, Chrome Android, Edge)
-    if (typeof window.BarcodeDetector === 'undefined') {
-        showToast('⚠️', 'Scanner non supporté', 'Utilisez Chrome ou Safari iOS 17+');
-        return;
-    }
-
     overlay.hidden = false;
     requestAnimationFrame(() => overlay.classList.add('open'));
     resetScanner();
 
-    // Demande l'acces a la camera arriere
-    try {
-        _scannerStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: { ideal: 'environment' },
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-            },
-            audio: false,
-        });
-        const video = document.getElementById('scannerVideo');
-        video.srcObject = _scannerStream;
-        await video.play();
+    const status = document.getElementById('scannerStatus');
 
-        _scannerBarcodeDetector = new window.BarcodeDetector({
-            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'],
+    // ZXing doit etre charge depuis le CDN. On verifie sa presence.
+    if (typeof window.ZXingBrowser === 'undefined') {
+        status.textContent = 'Erreur : librairie scanner non chargée. Vérifiez votre connexion.';
+        return;
+    }
+
+    try {
+        // Initialise ZXing (reuse si possible)
+        if (!_scannerCodeReader) {
+            _scannerCodeReader = new window.ZXingBrowser.BrowserMultiFormatReader();
+        }
+
+        // Choisit la camera arriere si dispo
+        const devices = await window.ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+        let deviceId = undefined;
+        if (devices && devices.length > 0) {
+            // Prefere une camera 'back' / 'environment'
+            const back = devices.find(d => /back|rear|environment/i.test(d.label));
+            deviceId = (back || devices[devices.length - 1]).deviceId;
+        }
+
+        const video = document.getElementById('scannerVideo');
+
+        // Demarre la decoding continue depuis la camera
+        _scannerControls = await _scannerCodeReader.decodeFromVideoDevice(deviceId, video, (result, err) => {
+            if (result) {
+                const ean = result.getText();
+                if (ean && ean !== _scannerLastEan) {
+                    _scannerLastEan = ean;
+                    if (navigator.vibrate) navigator.vibrate(80);
+                    handleEanDetected(ean);
+                }
+            }
+            // Les erreurs par frame (NotFoundException) sont ignorees -- normal,
+            // ZXing les remonte quand un frame ne contient pas de code lisible.
         });
-        startScannerLoop();
+
+        // Garde une reference au stream pour cleanup propre
+        if (video.srcObject) _scannerStream = video.srcObject;
     } catch (err) {
-        const status = document.getElementById('scannerStatus');
-        if (err.name === 'NotAllowedError') {
+        if (err.name === 'NotAllowedError' || /permission/i.test(err.message || '')) {
             status.textContent = 'Accès à la caméra refusé. Autorisez-la dans les réglages du navigateur.';
         } else if (err.name === 'NotFoundError') {
             status.textContent = 'Aucune caméra disponible sur cet appareil.';
         } else {
-            status.textContent = 'Erreur caméra : ' + (err.message || err.name);
+            status.textContent = 'Erreur caméra : ' + (err.message || err.name || 'inconnue');
         }
     }
 }
@@ -6498,45 +6514,43 @@ function closeBarcodeScanner() {
 }
 
 function stopScannerStream() {
-    if (_scannerLoop) {
-        cancelAnimationFrame(_scannerLoop);
-        _scannerLoop = null;
+    // Stop ZXing (libere la camera + arrete le decode)
+    if (_scannerControls) {
+        try { _scannerControls.stop(); } catch {}
+        _scannerControls = null;
     }
+    // Cleanup hardcore : si le stream est encore actif, on le coupe
     if (_scannerStream) {
-        _scannerStream.getTracks().forEach(t => t.stop());
+        try { _scannerStream.getTracks().forEach(t => t.stop()); } catch {}
         _scannerStream = null;
+    }
+    const video = document.getElementById('scannerVideo');
+    if (video && video.srcObject) {
+        try { video.srcObject.getTracks().forEach(t => t.stop()); } catch {}
+        video.srcObject = null;
     }
 }
 
-function startScannerLoop() {
+// Pour compat avec le UI cancel/reset : redemarre la decoding.
+async function restartScannerDecoding() {
+    if (!_scannerCodeReader) return;
     const video = document.getElementById('scannerVideo');
-    const detector = _scannerBarcodeDetector;
-    if (!video || !detector) return;
-
-    let throttle = 0;
-    const loop = async () => {
-        // Throttle : detection toutes les ~200ms suffit
-        throttle++;
-        if (throttle % 12 === 0) {
-            try {
-                const codes = await detector.detect(video);
-                if (codes && codes.length > 0) {
-                    const ean = codes[0].rawValue;
-                    if (ean && ean !== _scannerLastEan) {
-                        _scannerLastEan = ean;
-                        // Vibration tactile (mobile)
-                        if (navigator.vibrate) navigator.vibrate(80);
-                        handleEanDetected(ean);
-                        return; // on stoppe la loop temporairement
-                    }
+    if (!video) return;
+    try {
+        const devices = await window.ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+        const back = devices.find(d => /back|rear|environment/i.test(d.label));
+        const deviceId = (back || devices[devices.length - 1])?.deviceId;
+        _scannerControls = await _scannerCodeReader.decodeFromVideoDevice(deviceId, video, (result) => {
+            if (result) {
+                const ean = result.getText();
+                if (ean && ean !== _scannerLastEan) {
+                    _scannerLastEan = ean;
+                    if (navigator.vibrate) navigator.vibrate(80);
+                    handleEanDetected(ean);
                 }
-            } catch (err) {
-                // Errors silencieux pour ne pas spammer la console
             }
-        }
-        _scannerLoop = requestAnimationFrame(loop);
-    };
-    _scannerLoop = requestAnimationFrame(loop);
+        });
+    } catch {}
 }
 
 async function handleEanDetected(ean) {
@@ -6655,19 +6669,26 @@ function cancelScannerMapping() {
     document.getElementById('scannerVideoWrap').style.display = '';
     document.getElementById('scannerStatus').style.display = '';
     document.getElementById('scannerStatus').textContent = 'Pointez la caméra vers le code-barres EAN du produit';
-    if (_scannerStream) startScannerLoop();
+    // ZXing tourne en continu : si le stream existe deja on n'a rien a faire.
+    // Sinon on relance proprement.
+    const video = document.getElementById('scannerVideo');
+    if (!video || !video.srcObject || !_scannerControls) restartScannerDecoding();
 }
 
 function resetScanner() {
     _scannerLastEan = null;
     _scannerFoundProduct = null;
-    document.getElementById('scannerMapping').hidden = true;
-    document.getElementById('scannerFound').hidden = true;
-    document.getElementById('scannerVideoWrap').style.display = '';
+    const mapping = document.getElementById('scannerMapping');
+    const found = document.getElementById('scannerFound');
+    if (mapping) mapping.hidden = true;
+    if (found) found.hidden = true;
+    const wrap = document.getElementById('scannerVideoWrap');
+    if (wrap) wrap.style.display = '';
     const status = document.getElementById('scannerStatus');
-    status.style.display = '';
-    status.textContent = 'Pointez la caméra vers le code-barres EAN du produit';
-    if (_scannerStream && _scannerBarcodeDetector) startScannerLoop();
+    if (status) {
+        status.style.display = '';
+        status.textContent = 'Pointez la caméra vers le code-barres EAN du produit';
+    }
 }
 
 function addScannedToPortfolio() {
