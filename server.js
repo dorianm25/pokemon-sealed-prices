@@ -990,6 +990,45 @@ app.delete('/api/barcodes/:ean', authMiddleware, requireAdmin, async (req, res) 
     }
 });
 
+// Import bulk : POST avec un body { mappings: [{ean, productName}, ...] }
+// Reservé admin. Valide chaque mapping individuellement, retourne un rapport.
+app.post('/api/barcodes/bulk', authMiddleware, requireAdmin, async (req, res) => {
+    const { mappings } = req.body || {};
+    if (!Array.isArray(mappings)) {
+        return res.status(400).json({ error: 'mappings doit etre un tableau' });
+    }
+    const result = { added: 0, updated: 0, errors: [], total: mappings.length };
+    const me = await getUserById(req.userId);
+    const adminLabel = me?.username || 'admin';
+
+    for (const m of mappings) {
+        const ean = String(m.ean || '').trim();
+        const productName = String(m.productName || '').trim();
+        if (!ean || !/^\d{8,14}$/.test(ean)) {
+            result.errors.push({ ean, error: 'EAN invalide' });
+            continue;
+        }
+        if (!productName) {
+            result.errors.push({ ean, error: 'productName vide' });
+            continue;
+        }
+        const exists = PRODUCTS_TO_TRACK.some(p => p.name === productName);
+        if (!exists) {
+            result.errors.push({ ean, error: `Produit '${productName}' introuvable` });
+            continue;
+        }
+        try {
+            const existing = await getBarcode(ean);
+            await setBarcode(ean, productName, adminLabel);
+            if (existing) result.updated++; else result.added++;
+        } catch (e) {
+            result.errors.push({ ean, error: e.message || 'erreur inconnue' });
+        }
+    }
+
+    res.json(result);
+});
+
 // API : indice "marche scelle"
 //
 // Methodologie : equal-weighted geometric. Pour chaque jour D :

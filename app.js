@@ -5213,21 +5213,23 @@ async function loadAdminPage() {
 
     try {
         const headers = { 'Authorization': `Bearer ${authToken}` };
-        const [statsRes, usersRes] = await Promise.all([
+        const [statsRes, usersRes, barcodesRes] = await Promise.all([
             fetch('/api/admin/stats', { headers, cache: 'no-store' }),
             fetch('/api/admin/users', { headers, cache: 'no-store' }),
+            fetch('/api/barcodes', { headers, cache: 'no-store' }),
         ]);
         if (!statsRes.ok || !usersRes.ok) throw new Error('HTTP error');
         const stats = await statsRes.json();
         const usersData = await usersRes.json();
+        const barcodesData = barcodesRes.ok ? await barcodesRes.json() : { count: 0, barcodes: [] };
 
-        container.innerHTML = renderAdminPage(stats, usersData);
+        container.innerHTML = renderAdminPage(stats, usersData, barcodesData);
     } catch (e) {
         container.innerHTML = `<div class="admin-empty">Erreur de chargement (${e.message || 'inconnue'}).</div>`;
     }
 }
 
-function renderAdminPage(stats, usersData) {
+function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: [] }) {
     const fmtDate = (iso) => {
         if (!iso) return '—';
         const d = new Date(iso);
@@ -5282,6 +5284,50 @@ function renderAdminPage(stats, usersData) {
                 `).join('')}
             </div>
         </div>` : ''}
+
+        <!-- Codes-barres : import bulk + liste -->
+        <div class="admin-card">
+            <h3 class="admin-card-title">📷 Codes-barres EAN (${barcodesData.count})</h3>
+            <p class="admin-card-sub">Mappings partagés entre tous les utilisateurs. Scannez pour ajouter, ou importez en masse ci-dessous.</p>
+
+            <details class="admin-bulk-import">
+                <summary>📥 Import en masse (CSV)</summary>
+                <p class="admin-bulk-help">
+                    Une ligne par mapping, format <code>EAN,NomDuProduit</code>. Le nom du produit doit correspondre exactement à un produit du catalogue.
+                </p>
+                <textarea id="adminBulkBarcodes" class="admin-bulk-textarea" placeholder="Exemple :
+8200000000001,ETB Évolutions Prismatiques
+8200000000002,Display 36 Évolutions Prismatiques
+..." rows="6"></textarea>
+                <div class="admin-bulk-actions">
+                    <button class="admin-btn admin-btn-secondary" onclick="adminCopyProductList()">📋 Copier la liste des produits</button>
+                    <button class="admin-btn admin-btn-primary" onclick="adminImportBarcodes()">Importer</button>
+                </div>
+                <div id="adminBulkResult" class="admin-bulk-result"></div>
+            </details>
+
+            ${barcodesData.barcodes.length > 0 ? `
+            <details class="admin-barcodes-list">
+                <summary>📋 Voir les ${barcodesData.count} mappings existants</summary>
+                <div class="admin-barcodes-table">
+                    <div class="admin-barcodes-head">
+                        <span>EAN</span>
+                        <span>Produit</span>
+                        <span>Ajouté par</span>
+                        <span></span>
+                    </div>
+                    ${barcodesData.barcodes.slice(0, 100).map(b => `
+                        <div class="admin-barcode-row">
+                            <span class="admin-barcode-ean">${b.ean}</span>
+                            <span class="admin-barcode-product">${b.productName}</span>
+                            <span class="admin-barcode-author">${b.addedBy || '—'}</span>
+                            <button class="admin-btn admin-btn-danger admin-btn-mini" onclick="adminDeleteBarcode('${b.ean}')" title="Supprimer">🗑</button>
+                        </div>
+                    `).join('')}
+                    ${barcodesData.barcodes.length > 100 ? `<div class="admin-barcodes-truncated">+ ${barcodesData.barcodes.length - 100} autres mappings</div>` : ''}
+                </div>
+            </details>` : '<p class="admin-card-sub" style="font-style:italic;margin-top:8px">Aucun mapping pour l\'instant. Scannez vos produits pour commencer à enrichir la base.</p>'}
+        </div>
 
         <!-- Liste des comptes -->
         <div class="admin-card">
@@ -5364,6 +5410,108 @@ async function adminResetPassword(userId, username) {
         loadAdminPage();
     } catch {
         showToast('⚠️', 'Erreur réseau', 'Reset échoué');
+    }
+}
+
+// ── Admin : codes-barres ────────────────────────────────
+async function adminImportBarcodes() {
+    const textarea = document.getElementById('adminBulkBarcodes');
+    const result = document.getElementById('adminBulkResult');
+    if (!textarea || !result) return;
+
+    const lines = textarea.value.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+    if (lines.length === 0) {
+        result.innerHTML = '<span class="admin-bulk-error">Aucune ligne à importer.</span>';
+        return;
+    }
+
+    const mappings = [];
+    const parseErrors = [];
+    for (const line of lines) {
+        // Support CSV : separateur virgule, ou point-virgule, ou tab
+        const parts = line.split(/[,;\t]/).map(p => p.trim());
+        if (parts.length < 2) {
+            parseErrors.push(`Ligne ignorée (pas de séparateur) : ${line.slice(0, 40)}`);
+            continue;
+        }
+        const ean = parts[0];
+        const productName = parts.slice(1).join(',').trim().replace(/^"|"$/g, '');
+        mappings.push({ ean, productName });
+    }
+
+    if (mappings.length === 0) {
+        result.innerHTML = `<span class="admin-bulk-error">Aucun mapping valide. ${parseErrors.length} erreur(s) de parsing.</span>`;
+        return;
+    }
+
+    result.innerHTML = `<span>Import en cours… (${mappings.length} mappings)</span>`;
+    try {
+        const res = await fetch('/api/barcodes/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({ mappings }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            result.innerHTML = `<span class="admin-bulk-error">Erreur : ${data.error || res.status}</span>`;
+            return;
+        }
+        let html = `<span class="admin-bulk-ok">✅ ${data.added} ajouté(s), ${data.updated} mis à jour</span>`;
+        if (data.errors && data.errors.length > 0) {
+            html += `<details class="admin-bulk-errors"><summary>${data.errors.length} erreur(s)</summary>`;
+            html += '<ul>';
+            for (const err of data.errors.slice(0, 30)) {
+                html += `<li><code>${err.ean || '?'}</code> — ${err.error}</li>`;
+            }
+            if (data.errors.length > 30) html += `<li>+ ${data.errors.length - 30} autres...</li>`;
+            html += '</ul></details>';
+        }
+        result.innerHTML = html;
+        // Reload la page admin apres 1.5s pour voir les nouveaux mappings
+        setTimeout(() => loadAdminPage(), 1500);
+    } catch (e) {
+        result.innerHTML = `<span class="admin-bulk-error">Erreur réseau : ${e.message}</span>`;
+    }
+}
+
+function adminCopyProductList() {
+    // Genere une liste de tous les produits du catalogue pour aider a faire
+    // les mappings. Format CSV avec un EAN placeholder.
+    const lines = products
+        .map(p => `# ,${p.name}`)
+        .join('\n');
+    const header = '# Liste des produits du catalogue (remplace le # par l\'EAN)\n# Format : EAN,NomDuProduit\n\n';
+    const text = header + lines;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            showToast('📋', 'Copié', `${products.length} produits dans le presse-papier`);
+        }).catch(() => {
+            // Fallback : injecte dans le textarea
+            const textarea = document.getElementById('adminBulkBarcodes');
+            if (textarea) textarea.value = text;
+        });
+    } else {
+        const textarea = document.getElementById('adminBulkBarcodes');
+        if (textarea) textarea.value = text;
+    }
+}
+
+async function adminDeleteBarcode(ean) {
+    if (!confirm(`Supprimer le mapping de l'EAN ${ean} ?`)) return;
+    try {
+        const res = await fetch(`/api/barcodes/${encodeURIComponent(ean)}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            showToast('⚠️', 'Erreur', data.error || `HTTP ${res.status}`);
+            return;
+        }
+        showToast('✅', 'Mapping supprimé', '');
+        loadAdminPage();
+    } catch {
+        showToast('⚠️', 'Erreur réseau', '');
     }
 }
 
