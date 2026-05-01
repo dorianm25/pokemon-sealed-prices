@@ -757,6 +757,60 @@
         </div>
     </div>
 
+    <!-- Modal : Scanner code-barres -->
+    <div class="scanner-overlay" id="scannerOverlay" hidden>
+        <div class="scanner-container">
+            <div class="scanner-head">
+                <h3 id="scannerTitle">📷 Scanner un code-barres</h3>
+                <button class="scanner-close" onclick="closeBarcodeScanner()" type="button" aria-label="Fermer">&times;</button>
+            </div>
+            <div class="scanner-video-wrap" id="scannerVideoWrap">
+                <video id="scannerVideo" playsinline autoplay muted></video>
+                <div class="scanner-target">
+                    <div class="scanner-corner scanner-corner-tl"></div>
+                    <div class="scanner-corner scanner-corner-tr"></div>
+                    <div class="scanner-corner scanner-corner-bl"></div>
+                    <div class="scanner-corner scanner-corner-br"></div>
+                    <div class="scanner-laser"></div>
+                </div>
+            </div>
+            <div class="scanner-status" id="scannerStatus">Pointez la caméra vers le code-barres EAN du produit</div>
+
+            <!-- Modal de mapping si EAN inconnu -->
+            <div class="scanner-mapping" id="scannerMapping" hidden>
+                <div class="scanner-mapping-head">
+                    <span class="scanner-mapping-icon">❓</span>
+                    <div>
+                        <strong>Code-barres inconnu</strong>
+                        <div class="scanner-mapping-ean" id="scannerEan"></div>
+                    </div>
+                </div>
+                <p class="scanner-mapping-desc">À quel produit Pokémon correspond ce code ? L'association sera enregistrée pour tous les utilisateurs.</p>
+                <input type="search" class="scanner-mapping-search" id="scannerMappingSearch" placeholder="Rechercher un produit..." autocomplete="off">
+                <div class="scanner-mapping-list" id="scannerMappingList"></div>
+                <div class="scanner-mapping-actions">
+                    <button class="scanner-btn scanner-btn-ghost" onclick="cancelScannerMapping()">Réessayer le scan</button>
+                </div>
+            </div>
+
+            <!-- Resultat trouve -->
+            <div class="scanner-found" id="scannerFound" hidden>
+                <div class="scanner-found-head">
+                    <span class="scanner-found-icon">✅</span>
+                    <div>
+                        <strong>Produit identifié !</strong>
+                        <div class="scanner-found-ean" id="scannerFoundEan"></div>
+                    </div>
+                </div>
+                <div class="scanner-found-product" id="scannerFoundProduct"></div>
+                <div class="scanner-found-actions">
+                    <button class="scanner-btn scanner-btn-ghost" onclick="resetScanner()">Scanner un autre</button>
+                    <button class="scanner-btn scanner-btn-primary" onclick="addScannedToPortfolio()" id="scannerAddBtn">Ajouter au portfolio</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal : ajout de transaction -->
     <div class="tx-modal-overlay" id="txModal" hidden>
         <div class="tx-modal">

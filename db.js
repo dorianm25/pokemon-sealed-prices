@@ -74,6 +74,14 @@ const SCHEMA = [
         data TEXT NOT NULL
     )`,
 
+    // Mapping codes-barres EAN -> nom de produit (partage entre tous les users)
+    `CREATE TABLE IF NOT EXISTS barcodes (
+        ean TEXT PRIMARY KEY,
+        product_name TEXT NOT NULL,
+        added_by TEXT,
+        created_at TEXT NOT NULL
+    )`,
+
     // Historique de transactions (achats / ventes) par utilisateur
     `CREATE TABLE IF NOT EXISTS transactions (
         id TEXT PRIMARY KEY,
@@ -372,6 +380,51 @@ export async function setCustomQuery(productId, data) {
               ON CONFLICT (product_id) DO UPDATE SET data = excluded.data`,
         args: [productId, JSON.stringify(data)],
     });
+}
+
+// ── Barcodes (EAN -> product_name) ──────────────────────────
+
+export async function getBarcode(ean) {
+    const r = await db.execute({
+        sql: 'SELECT ean, product_name, added_by, created_at FROM barcodes WHERE ean = ?',
+        args: [ean],
+    });
+    if (!r.rows[0]) return null;
+    return {
+        ean: r.rows[0].ean,
+        productName: r.rows[0].product_name,
+        addedBy: r.rows[0].added_by,
+        createdAt: r.rows[0].created_at,
+    };
+}
+
+export async function listBarcodes() {
+    const r = await db.execute('SELECT ean, product_name, added_by, created_at FROM barcodes ORDER BY created_at DESC');
+    return r.rows.map(row => ({
+        ean: row.ean,
+        productName: row.product_name,
+        addedBy: row.added_by,
+        createdAt: row.created_at,
+    }));
+}
+
+export async function setBarcode(ean, productName, addedBy) {
+    await db.execute({
+        sql: `INSERT INTO barcodes (ean, product_name, added_by, created_at)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT (ean) DO UPDATE SET
+                product_name = excluded.product_name,
+                added_by = excluded.added_by`,
+        args: [ean, productName, addedBy || null, new Date().toISOString()],
+    });
+}
+
+export async function deleteBarcode(ean) {
+    const r = await db.execute({
+        sql: 'DELETE FROM barcodes WHERE ean = ?',
+        args: [ean],
+    });
+    return r.rowsAffected > 0;
 }
 
 // ── Transactions (achats / ventes) ──────────────────────────

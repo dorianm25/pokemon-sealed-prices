@@ -18,6 +18,7 @@ import {
     getPortfolioHistory, upsertPortfolioHistory,
     getPriceHistory, upsertPriceHistory, getAllPriceHistory,
     listTransactions, createTransaction, deleteTransaction,
+    getBarcode, listBarcodes, setBarcode, deleteBarcode,
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
     getAllCache as dbGetAllCache,
     getCustomQueries, setCustomQuery,
@@ -915,6 +916,78 @@ app.get('/api/movers', async (req, res) => {
         count: items.length,
         items,
     });
+});
+
+// ── Barcodes (EAN -> produit) ───────────────────────────────
+//
+// Lookup : public (read-only). Tout user (meme non-connecte) peut
+// chercher un EAN pour identifier un produit.
+// Mapping : authentifie. Pour eviter le spam, seuls les users connectes
+// peuvent ajouter ou modifier un mapping. Le mapping est partage entre
+// tous les users (un user qui scanne enrichit la base pour tout le monde).
+
+app.get('/api/barcodes/:ean', async (req, res) => {
+    const ean = String(req.params.ean || '').trim();
+    if (!ean || !/^\d{8,14}$/.test(ean)) {
+        return res.status(400).json({ error: 'EAN invalide' });
+    }
+    try {
+        const entry = await getBarcode(ean);
+        if (!entry) return res.status(404).json({ error: 'EAN inconnu', ean });
+        // Verifie que le produit existe encore dans le catalogue
+        const exists = PRODUCTS_TO_TRACK.some(p => p.name === entry.productName);
+        res.json({ ...entry, productExists: exists });
+    } catch (e) {
+        console.error('[barcodes/get] error:', e);
+        res.status(500).json({ error: 'Erreur lecture EAN' });
+    }
+});
+
+app.post('/api/barcodes', authMiddleware, async (req, res) => {
+    const { ean, productName } = req.body || {};
+    const cleanEan = String(ean || '').trim();
+    if (!cleanEan || !/^\d{8,14}$/.test(cleanEan)) {
+        return res.status(400).json({ error: 'EAN invalide (8 a 14 chiffres requis)' });
+    }
+    if (!productName || typeof productName !== 'string') {
+        return res.status(400).json({ error: 'Nom de produit requis' });
+    }
+    // Verifie que le produit existe dans le catalogue (anti-spam : pas de
+    // mapping vers un produit qui n'existe pas).
+    const exists = PRODUCTS_TO_TRACK.some(p => p.name === productName);
+    if (!exists) {
+        return res.status(400).json({ error: 'Produit introuvable dans le catalogue' });
+    }
+    try {
+        const me = await getUserById(req.userId);
+        await setBarcode(cleanEan, productName, me?.username || null);
+        res.json({ ok: true, ean: cleanEan, productName });
+    } catch (e) {
+        console.error('[barcodes/set] error:', e);
+        res.status(500).json({ error: 'Erreur enregistrement' });
+    }
+});
+
+app.get('/api/barcodes', authMiddleware, async (_req, res) => {
+    try {
+        const list = await listBarcodes();
+        res.json({ count: list.length, barcodes: list });
+    } catch (e) {
+        console.error('[barcodes/list] error:', e);
+        res.status(500).json({ error: 'Erreur lecture' });
+    }
+});
+
+app.delete('/api/barcodes/:ean', authMiddleware, requireAdmin, async (req, res) => {
+    const ean = String(req.params.ean || '').trim();
+    try {
+        const ok = await deleteBarcode(ean);
+        if (!ok) return res.status(404).json({ error: 'EAN introuvable' });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[barcodes/delete] error:', e);
+        res.status(500).json({ error: 'Erreur suppression' });
+    }
 });
 
 // API : indice "marche scelle"

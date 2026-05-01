@@ -6438,6 +6438,257 @@ function setMoversSort(sort) {
     renderMoversPage();
 }
 
+// ── Scanner code-barres EAN ──────────────────────────────
+let _scannerStream = null;
+let _scannerLoop = null;
+let _scannerBarcodeDetector = null;
+let _scannerLastEan = null;       // pour eviter le double-trigger
+let _scannerFoundProduct = null;   // produit identifie pour ajout portfolio
+
+async function openBarcodeScanner() {
+    const overlay = document.getElementById('scannerOverlay');
+    if (!overlay) return;
+
+    // Detection de l'API native (iOS 17+, Chrome Android, Edge)
+    if (typeof window.BarcodeDetector === 'undefined') {
+        showToast('⚠️', 'Scanner non supporté', 'Utilisez Chrome ou Safari iOS 17+');
+        return;
+    }
+
+    overlay.hidden = false;
+    requestAnimationFrame(() => overlay.classList.add('open'));
+    resetScanner();
+
+    // Demande l'acces a la camera arriere
+    try {
+        _scannerStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+            },
+            audio: false,
+        });
+        const video = document.getElementById('scannerVideo');
+        video.srcObject = _scannerStream;
+        await video.play();
+
+        _scannerBarcodeDetector = new window.BarcodeDetector({
+            formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'],
+        });
+        startScannerLoop();
+    } catch (err) {
+        const status = document.getElementById('scannerStatus');
+        if (err.name === 'NotAllowedError') {
+            status.textContent = 'Accès à la caméra refusé. Autorisez-la dans les réglages du navigateur.';
+        } else if (err.name === 'NotFoundError') {
+            status.textContent = 'Aucune caméra disponible sur cet appareil.';
+        } else {
+            status.textContent = 'Erreur caméra : ' + (err.message || err.name);
+        }
+    }
+}
+
+function closeBarcodeScanner() {
+    const overlay = document.getElementById('scannerOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('open');
+    setTimeout(() => { overlay.hidden = true; }, 250);
+    stopScannerStream();
+}
+
+function stopScannerStream() {
+    if (_scannerLoop) {
+        cancelAnimationFrame(_scannerLoop);
+        _scannerLoop = null;
+    }
+    if (_scannerStream) {
+        _scannerStream.getTracks().forEach(t => t.stop());
+        _scannerStream = null;
+    }
+}
+
+function startScannerLoop() {
+    const video = document.getElementById('scannerVideo');
+    const detector = _scannerBarcodeDetector;
+    if (!video || !detector) return;
+
+    let throttle = 0;
+    const loop = async () => {
+        // Throttle : detection toutes les ~200ms suffit
+        throttle++;
+        if (throttle % 12 === 0) {
+            try {
+                const codes = await detector.detect(video);
+                if (codes && codes.length > 0) {
+                    const ean = codes[0].rawValue;
+                    if (ean && ean !== _scannerLastEan) {
+                        _scannerLastEan = ean;
+                        // Vibration tactile (mobile)
+                        if (navigator.vibrate) navigator.vibrate(80);
+                        handleEanDetected(ean);
+                        return; // on stoppe la loop temporairement
+                    }
+                }
+            } catch (err) {
+                // Errors silencieux pour ne pas spammer la console
+            }
+        }
+        _scannerLoop = requestAnimationFrame(loop);
+    };
+    _scannerLoop = requestAnimationFrame(loop);
+}
+
+async function handleEanDetected(ean) {
+    const status = document.getElementById('scannerStatus');
+    status.textContent = `Code détecté : ${ean} — recherche...`;
+
+    try {
+        const res = await fetch(`/api/barcodes/${encodeURIComponent(ean)}`);
+        if (res.status === 404) {
+            // EAN inconnu : afficher le UI de mapping
+            showScannerMappingUI(ean);
+            return;
+        }
+        if (!res.ok) {
+            status.textContent = `Erreur : HTTP ${res.status}`;
+            return;
+        }
+        const data = await res.json();
+        if (!data.productExists) {
+            status.textContent = 'Produit associé n\'existe plus dans le catalogue';
+            return;
+        }
+        showScannerFoundUI(ean, data.productName);
+    } catch (e) {
+        status.textContent = 'Erreur réseau : ' + (e.message || '');
+    }
+}
+
+function showScannerMappingUI(ean) {
+    document.getElementById('scannerMapping').hidden = false;
+    document.getElementById('scannerEan').textContent = ean;
+    document.getElementById('scannerStatus').style.display = 'none';
+    document.getElementById('scannerVideoWrap').style.display = 'none';
+
+    // Liste de produits cherchables
+    const search = document.getElementById('scannerMappingSearch');
+    search.value = '';
+    search.oninput = () => renderScannerMappingList(ean, search.value);
+    renderScannerMappingList(ean, '');
+    setTimeout(() => search.focus(), 100);
+}
+
+function renderScannerMappingList(ean, query) {
+    const list = document.getElementById('scannerMappingList');
+    const q = query.toLowerCase().trim();
+    let filtered = products;
+    if (q) {
+        filtered = products.filter(p =>
+            p.name.toLowerCase().includes(q) ||
+            (p.ext || '').toLowerCase().includes(q) ||
+            (p.serie || '').toLowerCase().includes(q)
+        );
+    }
+    filtered = filtered.slice(0, 30);
+    list.innerHTML = filtered.map(p => {
+        const safeName = p.name.replace(/'/g, "\\'");
+        return `<button class="scanner-mapping-item" onclick="associateEan('${ean}', '${safeName}')">
+            <span class="scanner-mapping-name">${p.name}</span>
+            <span class="scanner-mapping-ext">${p.ext || ''}</span>
+        </button>`;
+    }).join('');
+    if (filtered.length === 0) {
+        list.innerHTML = '<div class="scanner-mapping-empty">Aucun produit ne correspond.</div>';
+    }
+}
+
+async function associateEan(ean, productName) {
+    if (!authToken) {
+        showToast('🔒', 'Connexion requise', 'Connectez-vous pour enregistrer un mapping');
+        return;
+    }
+    try {
+        const res = await fetch('/api/barcodes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({ ean, productName }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            showToast('⚠️', 'Erreur', data.error || 'Echec enregistrement');
+            return;
+        }
+        showToast('✅', 'EAN enregistré', `Tous les users en bénéficieront`);
+        showScannerFoundUI(ean, productName);
+    } catch {
+        showToast('⚠️', 'Erreur réseau', '');
+    }
+}
+
+function showScannerFoundUI(ean, productName) {
+    _scannerFoundProduct = productName;
+    document.getElementById('scannerMapping').hidden = true;
+    document.getElementById('scannerFound').hidden = false;
+    document.getElementById('scannerFoundEan').textContent = `EAN : ${ean}`;
+    const p = products.find(pr => pr.name === productName);
+    const html = p ? `
+        <div class="scanner-found-name">${p.name}</div>
+        <div class="scanner-found-ext">${p.ext || ''} — ${p.serie || ''}</div>
+        <div class="scanner-found-price">Prix actuel : <strong>${fmt(p.lastPrice || p.price || 0)}</strong></div>
+    ` : `<div class="scanner-found-name">${productName}</div>`;
+    document.getElementById('scannerFoundProduct').innerHTML = html;
+    document.getElementById('scannerStatus').style.display = 'none';
+    document.getElementById('scannerVideoWrap').style.display = 'none';
+
+    // Si l'utilisateur n'est pas connecte, on remplace 'Ajouter au portfolio'
+    // par 'Voir le détail'
+    const addBtn = document.getElementById('scannerAddBtn');
+    if (addBtn) {
+        addBtn.textContent = currentUser ? 'Ajouter au portfolio' : 'Voir le détail';
+    }
+}
+
+function cancelScannerMapping() {
+    _scannerLastEan = null;
+    document.getElementById('scannerMapping').hidden = true;
+    document.getElementById('scannerVideoWrap').style.display = '';
+    document.getElementById('scannerStatus').style.display = '';
+    document.getElementById('scannerStatus').textContent = 'Pointez la caméra vers le code-barres EAN du produit';
+    if (_scannerStream) startScannerLoop();
+}
+
+function resetScanner() {
+    _scannerLastEan = null;
+    _scannerFoundProduct = null;
+    document.getElementById('scannerMapping').hidden = true;
+    document.getElementById('scannerFound').hidden = true;
+    document.getElementById('scannerVideoWrap').style.display = '';
+    const status = document.getElementById('scannerStatus');
+    status.style.display = '';
+    status.textContent = 'Pointez la caméra vers le code-barres EAN du produit';
+    if (_scannerStream && _scannerBarcodeDetector) startScannerLoop();
+}
+
+function addScannedToPortfolio() {
+    const productName = _scannerFoundProduct;
+    if (!productName) return;
+    closeBarcodeScanner();
+    if (!currentUser) {
+        // User non connecte : ouvre le detail au lieu d'ajouter
+        openDetail(productName);
+        return;
+    }
+    // Petit delai pour laisser la modal scanner se fermer proprement
+    setTimeout(() => {
+        if (typeof openPfAddModal === 'function') {
+            openPfAddModal(productName);
+        } else {
+            openDetail(productName);
+        }
+    }, 250);
+}
+
 // ── Chart.js : permet le scroll vertical sur mobile ──────────
 // Par defaut Chart.js attache des listeners 'touchmove' qui peuvent
 // bloquer le scroll natif de la page. En supprimant 'touchmove' de la
