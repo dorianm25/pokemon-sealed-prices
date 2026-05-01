@@ -990,6 +990,131 @@ app.delete('/api/barcodes/:ean', authMiddleware, requireAdmin, async (req, res) 
     }
 });
 
+// Auto-discover EANs depuis l'API eBay : pour chaque produit avec un
+// lastListing.url, on appelle l'API Browse pour recuperer les details
+// complets de l'item, qui peuvent contenir productId.value (EAN/UPC) ou
+// additionalProductIdentities. Reserve admin (ca consomme du quota eBay).
+app.post('/api/barcodes/auto-discover', authMiddleware, requireAdmin, async (req, res) => {
+    const result = {
+        processed: 0,
+        skipped: 0,
+        ebayErrors: 0,
+        eansFound: 0,
+        eansSaved: 0,
+        eansAlreadyKnown: 0,
+        details: [],
+    };
+
+    const me = await getUserById(req.userId);
+    const adminLabel = me?.username || 'admin-autodiscover';
+
+    // Recupere les prices-cached pour avoir les lastListing.url de tous les produits
+    let cached = {};
+    try {
+        const r = await dbGetAllCache();
+        for (const row of r) {
+            try {
+                cached[row.key] = JSON.parse(row.data);
+            } catch {}
+        }
+    } catch (e) {
+        return res.status(500).json({ error: 'Lecture cache impossible', details: e.message });
+    }
+
+    for (const product of PRODUCTS_TO_TRACK) {
+        const cachedPrice = cached[product.id];
+        const url = cachedPrice?.lastListing?.url;
+        if (!url) {
+            result.skipped++;
+            continue;
+        }
+        const legacyId = extractItemIdFromUrl(url);
+        if (!legacyId) {
+            result.skipped++;
+            continue;
+        }
+
+        result.processed++;
+        try {
+            const item = await fetchEbayItem(legacyId);
+            // On cherche un EAN dans plusieurs endroits possibles :
+            //   1. additionalProductIdentities (tableau d'objets {productId, productIdType})
+            //   2. localizedAspects (parfois 'EAN' ou 'Code-barres' ou 'UPC')
+            //   3. itemSpecifics (similaire)
+            const eans = new Set();
+
+            // 1. additionalProductIdentities
+            if (Array.isArray(item.additionalProductIdentities)) {
+                for (const apid of item.additionalProductIdentities) {
+                    if (Array.isArray(apid.productIdentities)) {
+                        for (const pi of apid.productIdentities) {
+                            const v = String(pi.identifierValue || '').trim();
+                            const type = String(pi.identifierType || '').toUpperCase();
+                            if (v && /^\d{8,14}$/.test(v) && (type === 'EAN' || type === 'UPC' || type === 'GTIN')) {
+                                eans.add(v);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. localizedAspects (FR : 'EAN', 'Code-barres EAN', 'UPC', 'Code UPC')
+            if (Array.isArray(item.localizedAspects)) {
+                for (const a of item.localizedAspects) {
+                    const name = String(a.name || '').toLowerCase();
+                    if (/^(ean|upc|gtin|code[- ]?barres)/i.test(name)) {
+                        const v = String(a.value || '').replace(/\s+/g, '').trim();
+                        if (v && /^\d{8,14}$/.test(v)) eans.add(v);
+                    }
+                }
+            }
+
+            // 3. epid / mpn / autres identifiants au niveau racine
+            const directFields = ['epid', 'mpn', 'gtin'];
+            for (const f of directFields) {
+                const v = String(item[f] || '').trim();
+                if (v && /^\d{8,14}$/.test(v)) eans.add(v);
+            }
+
+            if (eans.size === 0) {
+                result.details.push({ product: product.name, status: 'no-ean' });
+                continue;
+            }
+
+            // Pour chaque EAN trouvé, on l'enregistre (en ne sur-ecrasant pas
+            // un mapping deja existant si pour un autre produit -- on garde
+            // l'historique de mapping si meme produit).
+            for (const ean of eans) {
+                result.eansFound++;
+                const existing = await getBarcode(ean);
+                if (existing) {
+                    if (existing.productName === product.name) {
+                        result.eansAlreadyKnown++;
+                        result.details.push({ product: product.name, ean, status: 'already-mapped' });
+                    } else {
+                        // Conflit : le meme EAN est associe a un autre produit
+                        result.details.push({
+                            product: product.name,
+                            ean,
+                            status: 'conflict',
+                            conflictWith: existing.productName,
+                        });
+                    }
+                } else {
+                    await setBarcode(ean, product.name, adminLabel);
+                    result.eansSaved++;
+                    result.details.push({ product: product.name, ean, status: 'saved' });
+                }
+            }
+        } catch (e) {
+            result.ebayErrors++;
+            result.details.push({ product: product.name, status: 'ebay-error', error: e.message });
+        }
+    }
+
+    res.json(result);
+});
+
 // Import bulk : POST avec un body { mappings: [{ean, productName}, ...] }
 // Reservé admin. Valide chaque mapping individuellement, retourne un rapport.
 app.post('/api/barcodes/bulk', authMiddleware, requireAdmin, async (req, res) => {

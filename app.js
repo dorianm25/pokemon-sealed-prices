@@ -5290,6 +5290,20 @@ function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: 
             <h3 class="admin-card-title">📷 Codes-barres EAN (${barcodesData.count})</h3>
             <p class="admin-card-sub">Mappings partagés entre tous les utilisateurs. Scannez pour ajouter, ou importez en masse ci-dessous.</p>
 
+            <details class="admin-bulk-import admin-autodiscover">
+                <summary>🪄 Auto-découverte via l'API eBay</summary>
+                <p class="admin-bulk-help">
+                    Pour chaque produit avec un dernier listing eBay, l'app va appeler l'API eBay
+                    pour récupérer l'EAN/UPC depuis les attributs produit. Les EAN trouvés sont ajoutés
+                    automatiquement à la base. <strong>Attention</strong> : ça consomme du quota API
+                    eBay (1 appel par produit, soit ~219 calls). Lance ça une fois par semaine maximum.
+                </p>
+                <div class="admin-bulk-actions">
+                    <button class="admin-btn admin-btn-primary" id="adminAutoDiscoverBtn" onclick="adminAutoDiscoverEans()">🪄 Lancer la découverte</button>
+                </div>
+                <div id="adminAutoDiscoverResult" class="admin-bulk-result"></div>
+            </details>
+
             <details class="admin-bulk-import">
                 <summary>📥 Import en masse (CSV)</summary>
                 <p class="admin-bulk-help">
@@ -5493,6 +5507,87 @@ function adminCopyProductList() {
     } else {
         const textarea = document.getElementById('adminBulkBarcodes');
         if (textarea) textarea.value = text;
+    }
+}
+
+async function adminAutoDiscoverEans() {
+    const btn = document.getElementById('adminAutoDiscoverBtn');
+    const result = document.getElementById('adminAutoDiscoverResult');
+    if (!btn || !result) return;
+
+    if (!confirm('Lancer la découverte automatique des EAN via l\'API eBay ?\n\nCela peut prendre 1-3 minutes (1 appel par produit du catalogue).')) {
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '⏳ Recherche en cours...';
+    result.innerHTML = '<span>Appels API eBay en cours, ça peut prendre 1-3 minutes...</span>';
+
+    try {
+        const res = await fetch('/api/barcodes/auto-discover', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            result.innerHTML = `<span class="admin-bulk-error">Erreur : ${data.error || res.status}</span>`;
+            btn.disabled = false;
+            btn.textContent = '🪄 Lancer la découverte';
+            return;
+        }
+
+        let html = `
+            <div class="admin-bulk-ok">
+                ✅ Découverte terminée
+            </div>
+            <ul style="margin:8px 0 0;padding-left:18px;font-size:12px;line-height:1.7">
+                <li>Produits analysés : <strong>${data.processed}</strong> / ${data.processed + data.skipped}</li>
+                <li>Sans listing eBay (skipped) : ${data.skipped}</li>
+                <li>EAN trouvés dans l'API : <strong>${data.eansFound}</strong></li>
+                <li>Nouveaux mappings sauvegardés : <strong style="color:#22c55e">${data.eansSaved}</strong></li>
+                <li>Déjà connus : ${data.eansAlreadyKnown}</li>
+                <li>Erreurs eBay : ${data.ebayErrors}</li>
+            </ul>
+        `;
+
+        // Groupe les details par status pour les rendre lisibles
+        if (Array.isArray(data.details) && data.details.length > 0) {
+            const saved = data.details.filter(d => d.status === 'saved');
+            const conflicts = data.details.filter(d => d.status === 'conflict');
+            const noEan = data.details.filter(d => d.status === 'no-ean');
+            const errors = data.details.filter(d => d.status === 'ebay-error');
+
+            if (saved.length > 0) {
+                html += `<details style="margin-top:8px"><summary>✅ ${saved.length} mappings ajoutés</summary><ul style="font-size:11px;color:#22c55e">`;
+                for (const d of saved.slice(0, 30)) html += `<li><code>${d.ean}</code> → ${d.product}</li>`;
+                if (saved.length > 30) html += `<li>+ ${saved.length - 30} autres...</li>`;
+                html += '</ul></details>';
+            }
+            if (conflicts.length > 0) {
+                html += `<details style="margin-top:8px"><summary style="color:#fbbf24">⚠️ ${conflicts.length} conflits (EAN deja associe a un autre produit)</summary><ul style="font-size:11px">`;
+                for (const d of conflicts.slice(0, 30)) html += `<li><code>${d.ean}</code> détecté pour <strong>${d.product}</strong> mais déjà mappé sur <em>${d.conflictWith}</em></li>`;
+                html += '</ul></details>';
+            }
+            if (errors.length > 0) {
+                html += `<details style="margin-top:8px"><summary style="color:#ef4444">❌ ${errors.length} erreurs API eBay</summary><ul style="font-size:11px">`;
+                for (const d of errors.slice(0, 20)) html += `<li>${d.product} — ${d.error}</li>`;
+                html += '</ul></details>';
+            }
+            if (noEan.length > 0) {
+                html += `<p style="font-size:11px;color:var(--text-muted);margin-top:8px">${noEan.length} produits sans EAN dans la fiche eBay (normal pour des produits scellés vendus par des particuliers)</p>`;
+            }
+        }
+
+        result.innerHTML = html;
+        // Reload la page admin pour voir les nouveaux mappings dans la liste
+        if (data.eansSaved > 0) {
+            setTimeout(() => loadAdminPage(), 2500);
+        }
+    } catch (e) {
+        result.innerHTML = `<span class="admin-bulk-error">Erreur réseau : ${e.message}</span>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🪄 Lancer la découverte';
     }
 }
 
