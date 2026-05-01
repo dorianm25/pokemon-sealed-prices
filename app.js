@@ -6456,7 +6456,7 @@ async function openBarcodeScanner() {
     const status = document.getElementById('scannerStatus');
 
     // ZXing doit etre charge depuis le CDN. On verifie sa presence.
-    if (typeof window.ZXingBrowser === 'undefined') {
+    if (typeof window.ZXing === 'undefined' || !window.ZXing.BrowserMultiFormatReader) {
         status.textContent = 'Erreur : librairie scanner non chargée. Vérifiez votre connexion.';
         return;
     }
@@ -6464,22 +6464,30 @@ async function openBarcodeScanner() {
     try {
         // Initialise ZXing (reuse si possible)
         if (!_scannerCodeReader) {
-            _scannerCodeReader = new window.ZXingBrowser.BrowserMultiFormatReader();
+            _scannerCodeReader = new window.ZXing.BrowserMultiFormatReader();
         }
 
         // Choisit la camera arriere si dispo
-        const devices = await window.ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
         let deviceId = undefined;
-        if (devices && devices.length > 0) {
-            // Prefere une camera 'back' / 'environment'
-            const back = devices.find(d => /back|rear|environment/i.test(d.label));
-            deviceId = (back || devices[devices.length - 1]).deviceId;
+        try {
+            const devices = await _scannerCodeReader.listVideoInputDevices();
+            if (devices && devices.length > 0) {
+                const back = devices.find(d => /back|rear|environment/i.test(d.label));
+                deviceId = (back || devices[devices.length - 1]).deviceId;
+            }
+        } catch {
+            // Si on ne peut pas enumerer (pas encore de permission), undefined
+            // declenche le choix par defaut (souvent camera frontale, mais le
+            // navigateur peut aussi nous donner la back si on a demande env).
         }
 
         const video = document.getElementById('scannerVideo');
 
-        // Demarre la decoding continue depuis la camera
-        _scannerControls = await _scannerCodeReader.decodeFromVideoDevice(deviceId, video, (result, err) => {
+        // Demarre la decoding continue depuis la camera. La signature de l'API
+        // @zxing/library : decodeFromVideoDevice(deviceId, videoElement, callback)
+        // -- pas de Promise resolved sur 'controls', on doit utiliser reset()
+        // pour stopper.
+        await _scannerCodeReader.decodeFromVideoDevice(deviceId, video, (result, err) => {
             if (result) {
                 const ean = result.getText();
                 if (ean && ean !== _scannerLastEan) {
@@ -6488,9 +6496,10 @@ async function openBarcodeScanner() {
                     handleEanDetected(ean);
                 }
             }
-            // Les erreurs par frame (NotFoundException) sont ignorees -- normal,
-            // ZXing les remonte quand un frame ne contient pas de code lisible.
+            // err NotFoundException par frame = ignore (frame sans code visible)
         });
+        // Marque que la decoding est active
+        _scannerControls = { active: true };
 
         // Garde une reference au stream pour cleanup propre
         if (video.srcObject) _scannerStream = video.srcObject;
@@ -6514,12 +6523,12 @@ function closeBarcodeScanner() {
 }
 
 function stopScannerStream() {
-    // Stop ZXing (libere la camera + arrete le decode)
-    if (_scannerControls) {
-        try { _scannerControls.stop(); } catch {}
-        _scannerControls = null;
+    // Stop ZXing : reset() arrete le decode et libere la camera
+    if (_scannerCodeReader) {
+        try { _scannerCodeReader.reset(); } catch {}
     }
-    // Cleanup hardcore : si le stream est encore actif, on le coupe
+    _scannerControls = null;
+    // Cleanup hardcore : force kill des tracks au cas ou
     if (_scannerStream) {
         try { _scannerStream.getTracks().forEach(t => t.stop()); } catch {}
         _scannerStream = null;
@@ -6537,10 +6546,13 @@ async function restartScannerDecoding() {
     const video = document.getElementById('scannerVideo');
     if (!video) return;
     try {
-        const devices = await window.ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
-        const back = devices.find(d => /back|rear|environment/i.test(d.label));
-        const deviceId = (back || devices[devices.length - 1])?.deviceId;
-        _scannerControls = await _scannerCodeReader.decodeFromVideoDevice(deviceId, video, (result) => {
+        let deviceId = undefined;
+        try {
+            const devices = await _scannerCodeReader.listVideoInputDevices();
+            const back = devices.find(d => /back|rear|environment/i.test(d.label));
+            deviceId = (back || devices[devices.length - 1])?.deviceId;
+        } catch {}
+        await _scannerCodeReader.decodeFromVideoDevice(deviceId, video, (result) => {
             if (result) {
                 const ean = result.getText();
                 if (ean && ean !== _scannerLastEan) {
@@ -6550,6 +6562,7 @@ async function restartScannerDecoding() {
                 }
             }
         });
+        _scannerControls = { active: true };
     } catch {}
 }
 
