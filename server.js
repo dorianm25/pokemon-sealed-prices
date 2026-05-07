@@ -23,6 +23,7 @@ import {
     deletePortfolioGroup, getPortfolioByGroup, setPortfolioByGroup,
     listReleaseCalendar, upsertReleaseCalendar, deleteReleaseCalendar,
     bulkSeedReleaseCalendar,
+    listNewsArticles, createNewsArticle, updateNewsArticle, deleteNewsArticle,
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
     getAllCache as dbGetAllCache,
     getCustomQueries, setCustomQuery,
@@ -1021,6 +1022,176 @@ app.get('/api/indicators/:productId', async (req, res) => {
     } catch (e) {
         console.error('[indicators] error:', e);
         res.status(500).json({ error: 'Erreur calcul indicateurs' });
+    }
+});
+
+// ── Articles d'actualite (news_articles) ──────────────────
+//
+// Lecture publique. CRUD reserve admin.
+// Bonus : POST /api/news/preview-url qui fetche une URL et extrait les
+// balises Open Graph pour pre-remplir le formulaire admin.
+
+app.get('/api/news', async (req, res) => {
+    try {
+        const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 50));
+        const list = await listNewsArticles(limit);
+        res.json({ count: list.length, articles: list });
+    } catch (e) {
+        console.error('[news/list] error:', e);
+        res.status(500).json({ error: 'Erreur lecture' });
+    }
+});
+
+app.post('/api/news', authMiddleware, requireAdmin, async (req, res) => {
+    const { title, summary, url, imageUrl, source, country, publishedDate, sortOrder } = req.body || {};
+    if (!title || typeof title !== 'string' || !title.trim()) {
+        return res.status(400).json({ error: 'Titre requis' });
+    }
+    if (!url || typeof url !== 'string' || !/^https?:\/\//.test(url)) {
+        return res.status(400).json({ error: 'URL valide requise' });
+    }
+    const id = 'n_' + crypto.randomBytes(8).toString('hex');
+    try {
+        await createNewsArticle({
+            id,
+            title: title.trim().slice(0, 300),
+            summary: (summary || '').trim().slice(0, 1000),
+            url: url.trim(),
+            imageUrl: imageUrl?.trim() || null,
+            source: source?.trim().slice(0, 100) || null,
+            country: country?.trim().slice(0, 5) || null,
+            publishedDate: publishedDate || new Date().toISOString().slice(0, 10),
+            sortOrder: parseInt(sortOrder) || 0,
+        }, req.adminUser?.username || 'admin');
+        res.json({ ok: true, id });
+    } catch (e) {
+        console.error('[news/create] error:', e);
+        res.status(500).json({ error: 'Erreur creation' });
+    }
+});
+
+app.put('/api/news/:id', authMiddleware, requireAdmin, async (req, res) => {
+    try {
+        const ok = await updateNewsArticle(req.params.id, req.body || {});
+        if (!ok) return res.status(404).json({ error: 'Article introuvable' });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[news/update] error:', e);
+        res.status(500).json({ error: 'Erreur mise a jour' });
+    }
+});
+
+app.delete('/api/news/:id', authMiddleware, requireAdmin, async (req, res) => {
+    try {
+        const ok = await deleteNewsArticle(req.params.id);
+        if (!ok) return res.status(404).json({ error: 'Article introuvable' });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[news/delete] error:', e);
+        res.status(500).json({ error: 'Erreur suppression' });
+    }
+});
+
+// Bonus : fetch d'une URL et extraction des balises OG pour pre-remplir
+// le formulaire admin. Utile pour ajouter rapidement un article Pokecardex
+// ou autre source.
+app.post('/api/news/preview-url', authMiddleware, requireAdmin, async (req, res) => {
+    const { url } = req.body || {};
+    if (!url || !/^https?:\/\//.test(url)) {
+        return res.status(400).json({ error: 'URL valide requise' });
+    }
+    try {
+        // Fetch avec User-Agent realiste pour eviter d'etre bloque
+        const r = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+            },
+            redirect: 'follow',
+            signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) {
+            return res.status(502).json({ error: `Site source : HTTP ${r.status}` });
+        }
+        const html = await r.text();
+
+        // Helper : extrait le contenu d'une balise meta OG
+        const extractMeta = (property) => {
+            // Match <meta property="og:title" content="...">
+            const re = new RegExp(`<meta\\s+(?:[^>]*?\\s+)?(?:property|name)\\s*=\\s*["']${property}["'][^>]*?content\\s*=\\s*["']([^"']+)["']`, 'i');
+            const m1 = html.match(re);
+            if (m1) return m1[1];
+            // Inverse : content="..." property="og:title"
+            const re2 = new RegExp(`<meta\\s+(?:[^>]*?\\s+)?content\\s*=\\s*["']([^"']+)["'][^>]*?(?:property|name)\\s*=\\s*["']${property}["']`, 'i');
+            const m2 = html.match(re2);
+            if (m2) return m2[1];
+            return null;
+        };
+        // Decode les entites HTML basiques (&amp; -> &, &#039; -> ', etc.)
+        const decode = (s) => {
+            if (!s) return s;
+            return s
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&#039;/g, "'")
+                .replace(/&#x27;/g, "'")
+                .replace(/&apos;/g, "'");
+        };
+
+        const ogTitle = decode(extractMeta('og:title')) || decode(extractMeta('twitter:title'));
+        const ogImage = decode(extractMeta('og:image')) || decode(extractMeta('twitter:image'));
+        const ogDescription = decode(extractMeta('og:description')) || decode(extractMeta('twitter:description')) || decode(extractMeta('description'));
+        const ogSiteName = decode(extractMeta('og:site_name'));
+        const ogPublishedTime = extractMeta('article:published_time');
+
+        // Fallback titre : <title>...</title>
+        let title = ogTitle;
+        if (!title) {
+            const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+            if (titleMatch) title = decode(titleMatch[1].trim());
+        }
+
+        // Devine la source depuis l'URL
+        let source = ogSiteName;
+        if (!source) {
+            try {
+                const u = new URL(url);
+                source = u.hostname.replace(/^www\./, '');
+            } catch {}
+        }
+
+        // Devine le pays depuis l'URL ou le contenu
+        let country = '';
+        if (/pokecardex\.com/i.test(url)) country = 'fr';
+        else if (/pokebeach\.com/i.test(url)) country = 'us';
+        else if (/pokemon\.com\/fr/i.test(url)) country = 'fr';
+        else if (/pokemon\.com\/us/i.test(url)) country = 'us';
+
+        let publishedDate = null;
+        if (ogPublishedTime) {
+            const d = new Date(ogPublishedTime);
+            if (!isNaN(d)) publishedDate = d.toISOString().slice(0, 10);
+        }
+
+        res.json({
+            ok: true,
+            url,
+            title: title || '',
+            summary: ogDescription || '',
+            imageUrl: ogImage || '',
+            source: source || '',
+            country: country || '',
+            publishedDate: publishedDate || '',
+        });
+    } catch (e) {
+        if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+            return res.status(504).json({ error: 'Timeout de la requete' });
+        }
+        console.error('[news/preview-url] error:', e);
+        res.status(500).json({ error: 'Impossible de fetch l\'URL : ' + (e.message || e.name) });
     }
 });
 

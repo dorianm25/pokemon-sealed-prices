@@ -99,6 +99,21 @@ const SCHEMA = [
         data TEXT NOT NULL
     )`,
 
+    // Articles d'actualite (curation admin avec liens vers Pokecardex et autres sources)
+    `CREATE TABLE IF NOT EXISTS news_articles (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        summary TEXT,
+        url TEXT NOT NULL,
+        image_url TEXT,
+        source TEXT,
+        country TEXT,
+        published_date TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        added_by TEXT
+    )`,
+
     // Calendrier des sorties Pokemon TCG (FR/Asmodee)
     // Editable par l'admin via UI. Lecture publique.
     `CREATE TABLE IF NOT EXISTS release_calendar (
@@ -144,6 +159,7 @@ const SCHEMA = [
     `CREATE INDEX IF NOT EXISTS idx_pf_groups_user ON portfolio_groups(user_id, sort_order)`,
     `CREATE INDEX IF NOT EXISTS idx_pf_extra_user_group ON portfolios_extra(user_id, group_id)`,
     `CREATE INDEX IF NOT EXISTS idx_release_calendar_date ON release_calendar(release_date)`,
+    `CREATE INDEX IF NOT EXISTS idx_news_articles_date ON news_articles(published_date DESC, created_at DESC)`,
 ];
 
 export async function initSchema() {
@@ -422,6 +438,86 @@ export async function setCustomQuery(productId, data) {
               ON CONFLICT (product_id) DO UPDATE SET data = excluded.data`,
         args: [productId, JSON.stringify(data)],
     });
+}
+
+// ── Articles d'actualite (news_articles) ──────────────────
+
+export async function listNewsArticles(limit = 50) {
+    const r = await db.execute({
+        sql: `SELECT id, title, summary, url, image_url, source, country, published_date,
+                     sort_order, created_at, added_by
+              FROM news_articles
+              ORDER BY published_date DESC, created_at DESC
+              LIMIT ?`,
+        args: [limit],
+    });
+    return r.rows.map(row => ({
+        id: row.id,
+        title: row.title,
+        summary: row.summary || '',
+        url: row.url,
+        imageUrl: row.image_url || null,
+        source: row.source || '',
+        country: row.country || '',
+        publishedDate: row.published_date,
+        sortOrder: Number(row.sort_order) || 0,
+        createdAt: row.created_at,
+        addedBy: row.added_by,
+    }));
+}
+
+export async function createNewsArticle(article, addedBy) {
+    await db.execute({
+        sql: `INSERT INTO news_articles
+              (id, title, summary, url, image_url, source, country, published_date, sort_order, created_at, added_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+            article.id,
+            article.title,
+            article.summary || null,
+            article.url,
+            article.imageUrl || null,
+            article.source || null,
+            article.country || null,
+            article.publishedDate || new Date().toISOString().slice(0, 10),
+            article.sortOrder || 0,
+            new Date().toISOString(),
+            addedBy || null,
+        ],
+    });
+}
+
+export async function updateNewsArticle(id, updates) {
+    const fields = [];
+    const args = [];
+    const allowed = ['title', 'summary', 'url', 'image_url', 'source', 'country', 'published_date', 'sort_order'];
+    const map = {
+        imageUrl: 'image_url',
+        publishedDate: 'published_date',
+        sortOrder: 'sort_order',
+    };
+    for (const [key, value] of Object.entries(updates)) {
+        const dbCol = map[key] || key;
+        if (allowed.includes(dbCol)) {
+            fields.push(`${dbCol} = ?`);
+            args.push(value === undefined ? null : value);
+        }
+    }
+    if (fields.length === 0) return false;
+    args.push(id);
+    const r = await db.execute({
+        sql: `UPDATE news_articles SET ${fields.join(', ')} WHERE id = ?`,
+        args,
+    });
+    return r.rowsAffected > 0;
+}
+
+export async function deleteNewsArticle(id) {
+    const r = await db.execute({
+        sql: 'DELETE FROM news_articles WHERE id = ?',
+        args: [id],
+    });
+    return r.rowsAffected > 0;
 }
 
 // ── Calendrier des sorties (release_calendar) ──────────────

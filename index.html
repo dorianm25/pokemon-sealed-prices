@@ -78,6 +78,10 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                         Calendrier
                     </a>
+                    <a href="#" class="sidebar-link" data-section="news" onclick="switchSection('news', event)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 22h16a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 01-2 2zm0 0a2 2 0 01-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6z"/></svg>
+                        Actualités
+                    </a>
                     <a href="#" class="sidebar-link" data-section="simulation" onclick="switchSection('simulation', event)">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                         Simulation
@@ -520,6 +524,22 @@
                 <!-- Disclaimer -->
                 <div class="sim-disclaimer">
                     ⚠️ Ces projections sont purement indicatives et basées sur les tendances actuelles. Le marché du Pokémon scellé est volatile et les performances passées ne garantissent pas les résultats futurs.
+                </div>
+            </section>
+
+            <!-- ═══ ACTUALITÉS ═══ -->
+            <section class="section-news" id="sectionNews" style="display:none">
+                <div class="section-header">
+                    <div>
+                        <h1 class="page-title">📰 Actualités</h1>
+                        <p class="page-desc">Sorties à venir, nouveautés Pokémon TCG. Source principale : <a href="https://www.pokecardex.com/" target="_blank" rel="noopener" class="news-source-link">Pokecardex.com</a></p>
+                    </div>
+                    <button class="btn-icon-subtle" onclick="loadNewsPage()" title="Rafraîchir" aria-label="Rafraîchir">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                    </button>
+                </div>
+                <div id="newsContent">
+                    <div class="news-loading">Chargement…</div>
                 </div>
             </section>
 

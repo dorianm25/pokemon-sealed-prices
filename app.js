@@ -985,6 +985,8 @@ function switchSection(section, e) {
     if (moversSec) moversSec.style.display = section === 'movers' ? 'block' : 'none';
     const calSec = document.getElementById('sectionCalendar');
     if (calSec) calSec.style.display = section === 'calendar' ? 'block' : 'none';
+    const newsSec = document.getElementById('sectionNews');
+    if (newsSec) newsSec.style.display = section === 'news' ? 'block' : 'none';
 
     // Show/hide sidebar filters
     document.getElementById('sidebarFilters').style.display = section === 'catalogue' ? 'block' : 'none';
@@ -997,6 +999,7 @@ function switchSection(section, e) {
     if (section === 'transactions') loadTransactionsPage();
     if (section === 'movers') loadMoversPage();
     if (section === 'calendar') renderCalendarPage();
+    if (section === 'news') loadNewsPage();
 }
 
 // Helper : verifie si l'utilisateur connecte est l'admin (par defaut 'dorian').
@@ -7725,6 +7728,315 @@ async function submitCalendarEdit(event, isNew, originalCode) {
         _calendarCache = null;
         // Refresh ce qui est ouvert
         if (currentSection === 'calendar') renderCalendarPage();
+        if (currentSection === 'admin') loadAdminPage();
+    } catch {
+        errEl.textContent = 'Erreur réseau';
+    }
+}
+
+// ── Page Actualités ─────────────────────────────────────
+let _newsCache = null;
+
+async function loadNewsPage() {
+    const container = document.getElementById('newsContent');
+    if (!container) return;
+    container.innerHTML = '<div class="news-loading">Chargement des actualités…</div>';
+    try {
+        const res = await fetch('/api/news?limit=50', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        _newsCache = data.articles || [];
+        renderNewsPage();
+    } catch (e) {
+        container.innerHTML = `<div class="news-empty">Erreur de chargement (${e.message || 'inconnue'}).</div>`;
+    }
+}
+
+function renderNewsPage() {
+    const container = document.getElementById('newsContent');
+    if (!container) return;
+
+    if (!_newsCache || _newsCache.length === 0) {
+        container.innerHTML = `
+            <div class="news-empty">
+                <div class="news-empty-icon">📰</div>
+                <h3>Aucune actualité pour le moment</h3>
+                <p>${isAdminUser()
+                    ? 'Va sur la page Admin pour ajouter le premier article (paste un lien Pokecardex, le titre/image se rempliront tout seuls).'
+                    : 'L\'administrateur ajoutera bientôt les dernières news.'}
+                </p>
+                ${isAdminUser() ? '<button class="news-add-btn" onclick="adminAddNews()">➕ Ajouter une actualité</button>' : ''}
+            </div>
+        `;
+        return;
+    }
+
+    const fmtDate = (iso) => {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d)) return iso;
+        return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+    };
+
+    const flagEmoji = (country) => {
+        if (!country) return '';
+        const c = country.toLowerCase();
+        if (c === 'fr') return '🇫🇷';
+        if (c === 'us' || c === 'en') return '🇺🇸';
+        if (c === 'jp') return '🇯🇵';
+        if (c === 'cn') return '🇨🇳';
+        if (c === 'eu') return '🇪🇺';
+        return '';
+    };
+
+    container.innerHTML = `
+        ${isAdminUser() ? `
+            <div class="news-admin-bar">
+                <button class="news-add-btn" onclick="adminAddNews()">➕ Ajouter une actualité</button>
+            </div>
+        ` : ''}
+        <div class="news-grid">
+            ${_newsCache.map(n => {
+                const flag = flagEmoji(n.country);
+                const safeId = String(n.id).replace(/'/g, "\\'");
+                const adminBtns = isAdminUser() ? `
+                    <div class="news-card-admin">
+                        <button onclick="event.preventDefault();event.stopPropagation();adminEditNews('${safeId}')" title="Éditer">✏️</button>
+                        <button onclick="event.preventDefault();event.stopPropagation();adminDeleteNews('${safeId}')" title="Supprimer">🗑</button>
+                    </div>
+                ` : '';
+                return `<a href="${n.url}" target="_blank" rel="noopener" class="news-card">
+                    ${adminBtns}
+                    <div class="news-card-image">
+                        ${n.imageUrl
+                            ? `<img src="${n.imageUrl}" alt="" loading="lazy" onerror="this.style.display='none'">`
+                            : '<div class="news-card-image-placeholder">📰</div>'}
+                    </div>
+                    <div class="news-card-body">
+                        <h3 class="news-card-title">${flag ? flag + ' ' : ''}${n.title}</h3>
+                        ${n.summary ? `<p class="news-card-summary">${n.summary.slice(0, 200)}${n.summary.length > 200 ? '…' : ''}</p>` : ''}
+                        <div class="news-card-footer">
+                            ${n.source ? `<span class="news-card-source">${n.source}</span>` : ''}
+                            ${n.publishedDate ? `<span class="news-card-date">${fmtDate(n.publishedDate)}</span>` : ''}
+                        </div>
+                    </div>
+                </a>`;
+            }).join('')}
+        </div>
+        <p class="news-disclaimer">
+            🔍 Les actualités lien ext. vers les sources originales (Pokecardex, etc.). Aucun contenu n'est copié, juste lié.
+        </p>
+    `;
+}
+
+// ── Admin : gestion des actualites ────────────────────────
+function adminAddNews() {
+    if (!isAdminUser()) return;
+    showNewsEditModal({
+        id: '',
+        title: '',
+        summary: '',
+        url: '',
+        imageUrl: '',
+        source: '',
+        country: '',
+        publishedDate: new Date().toISOString().slice(0, 10),
+        isNew: true,
+    });
+}
+
+async function adminEditNews(id) {
+    if (!isAdminUser()) return;
+    const list = _newsCache || [];
+    const article = list.find(a => a.id === id);
+    if (!article) {
+        showToast('⚠️', 'Introuvable', '');
+        return;
+    }
+    showNewsEditModal({ ...article, isNew: false });
+}
+
+async function adminDeleteNews(id) {
+    if (!isAdminUser()) return;
+    if (!confirm('Supprimer cette actualité ?')) return;
+    try {
+        const res = await fetch(`/api/news/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            showToast('⚠️', 'Erreur', data.error || 'Échec');
+            return;
+        }
+        showToast('✅', 'Supprimée', '');
+        if (currentSection === 'news') loadNewsPage();
+        if (currentSection === 'admin') loadAdminPage();
+    } catch {
+        showToast('⚠️', 'Erreur réseau', '');
+    }
+}
+
+function showNewsEditModal(article) {
+    const existing = document.getElementById('newsEditModal');
+    if (existing) existing.remove();
+
+    const isNew = !!article.isNew;
+    const overlay = document.createElement('div');
+    overlay.id = 'newsEditModal';
+    overlay.className = 'tx-modal-overlay open';
+    overlay.innerHTML = `
+        <div class="tx-modal" style="max-width:560px">
+            <div class="tx-modal-head">
+                <h3>${isNew ? '➕ Nouvelle actualité' : '✏️ Éditer'}</h3>
+                <button class="tx-modal-close" type="button" aria-label="Fermer" onclick="document.getElementById('newsEditModal').remove()">&times;</button>
+            </div>
+            <form class="tx-form" onsubmit="submitNewsEdit(event, ${isNew}, '${(article.id || '').replace(/'/g, "\\'")}')">
+                <!-- URL en premier avec bouton 'auto-remplir' -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">URL de l'article (Pokecardex, etc.)</label>
+                        <div style="display:flex;gap:6px">
+                            <input type="url" class="tx-form-input" id="newsEditUrl" required value="${(article.url || '').replace(/"/g, '&quot;')}" placeholder="https://www.pokecardex.com/...">
+                            <button type="button" class="tx-btn tx-btn-primary" onclick="newsAutoFillFromUrl()" id="newsAutoFillBtn" style="white-space:nowrap;flex-shrink:0">🪄 Auto</button>
+                        </div>
+                        <p class="tx-form-help">Clique sur 🪄 Auto après avoir collé l'URL : titre, image, résumé seront récupérés automatiquement.</p>
+                    </div>
+                </div>
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">Titre</label>
+                        <input type="text" class="tx-form-input" id="newsEditTitle" required maxlength="300" value="${(article.title || '').replace(/"/g, '&quot;')}">
+                    </div>
+                </div>
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">Résumé (optionnel)</label>
+                        <textarea class="tx-form-input tx-form-textarea" id="newsEditSummary" rows="2" maxlength="1000">${(article.summary || '').replace(/</g, '&lt;')}</textarea>
+                    </div>
+                </div>
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">URL de l'image (auto-rempli)</label>
+                        <input type="url" class="tx-form-input" id="newsEditImage" maxlength="1000" value="${(article.imageUrl || '').replace(/"/g, '&quot;')}">
+                    </div>
+                </div>
+                <div class="tx-form-row">
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Source</label>
+                        <input type="text" class="tx-form-input" id="newsEditSource" maxlength="100" value="${(article.source || '').replace(/"/g, '&quot;')}" placeholder="Pokecardex.com">
+                    </div>
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Pays</label>
+                        <select class="tx-form-input" id="newsEditCountry">
+                            <option value="">—</option>
+                            <option value="fr" ${article.country === 'fr' ? 'selected' : ''}>🇫🇷 France</option>
+                            <option value="us" ${article.country === 'us' ? 'selected' : ''}>🇺🇸 US</option>
+                            <option value="jp" ${article.country === 'jp' ? 'selected' : ''}>🇯🇵 Japon</option>
+                            <option value="eu" ${article.country === 'eu' ? 'selected' : ''}>🇪🇺 Europe</option>
+                            <option value="cn" ${article.country === 'cn' ? 'selected' : ''}>🇨🇳 Chine</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="tx-form-row">
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Date publication</label>
+                        <input type="date" class="tx-form-input" id="newsEditDate" required value="${article.publishedDate || ''}">
+                    </div>
+                </div>
+                <div id="newsEditError" class="tx-form-error"></div>
+                <div class="tx-form-actions">
+                    <button type="button" class="tx-btn tx-btn-ghost" onclick="document.getElementById('newsEditModal').remove()">Annuler</button>
+                    <button type="submit" class="tx-btn tx-btn-primary">${isNew ? 'Ajouter' : 'Enregistrer'}</button>
+                </div>
+            </form>
+        </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+    setTimeout(() => document.getElementById('newsEditUrl')?.focus(), 100);
+}
+
+async function newsAutoFillFromUrl() {
+    const url = document.getElementById('newsEditUrl')?.value?.trim();
+    if (!url) {
+        document.getElementById('newsEditError').textContent = 'Colle une URL d\'abord';
+        return;
+    }
+    const btn = document.getElementById('newsAutoFillBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳';
+    document.getElementById('newsEditError').textContent = '';
+    try {
+        const res = await fetch('/api/news/preview-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            document.getElementById('newsEditError').textContent = data.error || 'Échec';
+            btn.disabled = false;
+            btn.textContent = '🪄 Auto';
+            return;
+        }
+        // Pre-remplit les champs vides ; n'ecrase pas si l'admin a deja saisi
+        const setIfEmpty = (id, value) => {
+            const el = document.getElementById(id);
+            if (el && !el.value && value) el.value = value;
+        };
+        // Toujours overwrite : facilite l'usage 'paste url + auto'
+        document.getElementById('newsEditTitle').value = data.title || '';
+        document.getElementById('newsEditSummary').value = data.summary || '';
+        document.getElementById('newsEditImage').value = data.imageUrl || '';
+        document.getElementById('newsEditSource').value = data.source || '';
+        if (data.country) document.getElementById('newsEditCountry').value = data.country;
+        if (data.publishedDate) document.getElementById('newsEditDate').value = data.publishedDate;
+        showToast('✨', 'Pré-rempli', 'Vérifie et ajuste si besoin');
+    } catch (e) {
+        document.getElementById('newsEditError').textContent = 'Erreur réseau';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🪄 Auto';
+    }
+}
+
+async function submitNewsEdit(event, isNew, originalId) {
+    event.preventDefault();
+    const errEl = document.getElementById('newsEditError');
+    errEl.textContent = '';
+
+    const payload = {
+        url: document.getElementById('newsEditUrl').value.trim(),
+        title: document.getElementById('newsEditTitle').value.trim(),
+        summary: document.getElementById('newsEditSummary').value.trim(),
+        imageUrl: document.getElementById('newsEditImage').value.trim(),
+        source: document.getElementById('newsEditSource').value.trim(),
+        country: document.getElementById('newsEditCountry').value,
+        publishedDate: document.getElementById('newsEditDate').value,
+    };
+
+    if (!payload.title) { errEl.textContent = 'Titre requis'; return; }
+    if (!payload.url || !/^https?:\/\//.test(payload.url)) { errEl.textContent = 'URL valide requise'; return; }
+
+    try {
+        const url = isNew ? '/api/news' : `/api/news/${encodeURIComponent(originalId)}`;
+        const method = isNew ? 'POST' : 'PUT';
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            errEl.textContent = data.error || 'Erreur';
+            return;
+        }
+        showToast('✅', isNew ? 'Article ajouté' : 'Article mis à jour', '');
+        document.getElementById('newsEditModal').remove();
+        if (currentSection === 'news') loadNewsPage();
         if (currentSection === 'admin') loadAdminPage();
     } catch {
         errEl.textContent = 'Erreur réseau';
