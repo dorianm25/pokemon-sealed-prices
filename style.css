@@ -10271,6 +10271,176 @@ canvas,
 }
 
 /* ============================================================
+   PAGE TENDANCES — REFONTE 2026 : tabs + sentiment marche
+   ============================================================ */
+
+/* Sentiment du marche : hero strip au-dessus des onglets */
+.trend-sentiment {
+    margin-bottom: 20px;
+}
+.trend-sentiment-card {
+    display: grid;
+    grid-template-columns: 60px 1fr auto;
+    gap: 18px;
+    align-items: center;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 22px;
+    transition: all var(--dur-fast);
+}
+.trend-mood-bull-strong {
+    border-left-color: #22c55e;
+    background: linear-gradient(90deg, rgba(34,197,94,0.08), transparent 60%), var(--bg-card);
+}
+.trend-mood-bull {
+    border-left-color: #22c55e;
+    background: linear-gradient(90deg, rgba(34,197,94,0.04), transparent 60%), var(--bg-card);
+}
+.trend-mood-neutral {
+    border-left-color: #94a3b8;
+}
+.trend-mood-bear {
+    border-left-color: #f59e0b;
+    background: linear-gradient(90deg, rgba(245,158,11,0.04), transparent 60%), var(--bg-card);
+}
+.trend-mood-bear-strong {
+    border-left-color: #ef4444;
+    background: linear-gradient(90deg, rgba(239,68,68,0.08), transparent 60%), var(--bg-card);
+}
+.trend-sentiment-emoji {
+    font-size: 44px;
+    line-height: 1;
+    text-align: center;
+}
+.trend-sentiment-info { min-width: 0; }
+.trend-sentiment-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+.trend-sentiment-mood {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 800;
+    margin-bottom: 4px;
+    letter-spacing: -0.02em;
+}
+.trend-sentiment-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    max-width: 480px;
+}
+.trend-sentiment-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px 18px;
+}
+.trend-sentiment-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+.trend-sentiment-stat-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+.trend-sentiment-stat-val {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+.trend-sentiment-stat-val.positive { color: #22c55e; }
+.trend-sentiment-stat-val.negative { color: #ef4444; }
+
+/* Onglets thematiques */
+.trends-tabs {
+    display: flex;
+    gap: 4px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+}
+.trends-tabs::-webkit-scrollbar { display: none; }
+.trends-tab {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s var(--ease-out);
+    font-family: inherit;
+    min-height: 40px;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+.trends-tab:hover { color: var(--text-primary); background: rgba(255,255,255,0.04); }
+.trends-tab.active {
+    background: linear-gradient(90deg, #2ea043, #34c853);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(46,160,67,0.4);
+}
+.trends-tab-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+/* Panels (visibles uniquement quand actifs) */
+.trends-tab-panel { display: none; animation: trendsPanelFade 0.2s var(--ease-out); }
+.trends-tab-panel.active { display: block; }
+@keyframes trendsPanelFade {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive : sentiment + tabs */
+@media (max-width: 900px) {
+    .trend-sentiment-card {
+        grid-template-columns: 50px 1fr;
+        padding: 14px 16px;
+        gap: 12px;
+    }
+    .trend-sentiment-stats {
+        grid-column: 1 / -1;
+        margin-top: 4px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border);
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px 8px;
+    }
+    .trend-sentiment-stat { align-items: flex-start; }
+    .trend-sentiment-emoji { font-size: 32px; }
+    .trend-sentiment-mood { font-size: 17px; }
+    .trend-sentiment-desc { font-size: 11px; }
+    .trends-tab-label { display: none; } /* mobile : icones uniquement */
+    .trends-tab { padding: 10px 12px; }
+    .trends-tab-icon { font-size: 18px; }
+}
+
+/* ============================================================
    PAGE ACTUALITÉS
    ============================================================ */
 .section-news .section-header { margin-bottom: 24px; }

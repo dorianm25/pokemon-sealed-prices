@@ -1459,11 +1459,109 @@ function renderHypeMeter(priced) {
     `;
 }
 
+// ── Onglets de la page Tendances ────────────────────────
+function setTrendsTab(tabId, save = true) {
+    const valid = ['marche', 'series', 'opportunites', 'avance'];
+    if (!valid.includes(tabId)) tabId = 'marche';
+
+    document.querySelectorAll('.trends-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === tabId);
+    });
+    document.querySelectorAll('.trends-tab-panel').forEach(p => {
+        p.classList.toggle('active', p.dataset.tabPanel === tabId);
+    });
+
+    if (save) localStorage.setItem('pokescelle-trends-tab', tabId);
+
+    // Scroll en haut de la section
+    const sec = document.getElementById('sectionTendances');
+    if (sec) sec.scrollTop = 0;
+}
+
+// ── Sentiment du marché : verdict global haussier/neutre/baissier ──
+function renderTrendSentiment(priced) {
+    const wrap = document.getElementById('trendSentiment');
+    if (!wrap) return;
+    if (!priced.length) {
+        wrap.innerHTML = '';
+        return;
+    }
+
+    // Calcule un score composite :
+    //   - Variation 7j moyenne (poids 50%)
+    //   - Ratio hausse/baisse (poids 30%)
+    //   - Tendance moyenne globale (poids 20%)
+    const with7d = priced.map(p => trends7d[p.name]?.change || 0);
+    const avg7d = with7d.length ? with7d.reduce((a, b) => a + b, 0) / with7d.length : 0;
+    const hausse = priced.filter(p => p.trend > 0).length;
+    const baisse = priced.filter(p => p.trend < 0).length;
+    const ratio = hausse - baisse; // positif = plus de hausses que baisses
+    const ratioNorm = priced.length > 0 ? (ratio / priced.length) * 100 : 0;
+    const avgTrend = priced.length ? priced.reduce((s, p) => s + p.trend, 0) / priced.length : 0;
+
+    const score = avg7d * 0.5 + ratioNorm * 0.3 + avgTrend * 0.2;
+
+    // Classification
+    let mood, emoji, label, desc, color;
+    if (score >= 5) {
+        mood = 'bull-strong'; emoji = '🚀'; label = 'Très haussier'; color = '#22c55e';
+        desc = 'Le marché est en pleine euphorie. Beaucoup de produits en forte hausse, peu de baisses.';
+    } else if (score >= 1.5) {
+        mood = 'bull'; emoji = '📈'; label = 'Haussier'; color = '#22c55e';
+        desc = 'Tendance positive globale. Plus de produits en hausse qu\'en baisse.';
+    } else if (score >= -1.5) {
+        mood = 'neutral'; emoji = '➖'; label = 'Neutre'; color = '#94a3b8';
+        desc = 'Marché stable. Hausses et baisses s\'équilibrent.';
+    } else if (score >= -5) {
+        mood = 'bear'; emoji = '📉'; label = 'Baissier'; color = '#f59e0b';
+        desc = 'Tendance négative globale. Plus de produits en baisse qu\'en hausse.';
+    } else {
+        mood = 'bear-strong'; emoji = '🔻'; label = 'Très baissier'; color = '#ef4444';
+        desc = 'Correction marquée. Beaucoup de baisses, peu de hausses.';
+    }
+
+    wrap.innerHTML = `
+        <div class="trend-sentiment-card trend-mood-${mood}">
+            <div class="trend-sentiment-emoji">${emoji}</div>
+            <div class="trend-sentiment-info">
+                <div class="trend-sentiment-label">Sentiment du marché</div>
+                <div class="trend-sentiment-mood" style="color:${color}">${label}</div>
+                <div class="trend-sentiment-desc">${desc}</div>
+            </div>
+            <div class="trend-sentiment-stats">
+                <div class="trend-sentiment-stat">
+                    <span class="trend-sentiment-stat-label">Var. 7j</span>
+                    <span class="trend-sentiment-stat-val ${avg7d >= 0 ? 'positive' : 'negative'}">${avg7d >= 0 ? '+' : ''}${avg7d.toFixed(1)} %</span>
+                </div>
+                <div class="trend-sentiment-stat">
+                    <span class="trend-sentiment-stat-label">Hausses</span>
+                    <span class="trend-sentiment-stat-val positive">${hausse}</span>
+                </div>
+                <div class="trend-sentiment-stat">
+                    <span class="trend-sentiment-stat-label">Baisses</span>
+                    <span class="trend-sentiment-stat-val negative">${baisse}</span>
+                </div>
+                <div class="trend-sentiment-stat">
+                    <span class="trend-sentiment-stat-label">Score</span>
+                    <span class="trend-sentiment-stat-val" style="color:${color}">${score >= 0 ? '+' : ''}${score.toFixed(1)}</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 async function renderTrends() {
     const priced = products.filter(p => p.price > 0);
 
     // Charger les variations 7 jours
     await loadTrends7d();
+
+    // ── Sentiment du marche (verdict global au-dessus des onglets) ──
+    renderTrendSentiment(priced);
+
+    // ── Restore l'onglet actif depuis localStorage (par defaut 'marche') ──
+    const savedTab = localStorage.getItem('pokescelle-trends-tab') || 'marche';
+    setTrendsTab(savedTab, false);
 
     // ── Pokémon Greed Index ──
     renderGreedIndex(priced);

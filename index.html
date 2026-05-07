@@ -377,94 +377,116 @@
             <!-- Section: Tendances -->
             <section class="section-tendances" id="sectionTendances" style="display:none">
                 <div class="section-header">
-                    <h1 class="page-title">Tendances du marché</h1>
-                    <p class="page-desc">Analyse des prix et opportunités</p>
+                    <h1 class="page-title">📊 Tendances du marché</h1>
+                    <p class="page-desc">Analyse approfondie des prix et opportunités du Pokémon scellé</p>
                 </div>
 
-                <!-- Pokémon Greed Index -->
-                <div class="greed-index-wrap" id="greedIndexWrap"></div>
+                <!-- Sentiment du marché : hero strip avec verdict global -->
+                <div class="trend-sentiment" id="trendSentiment"></div>
 
-                <!-- KPI globaux -->
-                <div class="trend-kpis" id="trendKpis"></div>
+                <!-- Onglets thématiques -->
+                <div class="trends-tabs" role="tablist">
+                    <button class="trends-tab active" data-tab="marche" onclick="setTrendsTab('marche')" role="tab">
+                        <span class="trends-tab-icon">🔥</span>
+                        <span class="trends-tab-label">Marché</span>
+                    </button>
+                    <button class="trends-tab" data-tab="series" onclick="setTrendsTab('series')" role="tab">
+                        <span class="trends-tab-icon">📊</span>
+                        <span class="trends-tab-label">Séries</span>
+                    </button>
+                    <button class="trends-tab" data-tab="opportunites" onclick="setTrendsTab('opportunites')" role="tab">
+                        <span class="trends-tab-icon">💡</span>
+                        <span class="trends-tab-label">Opportunités</span>
+                    </button>
+                    <button class="trends-tab" data-tab="avance" onclick="setTrendsTab('avance')" role="tab">
+                        <span class="trends-tab-icon">🔮</span>
+                        <span class="trends-tab-label">Avancé</span>
+                    </button>
+                </div>
 
-                <!-- Top mouvements -->
-                <div class="tendances-grid">
-                    <div class="tendance-block">
-                        <h3><span class="t-dot green"></span>Fortes hausses <small style="font-weight:400;color:var(--text-muted)">(7j)</small></h3>
-                        <ol id="trendUp" class="t-list"></ol>
-                    </div>
-                    <div class="tendance-block">
-                        <h3><span class="t-dot red"></span>Fortes baisses <small style="font-weight:400;color:var(--text-muted)">(7j)</small></h3>
-                        <ol id="trendDown" class="t-list"></ol>
-                    </div>
-                    <div class="tendance-block">
-                        <h3><span class="t-dot blue"></span>Plus cotés</h3>
-                        <ol id="trendHot" class="t-list"></ol>
+                <!-- ═══ TAB : MARCHÉ ═══ -->
+                <div class="trends-tab-panel active" data-tab-panel="marche">
+                    <!-- Pokémon Greed Index -->
+                    <div class="greed-index-wrap" id="greedIndexWrap"></div>
+
+                    <!-- KPI globaux -->
+                    <div class="trend-kpis" id="trendKpis"></div>
+
+                    <!-- Top mouvements -->
+                    <div class="tendances-grid">
+                        <div class="tendance-block">
+                            <h3><span class="t-dot green"></span>Fortes hausses <small style="font-weight:400;color:var(--text-muted)">(7j)</small></h3>
+                            <ol id="trendUp" class="t-list"></ol>
+                        </div>
+                        <div class="tendance-block">
+                            <h3><span class="t-dot red"></span>Fortes baisses <small style="font-weight:400;color:var(--text-muted)">(7j)</small></h3>
+                            <ol id="trendDown" class="t-list"></ol>
+                        </div>
+                        <div class="tendance-block">
+                            <h3><span class="t-dot blue"></span>Plus cotés</h3>
+                            <ol id="trendHot" class="t-list"></ol>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Hype Meter par série -->
-                <h2 class="trend-section-title">Hype Meter</h2>
-                <p class="trend-section-desc">Niveau de hype de chaque série basé sur 8 facteurs : performance, tendance, volume, demande, valeur, volatilité, position et consistance</p>
-                <div class="hype-meter-wrap" id="hypeMeter"></div>
+                <!-- ═══ TAB : SÉRIES ═══ -->
+                <div class="trends-tab-panel" data-tab-panel="series">
+                    <h2 class="trend-section-title">🌡️ Hype Meter</h2>
+                    <p class="trend-section-desc">Niveau de hype de chaque série basé sur 8 facteurs : performance, tendance, volume, demande, valeur, volatilité, position et consistance</p>
+                    <div class="hype-meter-wrap" id="hypeMeter"></div>
 
-                <!-- ADN des séries gagnantes -->
-                <h2 class="trend-section-title">ADN des séries gagnantes</h2>
-                <p class="trend-section-desc">Analyse comparative : qu'est-ce qui fait le succès d'une série ?</p>
-                <div id="seriesAnalysis"></div>
+                    <h2 class="trend-section-title">🧬 ADN des séries gagnantes</h2>
+                    <p class="trend-section-desc">Analyse comparative : qu'est-ce qui fait le succès d'une série ?</p>
+                    <div id="seriesAnalysis"></div>
 
-                <!-- Prix moyen par type -->
-                <h2 class="trend-section-title">Prix moyen par type de produit</h2>
-                <div class="trend-avg-grid" id="trendAvgByType"></div>
+                    <h2 class="trend-section-title">📦 Prix moyen par type de produit</h2>
+                    <div class="trend-avg-grid" id="trendAvgByType"></div>
 
-                <!-- Classement par série -->
-                <h2 class="trend-section-title">Classement des séries par valeur</h2>
-                <div class="trend-series-ranking" id="trendSeriesRanking"></div>
+                    <h2 class="trend-section-title">🏆 Classement des séries par valeur</h2>
+                    <div class="trend-series-ranking" id="trendSeriesRanking"></div>
 
-                <!-- Performance depuis sortie -->
-                <h2 class="trend-section-title">Performance depuis la sortie</h2>
-                <p class="trend-section-desc">Évolution du prix par rapport au prix de sortie officiel</p>
-                <div class="trend-perf-table-wrap" id="trendPerfTable"></div>
+                    <h2 class="trend-section-title">📈 Performance depuis la sortie</h2>
+                    <p class="trend-section-desc">Évolution du prix par rapport au prix de sortie officiel</p>
+                    <div class="trend-perf-table-wrap" id="trendPerfTable"></div>
 
-                <!-- Potentiel -->
-                <h2 class="trend-section-title">Séries à potentiel</h2>
-                <p class="trend-section-desc">Séries sous-évaluées avec un fort potentiel de hausse</p>
-                <div class="trend-potential-wrap" id="trendPotential"></div>
+                    <h2 class="trend-section-title">🗺️ Carte thermique des prix</h2>
+                    <p class="trend-section-desc">Vue d'ensemble des prix par série et type de produit</p>
+                    <div id="heatmapWrap"></div>
+                </div>
 
-                <!-- Meilleurs rapports qualité/prix -->
-                <h2 class="trend-section-title">Opportunités d'achat</h2>
-                <p class="trend-section-desc">Produits dont le prix actuel est inférieur au dernier prix connu</p>
-                <div class="trend-opps" id="trendOpportunities"></div>
+                <!-- ═══ TAB : OPPORTUNITÉS ═══ -->
+                <div class="trends-tab-panel" data-tab-panel="opportunites">
+                    <h2 class="trend-section-title">🚀 Séries à potentiel</h2>
+                    <p class="trend-section-desc">Séries sous-évaluées avec un fort potentiel de hausse</p>
+                    <div class="trend-potential-wrap" id="trendPotential"></div>
 
-                <!-- Score d'investissement -->
-                <h2 class="trend-section-title">Score d'investissement</h2>
-                <p class="trend-section-desc">Classement des 20 meilleurs produits à acheter maintenant, basé sur le prix, la tendance, la liquidité et le risque</p>
-                <div id="investmentScores"></div>
+                    <h2 class="trend-section-title">💎 Opportunités d'achat</h2>
+                    <p class="trend-section-desc">Produits dont le prix actuel est inférieur au dernier prix connu</p>
+                    <div class="trend-opps" id="trendOpportunities"></div>
 
-                <!-- Détection de bulles -->
-                <h2 class="trend-section-title">Détection de bulles</h2>
-                <p class="trend-section-desc">Produits dont le prix augmente de manière anormale — risque de correction</p>
-                <div id="bubbleDetection"></div>
+                    <h2 class="trend-section-title">🎯 Score d'investissement</h2>
+                    <p class="trend-section-desc">Classement des 20 meilleurs produits à acheter maintenant, basé sur le prix, la tendance, la liquidité et le risque</p>
+                    <div id="investmentScores"></div>
 
-                <!-- Corrélations -->
-                <h2 class="trend-section-title">Corrélation entre séries</h2>
-                <p class="trend-section-desc">Séries qui évoluent ensemble et leaders du marché</p>
-                <div id="correlations"></div>
+                    <h2 class="trend-section-title">⚠️ Détection de bulles</h2>
+                    <p class="trend-section-desc">Produits dont le prix augmente de manière anormale — risque de correction</p>
+                    <div id="bubbleDetection"></div>
+                </div>
 
-                <!-- Prédictions -->
-                <h2 class="trend-section-title">Prédiction de prix</h2>
-                <p class="trend-section-desc">Estimation à 30, 60 et 90 jours basée sur les tendances actuelles</p>
-                <div id="predictions"></div>
+                <!-- ═══ TAB : AVANCÉ ═══ -->
+                <div class="trends-tab-panel" data-tab-panel="avance">
+                    <h2 class="trend-section-title">🔗 Corrélation entre séries</h2>
+                    <p class="trend-section-desc">Séries qui évoluent ensemble et leaders du marché</p>
+                    <div id="correlations"></div>
 
-                <!-- Heatmap -->
-                <h2 class="trend-section-title">Carte thermique des prix</h2>
-                <p class="trend-section-desc">Vue d'ensemble des prix par série et type de produit</p>
-                <div id="heatmapWrap"></div>
+                    <h2 class="trend-section-title">🔮 Prédiction de prix</h2>
+                    <p class="trend-section-desc">Estimation à 30, 60 et 90 jours basée sur les tendances actuelles</p>
+                    <div id="predictions"></div>
 
-                <!-- ROI Calculator -->
-                <h2 class="trend-section-title">Calculateur de ROI</h2>
-                <p class="trend-section-desc">Simulez le retour sur investissement si vous aviez acheté un produit dans le passé</p>
-                <div id="roiCalculator"></div>
+                    <h2 class="trend-section-title">💰 Calculateur de ROI</h2>
+                    <p class="trend-section-desc">Simulez le retour sur investissement si vous aviez acheté un produit dans le passé</p>
+                    <div id="roiCalculator"></div>
+                </div>
             </section>
 
             <!-- ═══ SIMULATION ═══ -->
