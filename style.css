@@ -10265,6 +10265,164 @@ canvas,
 }
 
 /* ============================================================
+   INDICATEURS TECHNIQUES (detail produit)
+   ============================================================ */
+.detail-indicators-section {
+    margin-bottom: 20px;
+}
+.detail-indicators-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 12px;
+}
+.indicators-loading, .indicators-empty {
+    padding: 24px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+}
+
+/* Signal principal (achat / vente / neutre) */
+.ind-signal {
+    display: grid;
+    grid-template-columns: 56px 1fr 60px;
+    gap: 14px;
+    align-items: center;
+    padding: 14px 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 12px;
+}
+.ind-signal-buy { border-left-color: #22c55e; background: linear-gradient(90deg, rgba(34,197,94,0.08), transparent 80%), var(--bg-card); }
+.ind-signal-sell { border-left-color: #ef4444; background: linear-gradient(90deg, rgba(239,68,68,0.08), transparent 80%), var(--bg-card); }
+.ind-signal-hold { border-left-color: #94a3b8; }
+.ind-signal-icon { font-size: 30px; text-align: center; }
+.ind-signal-info { min-width: 0; }
+.ind-signal-label {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    margin-bottom: 2px;
+}
+.ind-signal-buy .ind-signal-label { color: #22c55e; }
+.ind-signal-sell .ind-signal-label { color: #ef4444; }
+.ind-signal-hold .ind-signal-label { color: var(--text-secondary); }
+.ind-signal-reason {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+.ind-signal-score {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 800;
+    text-align: center;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Grid des cards d'indicateurs */
+.ind-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.ind-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.ind-card-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+.ind-card-value {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+.ind-card-sub {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 1px;
+}
+.ind-value-buy { color: #22c55e; }
+.ind-value-sell { color: #ef4444; }
+.risk-high { color: #ef4444; }
+.risk-medium { color: #f59e0b; }
+.risk-low { color: #22c55e; }
+
+/* Bollinger band info */
+.ind-bollinger {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    margin-bottom: 12px;
+}
+.ind-bollinger-label {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+.ind-bollinger-val {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+.ind-bollinger-range {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.ind-disclaimer {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0;
+    padding: 8px 12px;
+    background: rgba(245, 158, 11, 0.05);
+    border-radius: 6px;
+    border: 1px solid rgba(245, 158, 11, 0.15);
+}
+
+/* Mobile : compact */
+@media (max-width: 640px) {
+    .ind-signal { grid-template-columns: 44px 1fr 50px; gap: 10px; padding: 12px; }
+    .ind-signal-icon { font-size: 24px; }
+    .ind-signal-label { font-size: 14px; }
+    .ind-signal-score { font-size: 18px; }
+    .ind-cards { grid-template-columns: 1fr 1fr; gap: 6px; }
+    .ind-card { padding: 8px 10px; }
+    .ind-card-value { font-size: 15px; }
+    .ind-card-sub { font-size: 9px; }
+    .detail-indicators-title { font-size: 12px; }
+}
+
+/* ============================================================
    ADMIN : section codes-barres (import bulk + liste)
    ============================================================ */
 .admin-bulk-import,

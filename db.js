@@ -43,6 +43,31 @@ const SCHEMA = [
         PRIMARY KEY (user_id, product_name)
     )`,
 
+    // Groupes de portfolios (multi-portfolio par user)
+    // Le groupe 'default' est implicite et pointe sur la table portfolios.
+    // Les autres groupes sont stockes dans portfolios_extra.
+    `CREATE TABLE IF NOT EXISTS portfolio_groups (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        icon TEXT,
+        color TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    )`,
+
+    // Holdings pour les portfolios additionnels (non-default)
+    // Le PK inclut group_id pour permettre le meme produit dans plusieurs groupes
+    `CREATE TABLE IF NOT EXISTS portfolios_extra (
+        user_id TEXT NOT NULL,
+        group_id TEXT NOT NULL,
+        product_name TEXT NOT NULL,
+        qty INTEGER NOT NULL DEFAULT 0,
+        cost REAL NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, group_id, product_name)
+    )`,
+
     `CREATE TABLE IF NOT EXISTS portfolio_history (
         user_id TEXT NOT NULL,
         date TEXT NOT NULL,
@@ -102,6 +127,8 @@ const SCHEMA = [
     `CREATE INDEX IF NOT EXISTS idx_price_history_product_date ON price_history(product_id, date)`,
     `CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, date DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_transactions_user_product ON transactions(user_id, product_name)`,
+    `CREATE INDEX IF NOT EXISTS idx_pf_groups_user ON portfolio_groups(user_id, sort_order)`,
+    `CREATE INDEX IF NOT EXISTS idx_pf_extra_user_group ON portfolios_extra(user_id, group_id)`,
 ];
 
 export async function initSchema() {
@@ -380,6 +407,98 @@ export async function setCustomQuery(productId, data) {
               ON CONFLICT (product_id) DO UPDATE SET data = excluded.data`,
         args: [productId, JSON.stringify(data)],
     });
+}
+
+// ── Multi-portfolios (groupes) ──────────────────────────────
+//
+// Le groupe 'default' (id virtuel) correspond a l'ancienne table portfolios.
+// Les groupes additionnels sont stockes dans portfolio_groups (metadata) +
+// portfolios_extra (holdings).
+
+export async function listPortfolioGroups(userId) {
+    const r = await db.execute({
+        sql: 'SELECT id, name, icon, color, sort_order, created_at FROM portfolio_groups WHERE user_id = ? ORDER BY sort_order ASC, created_at ASC',
+        args: [userId],
+    });
+    return r.rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        icon: row.icon || '💼',
+        color: row.color || '#22c55e',
+        sortOrder: Number(row.sort_order) || 0,
+        createdAt: row.created_at,
+    }));
+}
+
+export async function createPortfolioGroup(id, userId, { name, icon, color, sortOrder }) {
+    await db.execute({
+        sql: 'INSERT INTO portfolio_groups (id, user_id, name, icon, color, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        args: [id, userId, name, icon || null, color || null, sortOrder || 0, new Date().toISOString()],
+    });
+}
+
+export async function updatePortfolioGroup(id, userId, { name, icon, color, sortOrder }) {
+    const updates = [];
+    const args = [];
+    if (name !== undefined) { updates.push('name = ?'); args.push(name); }
+    if (icon !== undefined) { updates.push('icon = ?'); args.push(icon); }
+    if (color !== undefined) { updates.push('color = ?'); args.push(color); }
+    if (sortOrder !== undefined) { updates.push('sort_order = ?'); args.push(sortOrder); }
+    if (updates.length === 0) return false;
+    args.push(id, userId);
+    const r = await db.execute({
+        sql: `UPDATE portfolio_groups SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`,
+        args,
+    });
+    return r.rowsAffected > 0;
+}
+
+export async function deletePortfolioGroup(id, userId) {
+    // Supprime aussi les holdings du groupe
+    await db.execute({
+        sql: 'DELETE FROM portfolios_extra WHERE user_id = ? AND group_id = ?',
+        args: [userId, id],
+    });
+    const r = await db.execute({
+        sql: 'DELETE FROM portfolio_groups WHERE id = ? AND user_id = ?',
+        args: [id, userId],
+    });
+    return r.rowsAffected > 0;
+}
+
+export async function getPortfolioByGroup(userId, groupId) {
+    if (groupId === 'default') {
+        return await getPortfolio(userId);
+    }
+    const r = await db.execute({
+        sql: 'SELECT product_name, qty, cost FROM portfolios_extra WHERE user_id = ? AND group_id = ?',
+        args: [userId, groupId],
+    });
+    const out = {};
+    for (const row of r.rows) {
+        out[row.product_name] = { qty: Number(row.qty) || 0, cost: Number(row.cost) || 0 };
+    }
+    return out;
+}
+
+export async function setPortfolioByGroup(userId, groupId, holdings) {
+    if (groupId === 'default') {
+        return await setPortfolio(userId, holdings);
+    }
+    const now = Date.now();
+    const statements = [
+        { sql: 'DELETE FROM portfolios_extra WHERE user_id = ? AND group_id = ?', args: [userId, groupId] },
+    ];
+    for (const [productName, data] of Object.entries(holdings || {})) {
+        const qty = Number(data?.qty) || 0;
+        if (qty <= 0) continue; // pas de stockage des qty=0
+        const cost = Number(data?.cost) || 0;
+        statements.push({
+            sql: 'INSERT INTO portfolios_extra (user_id, group_id, product_name, qty, cost, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+            args: [userId, groupId, productName, qty, cost, now],
+        });
+    }
+    await db.batch(statements, 'write');
 }
 
 // ── Barcodes (EAN -> product_name) ──────────────────────────

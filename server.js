@@ -19,6 +19,8 @@ import {
     getPriceHistory, upsertPriceHistory, getAllPriceHistory,
     listTransactions, createTransaction, deleteTransaction,
     getBarcode, listBarcodes, setBarcode, deleteBarcode,
+    listPortfolioGroups, createPortfolioGroup, updatePortfolioGroup,
+    deletePortfolioGroup, getPortfolioByGroup, setPortfolioByGroup,
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
     getAllCache as dbGetAllCache,
     getCustomQueries, setCustomQuery,
@@ -840,6 +842,186 @@ app.get('/api/history/:productId', async (req, res) => {
     res.json(history);
 });
 
+// ── Indicateurs techniques par produit ─────────────────────
+//
+// Calcule sur l'historique de prix (price_history median) :
+//   - MA7, MA30 : moyennes mobiles
+//   - RSI14 : Relative Strength Index (14 jours)
+//   - volatility30 : ecart-type des rendements quotidiens sur 30j (annualise)
+//   - bollingerUpper/Lower : bandes Bollinger 20j (MA20 +/- 2 ecarts-types)
+//   - signal : 'buy' | 'sell' | 'hold' avec une raison
+//
+// Pratique : sur les produits scelles, MA + RSI sont les plus utiles.
+// Volatility = indicateur de risque (faible / modere / eleve).
+
+function computeMovingAverage(prices, period) {
+    const out = new Array(prices.length).fill(null);
+    for (let i = period - 1; i < prices.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < period; j++) sum += prices[i - j];
+        out[i] = sum / period;
+    }
+    return out;
+}
+
+function computeRSI(prices, period = 14) {
+    const out = new Array(prices.length).fill(null);
+    if (prices.length < period + 1) return out;
+
+    const gains = [];
+    const losses = [];
+    for (let i = 1; i < prices.length; i++) {
+        const change = prices[i] - prices[i - 1];
+        gains.push(change > 0 ? change : 0);
+        losses.push(change < 0 ? -change : 0);
+    }
+
+    // Premiere moyenne (SMA)
+    let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
+
+    out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+
+    // Wilders smoothing
+    for (let i = period + 1; i < prices.length; i++) {
+        avgGain = (avgGain * (period - 1) + gains[i - 1]) / period;
+        avgLoss = (avgLoss * (period - 1) + losses[i - 1]) / period;
+        out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+    }
+    return out;
+}
+
+function computeVolatility(prices, period = 30) {
+    if (prices.length < 2) return 0;
+    const slice = prices.slice(-period);
+    if (slice.length < 2) return 0;
+    // Rendements quotidiens
+    const returns = [];
+    for (let i = 1; i < slice.length; i++) {
+        if (slice[i - 1] > 0) returns.push((slice[i] - slice[i - 1]) / slice[i - 1]);
+    }
+    if (returns.length === 0) return 0;
+    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / returns.length;
+    const stdDev = Math.sqrt(variance);
+    // Annualise (252 jours boursiers, mais ici on est sur du daily, donc 365)
+    return stdDev * Math.sqrt(365) * 100; // en %
+}
+
+function computeBollinger(prices, period = 20, stdMultiplier = 2) {
+    const upper = new Array(prices.length).fill(null);
+    const lower = new Array(prices.length).fill(null);
+    for (let i = period - 1; i < prices.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < period; j++) sum += prices[i - j];
+        const mean = sum / period;
+        let variance = 0;
+        for (let j = 0; j < period; j++) variance += (prices[i - j] - mean) ** 2;
+        const stdDev = Math.sqrt(variance / period);
+        upper[i] = mean + stdMultiplier * stdDev;
+        lower[i] = mean - stdMultiplier * stdDev;
+    }
+    return { upper, lower };
+}
+
+function computeSignal(prices, ma7, ma30, rsi) {
+    if (prices.length < 14) return { value: 'hold', reason: 'Pas assez d\'historique' };
+    const last = prices[prices.length - 1];
+    const lastMa7 = ma7[ma7.length - 1];
+    const lastMa30 = ma30[ma30.length - 1];
+    const lastRsi = rsi[rsi.length - 1];
+
+    const reasons = [];
+    let score = 0;
+
+    // RSI
+    if (lastRsi != null) {
+        if (lastRsi < 30) { score += 2; reasons.push(`RSI ${lastRsi.toFixed(0)} (zone de survente)`); }
+        else if (lastRsi > 70) { score -= 2; reasons.push(`RSI ${lastRsi.toFixed(0)} (zone de surachat)`); }
+        else if (lastRsi < 45) { score += 1; reasons.push(`RSI ${lastRsi.toFixed(0)} (faible)`); }
+        else if (lastRsi > 55) { score -= 1; reasons.push(`RSI ${lastRsi.toFixed(0)} (élevé)`); }
+    }
+
+    // Croisement MA7 vs MA30 (golden/death cross)
+    if (lastMa7 != null && lastMa30 != null) {
+        const prevMa7 = ma7[ma7.length - 2];
+        const prevMa30 = ma30[ma30.length - 2];
+        if (prevMa7 != null && prevMa30 != null) {
+            if (prevMa7 < prevMa30 && lastMa7 > lastMa30) { score += 2; reasons.push('Golden cross MA7 > MA30'); }
+            if (prevMa7 > prevMa30 && lastMa7 < lastMa30) { score -= 2; reasons.push('Death cross MA7 < MA30'); }
+        }
+        // Position du prix vs MA30
+        if (last < lastMa30 * 0.92) { score += 1; reasons.push('Prix sous la MA30 (-8 %)'); }
+        if (last > lastMa30 * 1.08) { score -= 1; reasons.push('Prix au-dessus de la MA30 (+8 %)'); }
+    }
+
+    let value = 'hold';
+    if (score >= 3) value = 'buy';
+    else if (score <= -3) value = 'sell';
+
+    return {
+        value,
+        score,
+        reason: reasons.length > 0 ? reasons.join(' · ') : 'Aucun signal fort',
+    };
+}
+
+app.get('/api/indicators/:productId', async (req, res) => {
+    try {
+        const history = await readHistory(req.params.productId);
+        if (history.length < 2) {
+            return res.json({
+                productId: req.params.productId,
+                history: [],
+                hasEnoughData: false,
+                ma7: [], ma30: [], rsi14: [],
+                bollingerUpper: [], bollingerLower: [],
+                volatility30: 0,
+                signal: { value: 'hold', reason: 'Pas encore assez de données' },
+            });
+        }
+
+        const prices = history.map(h => h.median || h.lastPrice || 0);
+        const ma7 = computeMovingAverage(prices, 7);
+        const ma30 = computeMovingAverage(prices, 30);
+        const rsi14 = computeRSI(prices, 14);
+        const { upper: bollingerUpper, lower: bollingerLower } = computeBollinger(prices, 20);
+        const volatility30 = computeVolatility(prices, 30);
+        const signal = computeSignal(prices, ma7, ma30, rsi14);
+
+        // Niveau de risque base sur la volatilite
+        let riskLevel = 'low';
+        let riskLabel = 'Faible';
+        if (volatility30 > 60) { riskLevel = 'high'; riskLabel = 'Élevé'; }
+        else if (volatility30 > 30) { riskLevel = 'medium'; riskLabel = 'Modéré'; }
+
+        res.json({
+            productId: req.params.productId,
+            hasEnoughData: history.length >= 14,
+            dates: history.map(h => h.date),
+            prices,
+            ma7,
+            ma30,
+            rsi14,
+            bollingerUpper,
+            bollingerLower,
+            volatility30: Math.round(volatility30 * 100) / 100,
+            riskLevel,
+            riskLabel,
+            signal,
+            currentMA7: ma7[ma7.length - 1],
+            currentMA30: ma30[ma30.length - 1],
+            currentRSI: rsi14[rsi14.length - 1],
+            currentBollingerUpper: bollingerUpper[bollingerUpper.length - 1],
+            currentBollingerLower: bollingerLower[bollingerLower.length - 1],
+            currentPrice: prices[prices.length - 1],
+        });
+    } catch (e) {
+        console.error('[indicators] error:', e);
+        res.status(500).json({ error: 'Erreur calcul indicateurs' });
+    }
+});
+
 // API : variations 7 jours pour tous les produits
 app.get('/api/trends-7d', async (_req, res) => {
     const result = {};
@@ -1577,12 +1759,23 @@ app.post('/api/change-password', authMiddleware, async (req, res) => {
 // ── Portfolio Routes (auth required) ────────────────────────
 
 app.get('/api/portfolio', authMiddleware, async (req, res) => {
-    const portfolio = await readPortfolio(req.userId);
-    res.json(portfolio || {});
+    const groupId = req.query.group_id || 'default';
+    if (groupId === 'default') {
+        const portfolio = await readPortfolio(req.userId);
+        res.json(portfolio || {});
+    } else {
+        const portfolio = await getPortfolioByGroup(req.userId, groupId);
+        res.json(portfolio || {});
+    }
 });
 
 app.put('/api/portfolio', authMiddleware, async (req, res) => {
-    await writePortfolio(req.userId, req.body);
+    const groupId = req.query.group_id || 'default';
+    if (groupId === 'default') {
+        await writePortfolio(req.userId, req.body);
+    } else {
+        await setPortfolioByGroup(req.userId, groupId, req.body);
+    }
     res.json({ ok: true });
 });
 
@@ -1668,6 +1861,84 @@ async function snapshotPortfolio() {
 app.get('/api/portfolio-history', authMiddleware, async (req, res) => {
     const history = await getPortfolioHistory(req.userId);
     res.json(history);
+});
+
+// ── Multi-portfolios : gestion des groupes ─────────────────
+//
+// Chaque user a un portefeuille 'default' (la table portfolios) + des
+// groupes additionnels qu'il cree (Investissement, Collection, A vendre...).
+
+// Liste les groupes (le 'default' est ajoute virtuellement en debut)
+app.get('/api/portfolio-groups', authMiddleware, async (req, res) => {
+    try {
+        const extra = await listPortfolioGroups(req.userId);
+        const groups = [
+            { id: 'default', name: 'Portefeuille principal', icon: '💼', color: '#22c55e', sortOrder: -1, isDefault: true },
+            ...extra,
+        ];
+        res.json({ count: groups.length, groups });
+    } catch (e) {
+        console.error('[portfolio-groups/list] error:', e);
+        res.status(500).json({ error: 'Erreur lecture groupes' });
+    }
+});
+
+app.post('/api/portfolio-groups', authMiddleware, async (req, res) => {
+    const { name, icon, color, sortOrder } = req.body || {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'Nom requis' });
+    }
+    if (name.length > 50) {
+        return res.status(400).json({ error: 'Nom trop long (max 50 caractères)' });
+    }
+    // Limite : max 10 groupes par user (anti-spam)
+    const existing = await listPortfolioGroups(req.userId);
+    if (existing.length >= 10) {
+        return res.status(400).json({ error: 'Maximum 10 portefeuilles par compte' });
+    }
+    const id = 'pf_' + crypto.randomBytes(8).toString('hex');
+    try {
+        await createPortfolioGroup(id, req.userId, {
+            name: name.trim(),
+            icon: (icon || '💼').slice(0, 4),
+            color: color || '#22c55e',
+            sortOrder: sortOrder || existing.length,
+        });
+        res.json({ ok: true, id, name: name.trim() });
+    } catch (e) {
+        console.error('[portfolio-groups/create] error:', e);
+        res.status(500).json({ error: 'Erreur creation' });
+    }
+});
+
+app.patch('/api/portfolio-groups/:id', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    if (id === 'default') {
+        return res.status(400).json({ error: 'Le portefeuille principal n\'est pas modifiable' });
+    }
+    try {
+        const ok = await updatePortfolioGroup(id, req.userId, req.body || {});
+        if (!ok) return res.status(404).json({ error: 'Groupe introuvable' });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[portfolio-groups/update] error:', e);
+        res.status(500).json({ error: 'Erreur mise a jour' });
+    }
+});
+
+app.delete('/api/portfolio-groups/:id', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    if (id === 'default') {
+        return res.status(400).json({ error: 'Le portefeuille principal n\'est pas supprimable' });
+    }
+    try {
+        const ok = await deletePortfolioGroup(id, req.userId);
+        if (!ok) return res.status(404).json({ error: 'Groupe introuvable' });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[portfolio-groups/delete] error:', e);
+        res.status(500).json({ error: 'Erreur suppression' });
+    }
 });
 
 // API : forcer un snapshot pour l'utilisateur connecté

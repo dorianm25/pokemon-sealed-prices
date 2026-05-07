@@ -482,6 +482,14 @@ function openDetail(productName) {
                             <div class="chart-period-stats" id="chartPeriodStats"></div>
                         </div>
                     </div>
+
+                    <!-- Indicateurs techniques -->
+                    <div class="detail-indicators-section" id="detailIndicatorsSection">
+                        <h4 class="detail-indicators-title">📊 Indicateurs techniques</h4>
+                        <div id="detailIndicatorsContent">
+                            <div class="indicators-loading">Calcul...</div>
+                        </div>
+                    </div>
                     <div class="detail-sales">
                         <h4 style="font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:12px">Détails</h4>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
@@ -510,8 +518,111 @@ function openDetail(productName) {
     div.addEventListener('click', e => { if (e.target === div) div.remove(); });
     document.body.appendChild(div);
 
-    // Charger l'historique et dessiner le graphique
-    if (ebayId) loadPriceChart(ebayId);
+    // Charger l'historique et dessiner le graphique + indicateurs techniques
+    if (ebayId) {
+        loadPriceChart(ebayId);
+        loadIndicators(ebayId);
+    }
+}
+
+// ── Indicateurs techniques ──────────────────────────────
+async function loadIndicators(productId) {
+    const container = document.getElementById('detailIndicatorsContent');
+    if (!container) return;
+
+    try {
+        const res = await fetch(`/api/indicators/${productId}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+
+        if (!data.hasEnoughData) {
+            container.innerHTML = `<div class="indicators-empty">
+                Pas encore assez de données historiques.<br>
+                Au moins 14 jours d'historique sont nécessaires pour calculer les indicateurs.
+            </div>`;
+            return;
+        }
+
+        const sig = data.signal || {};
+        const sigClass = sig.value === 'buy' ? 'buy' : sig.value === 'sell' ? 'sell' : 'hold';
+        const sigIcon = sig.value === 'buy' ? '🟢' : sig.value === 'sell' ? '🔴' : '⚪';
+        const sigLabel = sig.value === 'buy' ? 'ACHAT' : sig.value === 'sell' ? 'VENTE' : 'NEUTRE';
+
+        const rsi = data.currentRSI;
+        const rsiClass = rsi == null ? 'hold' : rsi < 30 ? 'buy' : rsi > 70 ? 'sell' : 'hold';
+        const rsiZone = rsi == null ? '—' : rsi < 30 ? 'Survente' : rsi > 70 ? 'Surachat' : 'Neutre';
+
+        const ma7 = data.currentMA7;
+        const ma30 = data.currentMA30;
+        const price = data.currentPrice;
+
+        // Position du prix vs Bollinger : indicateur de retour a la moyenne
+        const bUpper = data.currentBollingerUpper;
+        const bLower = data.currentBollingerLower;
+        let bollingerPos = '—';
+        if (bUpper != null && bLower != null && bUpper > bLower) {
+            const ratio = (price - bLower) / (bUpper - bLower);
+            if (ratio > 0.95) bollingerPos = 'Au-dessus de la bande haute (cher)';
+            else if (ratio > 0.7) bollingerPos = 'Proche de la bande haute';
+            else if (ratio < 0.05) bollingerPos = 'Sous la bande basse (bon marché)';
+            else if (ratio < 0.3) bollingerPos = 'Proche de la bande basse';
+            else bollingerPos = 'Dans la moyenne';
+        }
+
+        const riskCls = data.riskLevel === 'high' ? 'risk-high' : data.riskLevel === 'medium' ? 'risk-medium' : 'risk-low';
+
+        container.innerHTML = `
+            <!-- Signal de trading principal -->
+            <div class="ind-signal ind-signal-${sigClass}">
+                <div class="ind-signal-icon">${sigIcon}</div>
+                <div class="ind-signal-info">
+                    <div class="ind-signal-label">${sigLabel}</div>
+                    <div class="ind-signal-reason">${sig.reason}</div>
+                </div>
+                <div class="ind-signal-score">${sig.score >= 0 ? '+' : ''}${sig.score}</div>
+            </div>
+
+            <!-- Cards d'indicateurs -->
+            <div class="ind-cards">
+                <div class="ind-card">
+                    <div class="ind-card-label">RSI 14j</div>
+                    <div class="ind-card-value ind-value-${rsiClass}">${rsi != null ? rsi.toFixed(0) : '—'}</div>
+                    <div class="ind-card-sub">${rsiZone}</div>
+                </div>
+                <div class="ind-card">
+                    <div class="ind-card-label">MA 7j</div>
+                    <div class="ind-card-value">${ma7 != null ? fmt(ma7) : '—'}</div>
+                    <div class="ind-card-sub">${ma7 != null && price != null ? (price >= ma7 ? '↑ prix au-dessus' : '↓ prix en-dessous') : ''}</div>
+                </div>
+                <div class="ind-card">
+                    <div class="ind-card-label">MA 30j</div>
+                    <div class="ind-card-value">${ma30 != null ? fmt(ma30) : '—'}</div>
+                    <div class="ind-card-sub">${ma30 != null && price != null ? (price >= ma30 ? 'Tendance haussière' : 'Tendance baissière') : ''}</div>
+                </div>
+                <div class="ind-card">
+                    <div class="ind-card-label">Volatilité 30j</div>
+                    <div class="ind-card-value ${riskCls}">${data.volatility30.toFixed(0)} %</div>
+                    <div class="ind-card-sub">Risque ${data.riskLabel}</div>
+                </div>
+            </div>
+
+            <!-- Bollinger band position -->
+            <div class="ind-bollinger">
+                <span class="ind-bollinger-label">Bandes de Bollinger 20j :</span>
+                <span class="ind-bollinger-val">${bollingerPos}</span>
+                ${bUpper != null && bLower != null ? `<span class="ind-bollinger-range">${fmt(bLower)} — ${fmt(bUpper)}</span>` : ''}
+            </div>
+
+            <p class="ind-disclaimer">
+                ⚠️ Ces indicateurs sont des outils d'aide à la décision basés sur l'historique. Ils ne remplacent pas votre propre jugement.
+            </p>
+        `;
+
+        // On overlay les MAs sur le chart principal si disponibles et chart actif
+        // (optionnel : pour l'instant on affiche les valeurs en cards seulement)
+    } catch (e) {
+        container.innerHTML = `<div class="indicators-empty">Erreur de calcul des indicateurs.</div>`;
+    }
 }
 
 let priceChartInstance = null;
