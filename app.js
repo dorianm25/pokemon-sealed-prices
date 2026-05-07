@@ -7793,6 +7793,7 @@ function renderNewsPage() {
         ${isAdminUser() ? `
             <div class="news-admin-bar">
                 <button class="news-add-btn" onclick="adminAddNews()">➕ Ajouter une actualité</button>
+                <button class="news-bulk-btn" onclick="adminBulkImportNews()">📥 Import bulk (URLs)</button>
             </div>
         ` : ''}
         <div class="news-grid">
@@ -7830,6 +7831,111 @@ function renderNewsPage() {
 }
 
 // ── Admin : gestion des actualites ────────────────────────
+function adminBulkImportNews() {
+    if (!isAdminUser()) return;
+    const existing = document.getElementById('newsBulkModal');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'newsBulkModal';
+    overlay.className = 'tx-modal-overlay open';
+    overlay.innerHTML = `
+        <div class="tx-modal" style="max-width:560px">
+            <div class="tx-modal-head">
+                <h3>📥 Import bulk d'actualités</h3>
+                <button class="tx-modal-close" type="button" aria-label="Fermer" onclick="document.getElementById('newsBulkModal').remove()">&times;</button>
+            </div>
+            <div class="tx-form">
+                <p style="font-size:12px;color:var(--text-secondary);line-height:1.5;margin:0 0 12px">
+                    Colle plusieurs URLs (1 par ligne) - Pokecardex, PokeBeach, Pokémon.com, etc.
+                    L'app va fetch chaque URL pour extraire automatiquement le titre, l'image, le résumé,
+                    et créer les actualités.
+                </p>
+                <p style="font-size:11px;color:var(--text-muted);margin:0 0 12px">
+                    💡 <strong>Astuce</strong> : sur Pokecardex, tu peux ouvrir chaque article qui t'intéresse
+                    dans un nouvel onglet, puis copier toutes les URLs depuis l'historique de tabs (Ctrl+Shift+T des onglets fermés affichera les URLs).
+                    Max 30 URLs par batch.
+                </p>
+                <textarea id="newsBulkUrls" class="tx-form-input tx-form-textarea" rows="10" placeholder="https://www.pokecardex.com/article-1
+https://www.pokecardex.com/article-2
+https://www.pokebeach.com/article-3
+..." style="font-family:var(--font-mono);font-size:12px"></textarea>
+                <div id="newsBulkResult" style="margin-top:12px;font-size:13px"></div>
+                <div class="tx-form-actions">
+                    <button type="button" class="tx-btn tx-btn-ghost" onclick="document.getElementById('newsBulkModal').remove()">Fermer</button>
+                    <button type="button" class="tx-btn tx-btn-primary" id="newsBulkSubmitBtn" onclick="submitNewsBulkImport()">📥 Importer</button>
+                </div>
+            </div>
+        </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+    setTimeout(() => document.getElementById('newsBulkUrls')?.focus(), 100);
+}
+
+async function submitNewsBulkImport() {
+    const textarea = document.getElementById('newsBulkUrls');
+    const resultEl = document.getElementById('newsBulkResult');
+    const btn = document.getElementById('newsBulkSubmitBtn');
+    if (!textarea || !resultEl) return;
+
+    const urls = textarea.value.split('\n').map(l => l.trim()).filter(l => l && /^https?:\/\//.test(l));
+    if (urls.length === 0) {
+        resultEl.innerHTML = '<span style="color:#ef4444">Aucune URL valide trouvée</span>';
+        return;
+    }
+    if (urls.length > 30) {
+        resultEl.innerHTML = `<span style="color:#ef4444">Trop d'URLs (${urls.length}). Max 30 par batch.</span>`;
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = `⏳ Import en cours (${urls.length} URLs)...`;
+    resultEl.innerHTML = `<span style="color:var(--text-secondary)">Fetch des ${urls.length} URLs en cours, ça peut prendre 30s à 2min...</span>`;
+
+    try {
+        const res = await fetch('/api/news/bulk-import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({ urls }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            resultEl.innerHTML = `<span style="color:#ef4444">Erreur : ${data.error || res.status}</span>`;
+            btn.disabled = false;
+            btn.textContent = '📥 Importer';
+            return;
+        }
+
+        let html = `<div style="color:#22c55e;font-weight:700">✅ ${data.added} article(s) ajouté(s)</div>`;
+        if (data.errors && data.errors.length > 0) {
+            html += `<details style="margin-top:8px"><summary style="color:#ef4444;cursor:pointer">${data.errors.length} erreur(s)</summary>`;
+            html += '<ul style="margin:6px 0;padding-left:18px;font-size:11px;color:var(--text-secondary)">';
+            for (const err of data.errors.slice(0, 20)) {
+                html += `<li><code style="font-size:10px">${err.url ? err.url.slice(0, 60) + '…' : '?'}</code><br>${err.error}</li>`;
+            }
+            html += '</ul></details>';
+        }
+        resultEl.innerHTML = html;
+        btn.disabled = false;
+        btn.textContent = '📥 Importer';
+
+        if (data.added > 0) {
+            setTimeout(() => {
+                document.getElementById('newsBulkModal')?.remove();
+                if (currentSection === 'news') loadNewsPage();
+                if (currentSection === 'admin') loadAdminPage();
+            }, 2500);
+        }
+    } catch (e) {
+        resultEl.innerHTML = `<span style="color:#ef4444">Erreur réseau : ${e.message}</span>`;
+        btn.disabled = false;
+        btn.textContent = '📥 Importer';
+    }
+}
+
 function adminAddNews() {
     if (!isAdminUser()) return;
     showNewsEditModal({

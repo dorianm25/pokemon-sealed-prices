@@ -1092,6 +1092,114 @@ app.delete('/api/news/:id', authMiddleware, requireAdmin, async (req, res) => {
     }
 });
 
+// Helper : fetch + parse Open Graph d'une URL (refactorise pour reuse bulk)
+async function fetchUrlOgMetadata(url) {
+    const r = await fetch(url, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const html = await r.text();
+    const extractMeta = (property) => {
+        const re = new RegExp(`<meta\\s+(?:[^>]*?\\s+)?(?:property|name)\\s*=\\s*["']${property}["'][^>]*?content\\s*=\\s*["']([^"']+)["']`, 'i');
+        const m1 = html.match(re);
+        if (m1) return m1[1];
+        const re2 = new RegExp(`<meta\\s+(?:[^>]*?\\s+)?content\\s*=\\s*["']([^"']+)["'][^>]*?(?:property|name)\\s*=\\s*["']${property}["']`, 'i');
+        const m2 = html.match(re2);
+        if (m2) return m2[1];
+        return null;
+    };
+    const decode = (s) => {
+        if (!s) return s;
+        return s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&#x27;/g, "'").replace(/&apos;/g, "'");
+    };
+    const ogTitle = decode(extractMeta('og:title')) || decode(extractMeta('twitter:title'));
+    const ogImage = decode(extractMeta('og:image')) || decode(extractMeta('twitter:image'));
+    const ogDescription = decode(extractMeta('og:description')) || decode(extractMeta('twitter:description')) || decode(extractMeta('description'));
+    const ogSiteName = decode(extractMeta('og:site_name'));
+    const ogPublishedTime = extractMeta('article:published_time');
+    let title = ogTitle;
+    if (!title) {
+        const m = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        if (m) title = decode(m[1].trim());
+    }
+    let source = ogSiteName;
+    if (!source) {
+        try { source = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+    }
+    let country = '';
+    if (/pokecardex\.com/i.test(url)) country = 'fr';
+    else if (/pokebeach\.com/i.test(url)) country = 'us';
+    else if (/pokemon\.com\/fr/i.test(url)) country = 'fr';
+    else if (/pokemon\.com\/(us|en)/i.test(url)) country = 'us';
+    let publishedDate = null;
+    if (ogPublishedTime) {
+        const d = new Date(ogPublishedTime);
+        if (!isNaN(d)) publishedDate = d.toISOString().slice(0, 10);
+    }
+    return {
+        url,
+        title: title || '',
+        summary: ogDescription || '',
+        imageUrl: ogImage || '',
+        source: source || '',
+        country: country || '',
+        publishedDate: publishedDate || '',
+    };
+}
+
+// Bulk : fetch metadata pour plusieurs URLs et cree directement les articles
+app.post('/api/news/bulk-import', authMiddleware, requireAdmin, async (req, res) => {
+    const { urls } = req.body || {};
+    if (!Array.isArray(urls) || urls.length === 0) {
+        return res.status(400).json({ error: 'urls doit etre un tableau non vide' });
+    }
+    if (urls.length > 30) {
+        return res.status(400).json({ error: 'Max 30 URLs par batch' });
+    }
+
+    const result = { added: 0, skipped: 0, errors: [], items: [] };
+    const adminLabel = req.adminUser?.username || 'admin';
+
+    for (const rawUrl of urls) {
+        const url = String(rawUrl || '').trim();
+        if (!url || !/^https?:\/\//.test(url)) {
+            result.errors.push({ url, error: 'URL invalide' });
+            continue;
+        }
+        try {
+            const meta = await fetchUrlOgMetadata(url);
+            if (!meta.title) {
+                result.errors.push({ url, error: 'Pas de title trouvé' });
+                continue;
+            }
+            const id = 'n_' + crypto.randomBytes(8).toString('hex');
+            await createNewsArticle({
+                id,
+                title: meta.title.slice(0, 300),
+                summary: meta.summary.slice(0, 1000),
+                url: meta.url,
+                imageUrl: meta.imageUrl || null,
+                source: meta.source.slice(0, 100) || null,
+                country: meta.country || null,
+                publishedDate: meta.publishedDate || new Date().toISOString().slice(0, 10),
+                sortOrder: 0,
+            }, adminLabel);
+            result.added++;
+            result.items.push({ url, id, title: meta.title });
+        } catch (e) {
+            result.errors.push({ url, error: e.message || e.name || 'inconnue' });
+        }
+    }
+    res.json(result);
+});
+
 // Bonus : fetch d'une URL et extraction des balises OG pour pre-remplir
 // le formulaire admin. Utile pour ajouter rapidement un article Pokecardex
 // ou autre source.
@@ -1101,91 +1209,8 @@ app.post('/api/news/preview-url', authMiddleware, requireAdmin, async (req, res)
         return res.status(400).json({ error: 'URL valide requise' });
     }
     try {
-        // Fetch avec User-Agent realiste pour eviter d'etre bloque
-        const r = await fetch(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-            },
-            redirect: 'follow',
-            signal: AbortSignal.timeout(8000),
-        });
-        if (!r.ok) {
-            return res.status(502).json({ error: `Site source : HTTP ${r.status}` });
-        }
-        const html = await r.text();
-
-        // Helper : extrait le contenu d'une balise meta OG
-        const extractMeta = (property) => {
-            // Match <meta property="og:title" content="...">
-            const re = new RegExp(`<meta\\s+(?:[^>]*?\\s+)?(?:property|name)\\s*=\\s*["']${property}["'][^>]*?content\\s*=\\s*["']([^"']+)["']`, 'i');
-            const m1 = html.match(re);
-            if (m1) return m1[1];
-            // Inverse : content="..." property="og:title"
-            const re2 = new RegExp(`<meta\\s+(?:[^>]*?\\s+)?content\\s*=\\s*["']([^"']+)["'][^>]*?(?:property|name)\\s*=\\s*["']${property}["']`, 'i');
-            const m2 = html.match(re2);
-            if (m2) return m2[1];
-            return null;
-        };
-        // Decode les entites HTML basiques (&amp; -> &, &#039; -> ', etc.)
-        const decode = (s) => {
-            if (!s) return s;
-            return s
-                .replace(/&amp;/g, '&')
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .replace(/&quot;/g, '"')
-                .replace(/&#039;/g, "'")
-                .replace(/&#x27;/g, "'")
-                .replace(/&apos;/g, "'");
-        };
-
-        const ogTitle = decode(extractMeta('og:title')) || decode(extractMeta('twitter:title'));
-        const ogImage = decode(extractMeta('og:image')) || decode(extractMeta('twitter:image'));
-        const ogDescription = decode(extractMeta('og:description')) || decode(extractMeta('twitter:description')) || decode(extractMeta('description'));
-        const ogSiteName = decode(extractMeta('og:site_name'));
-        const ogPublishedTime = extractMeta('article:published_time');
-
-        // Fallback titre : <title>...</title>
-        let title = ogTitle;
-        if (!title) {
-            const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-            if (titleMatch) title = decode(titleMatch[1].trim());
-        }
-
-        // Devine la source depuis l'URL
-        let source = ogSiteName;
-        if (!source) {
-            try {
-                const u = new URL(url);
-                source = u.hostname.replace(/^www\./, '');
-            } catch {}
-        }
-
-        // Devine le pays depuis l'URL ou le contenu
-        let country = '';
-        if (/pokecardex\.com/i.test(url)) country = 'fr';
-        else if (/pokebeach\.com/i.test(url)) country = 'us';
-        else if (/pokemon\.com\/fr/i.test(url)) country = 'fr';
-        else if (/pokemon\.com\/us/i.test(url)) country = 'us';
-
-        let publishedDate = null;
-        if (ogPublishedTime) {
-            const d = new Date(ogPublishedTime);
-            if (!isNaN(d)) publishedDate = d.toISOString().slice(0, 10);
-        }
-
-        res.json({
-            ok: true,
-            url,
-            title: title || '',
-            summary: ogDescription || '',
-            imageUrl: ogImage || '',
-            source: source || '',
-            country: country || '',
-            publishedDate: publishedDate || '',
-        });
+        const meta = await fetchUrlOgMetadata(url);
+        res.json({ ok: true, ...meta });
     } catch (e) {
         if (e.name === 'TimeoutError' || e.name === 'AbortError') {
             return res.status(504).json({ error: 'Timeout de la requete' });
