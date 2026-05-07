@@ -520,6 +520,16 @@ export async function deleteNewsArticle(id) {
     return r.rowsAffected > 0;
 }
 
+// Dedupe : verifie si une URL existe deja (utilise pour eviter les doublons
+// lors d'une sync auto depuis Pokecardex).
+export async function newsArticleExists(url) {
+    const r = await db.execute({
+        sql: 'SELECT 1 FROM news_articles WHERE url = ? LIMIT 1',
+        args: [url],
+    });
+    return r.rows.length > 0;
+}
+
 // ── Calendrier des sorties (release_calendar) ──────────────
 
 export async function listReleaseCalendar() {

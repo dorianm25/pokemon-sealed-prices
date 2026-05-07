@@ -7792,8 +7792,9 @@ function renderNewsPage() {
     container.innerHTML = `
         ${isAdminUser() ? `
             <div class="news-admin-bar">
-                <button class="news-add-btn" onclick="adminAddNews()">➕ Ajouter une actualité</button>
+                <button class="news-sync-btn" onclick="adminSyncPokecardex()" title="Récupère automatiquement les dernières news depuis Pokecardex.com">🔥 Auto-sync Pokecardex</button>
                 <button class="news-bulk-btn" onclick="adminBulkImportNews()">📥 Import bulk (URLs)</button>
+                <button class="news-add-btn" onclick="adminAddNews()">➕ Ajouter manuellement</button>
             </div>
         ` : ''}
         <div class="news-grid">
@@ -7831,6 +7832,30 @@ function renderNewsPage() {
 }
 
 // ── Admin : gestion des actualites ────────────────────────
+async function adminSyncPokecardex() {
+    if (!isAdminUser()) return;
+    if (!confirm('Synchroniser automatiquement les dernières actualités depuis Pokecardex ?\n\nCa peut prendre 5-15 secondes.')) return;
+
+    showToast('⏳', 'Sync en cours...', 'Récupération depuis Pokecardex');
+    try {
+        const res = await fetch('/api/news/sync-pokecardex', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast('⚠️', 'Échec sync', data.error || 'Erreur serveur');
+            return;
+        }
+        const errCount = data.errors?.length || 0;
+        const msg = `${data.added} nouveaux, ${data.skipped} déjà connus${errCount ? `, ${errCount} erreurs` : ''} (sur ${data.fetched} récupérées)`;
+        showToast(data.added > 0 ? '🔥' : '✅', 'Sync terminée', msg);
+        if (currentSection === 'news') loadNewsPage();
+    } catch (e) {
+        showToast('⚠️', 'Erreur réseau', e.message || '');
+    }
+}
+
 function adminBulkImportNews() {
     if (!isAdminUser()) return;
     const existing = document.getElementById('newsBulkModal');

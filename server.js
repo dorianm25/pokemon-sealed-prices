@@ -24,6 +24,7 @@ import {
     listReleaseCalendar, upsertReleaseCalendar, deleteReleaseCalendar,
     bulkSeedReleaseCalendar,
     listNewsArticles, createNewsArticle, updateNewsArticle, deleteNewsArticle,
+    newsArticleExists,
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
     getAllCache as dbGetAllCache,
     getCustomQueries, setCustomQuery,
@@ -1153,6 +1154,126 @@ async function fetchUrlOgMetadata(url) {
         publishedDate: publishedDate || '',
     };
 }
+
+// Auto-sync : recupere automatiquement les actus depuis la home Pokecardex.
+// Pokecardex est un SPA React qui chiffre ses donnees initiales avec AES-CBC
+// dans window.__INITIAL_DATA_ENCRYPTED__. La cle est hardcoded dans leur JS
+// bundle (oe61R0RgVTJm9omokoKuRem2N2GUbUZ8). On reproduit le decryptage
+// cote serveur pour acceder aux news directement, sans passer par leur UI.
+//
+// Note ethique : on ne copie pas le contenu (juste les liens vers Pokecardex
+// + image thumbnail + titre). Le user clique -> il atterrit sur Pokecardex
+// qui collecte ses ad views / abonnements. Win-win.
+
+const POKECARDEX_AES_KEY = 'oe61R0RgVTJm9omokoKuRem2N2GUbUZ8';
+
+function decryptPokecardexData(ivB64, dataB64) {
+    const key = Buffer.from(POKECARDEX_AES_KEY, 'utf8');
+    const iv = Buffer.from(ivB64, 'base64');
+    const encrypted = Buffer.from(dataB64, 'base64');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return JSON.parse(decrypted.toString('utf8'));
+}
+
+async function fetchPokecardexHomeData(locale = 'fr') {
+    // Locales possibles : fr (default) / en / de
+    const url = locale === 'fr' ? 'https://www.pokecardex.com/' : `https://www.pokecardex.com/${locale}/`;
+    const r = await fetch(url, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'fr-FR,fr;q=0.9',
+        },
+        signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) throw new Error(`Pokecardex HTTP ${r.status}`);
+    const html = await r.text();
+    const m = html.match(/window\.__INITIAL_DATA_ENCRYPTED__\s*=\s*(\{.+?\});/s);
+    if (!m) throw new Error('Données chiffrées introuvables dans le HTML');
+    let payload;
+    try {
+        payload = JSON.parse(m[1]);
+    } catch (e) {
+        throw new Error('Parse JSON échoué : ' + e.message);
+    }
+    if (!payload.iv || !payload.data) throw new Error('Format inattendu (pas de iv/data)');
+    return decryptPokecardexData(payload.iv, payload.data);
+}
+
+// Convertit une date Pokecardex 'DD/MM/YYYY' en ISO 'YYYY-MM-DD'
+function parsePokecardexDate(s) {
+    if (!s || typeof s !== 'string') return null;
+    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return null;
+    return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+// Resout les liens relatifs vers Pokecardex (./forums/... -> https://...)
+function resolvePokecardexLink(link) {
+    if (!link) return null;
+    if (link.startsWith('http')) return link;
+    if (link.startsWith('//')) return 'https:' + link;
+    if (link.startsWith('./')) return 'https://www.pokecardex.com/' + link.slice(2);
+    if (link.startsWith('/')) return 'https://www.pokecardex.com' + link;
+    return 'https://www.pokecardex.com/' + link;
+}
+
+app.post('/api/news/sync-pokecardex', authMiddleware, requireAdmin, async (req, res) => {
+    const result = {
+        fetched: 0,
+        added: 0,
+        skipped: 0,
+        errors: [],
+    };
+    try {
+        const data = await fetchPokecardexHomeData('fr');
+        const newsArr = Array.isArray(data.news) ? data.news : [];
+        result.fetched = newsArr.length;
+
+        const adminLabel = req.adminUser?.username || 'pokecardex-sync';
+
+        for (const news of newsArr) {
+            try {
+                const url = resolvePokecardexLink(news.link);
+                if (!url) {
+                    result.errors.push({ id: news.id, error: 'Lien invalide' });
+                    continue;
+                }
+                // Dedupe : skip si l'URL existe deja
+                if (await newsArticleExists(url)) {
+                    result.skipped++;
+                    continue;
+                }
+                // Convert flags ['FR'] -> 'fr'
+                const country = (news.flags && news.flags[0] || '').toLowerCase();
+                const article = {
+                    id: 'pc_' + (news.id || crypto.randomBytes(6).toString('hex')),
+                    title: String(news.title || '').slice(0, 300),
+                    summary: news.author ? `Par ${news.author}` : null,
+                    url,
+                    imageUrl: news.image || null,
+                    source: 'Pokecardex',
+                    country,
+                    publishedDate: parsePokecardexDate(news.date) || new Date().toISOString().slice(0, 10),
+                    sortOrder: 0,
+                };
+                if (!article.title) {
+                    result.errors.push({ id: news.id, error: 'Pas de titre' });
+                    continue;
+                }
+                await createNewsArticle(article, adminLabel);
+                result.added++;
+            } catch (e) {
+                result.errors.push({ id: news.id, error: e.message || 'inconnue' });
+            }
+        }
+        res.json({ ok: true, ...result });
+    } catch (e) {
+        console.error('[news/sync-pokecardex] error:', e);
+        res.status(500).json({ error: 'Sync échouée : ' + (e.message || e.name) });
+    }
+});
 
 // Bulk : fetch metadata pour plusieurs URLs et cree directement les articles
 app.post('/api/news/bulk-import', authMiddleware, requireAdmin, async (req, res) => {
