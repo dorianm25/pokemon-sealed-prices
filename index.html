@@ -74,6 +74,10 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 6l-9.5 9.5-5-5L1 18"/><polyline points="17 6 23 6 23 12"/></svg>
                         Mouvements
                     </a>
+                    <a href="#" class="sidebar-link" data-section="calendar" onclick="switchSection('calendar', event)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        Calendrier
+                    </a>
                     <a href="#" class="sidebar-link" data-section="simulation" onclick="switchSection('simulation', event)">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                         Simulation
@@ -516,6 +520,19 @@
                 <!-- Disclaimer -->
                 <div class="sim-disclaimer">
                     ⚠️ Ces projections sont purement indicatives et basées sur les tendances actuelles. Le marché du Pokémon scellé est volatile et les performances passées ne garantissent pas les résultats futurs.
+                </div>
+            </section>
+
+            <!-- ═══ CALENDRIER DES SORTIES ═══ -->
+            <section class="section-calendar" id="sectionCalendar" style="display:none">
+                <div class="section-header">
+                    <div>
+                        <h1 class="page-title">📅 Calendrier des sorties</h1>
+                        <p class="page-desc">Dates de sortie FR (Asmodee) — passées, en cours, et à venir</p>
+                    </div>
+                </div>
+                <div id="calendarContent">
+                    <div class="cal-loading">Chargement…</div>
                 </div>
             </section>
 

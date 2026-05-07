@@ -983,6 +983,8 @@ function switchSection(section, e) {
     if (txSec) txSec.style.display = section === 'transactions' ? 'block' : 'none';
     const moversSec = document.getElementById('sectionMovers');
     if (moversSec) moversSec.style.display = section === 'movers' ? 'block' : 'none';
+    const calSec = document.getElementById('sectionCalendar');
+    if (calSec) calSec.style.display = section === 'calendar' ? 'block' : 'none';
 
     // Show/hide sidebar filters
     document.getElementById('sidebarFilters').style.display = section === 'catalogue' ? 'block' : 'none';
@@ -994,6 +996,7 @@ function switchSection(section, e) {
     if (section === 'admin') loadAdminPage();
     if (section === 'transactions') loadTransactionsPage();
     if (section === 'movers') loadMoversPage();
+    if (section === 'calendar') renderCalendarPage();
 }
 
 // Helper : verifie si l'utilisateur connecte est l'admin (par defaut 'dorian').
@@ -7252,6 +7255,213 @@ function addScannedToPortfolio() {
             openDetail(productName);
         }
     }, 250);
+}
+
+// ── Calendrier des sorties (Pokemon TCG France / Asmodee) ──
+// Source : dates de sortie officielles francaises Asmodee + estimations
+// pour les sets a venir. Confiance = 'verified' / 'estimated' / 'rumored'.
+const POKEMON_RELEASES = [
+    // ═══ Épée et Bouclier (2020-2023) ═══
+    { date: '2020-02-07', code: 'EB01',    name: 'Épée et Bouclier',     block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2020-05-01', code: 'EB02',    name: 'Clash des Rebelles',   block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2020-08-14', code: 'EB03',    name: 'Ténèbres Embrasées',   block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2020-09-25', code: 'EB03.5',  name: 'La Voie du Maître',    block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2020-11-13', code: 'EB04',    name: 'Voltage Éclatant',     block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2021-02-19', code: 'EB04.5',  name: 'Destinées Radieuses',  block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2021-03-19', code: 'EB05',    name: 'Styles de Combat',     block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2021-06-18', code: 'EB06',    name: 'Règne de Glace',       block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2021-08-27', code: 'EB07',    name: 'Évolution Céleste',    block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2021-11-12', code: 'EB08',    name: 'Poing de Fusion',      block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2022-02-25', code: 'EB09',    name: 'Stars Étincelantes',   block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2022-05-27', code: 'EB10',    name: 'Astres Radieux',       block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2022-07-01', code: 'EB10.5',  name: 'Pokémon GO',           block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2022-09-09', code: 'EB11',    name: 'Origine Perdue',       block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2022-11-11', code: 'EB12',    name: 'Tempête Argentée',     block: 'Épée et Bouclier', confidence: 'verified' },
+    { date: '2023-01-20', code: 'EB12.5',  name: 'Zénith Suprême',       block: 'Épée et Bouclier', confidence: 'verified' },
+
+    // ═══ Écarlate et Violet (2023-2025) ═══
+    { date: '2023-03-31', code: 'EV01',    name: 'Écarlate et Violet',          block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2023-06-09', code: 'EV02',    name: 'Évolutions à Paldea',         block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2023-08-11', code: 'EV03',    name: 'Flammes Obsidiennes',         block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2023-09-22', code: 'EV3.5',   name: 'Pokémon 151',                 block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2023-11-03', code: 'EV04',    name: 'Faille Paradoxe',             block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2024-01-26', code: 'EV4.5',   name: 'Destinées de Paldea',         block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2024-03-22', code: 'EV05',    name: 'Forces Temporelles',          block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2024-05-24', code: 'EV06',    name: 'Mascarade Crépusculaire',     block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2024-08-02', code: 'EV6.5',   name: 'Fable Nébuleuse',             block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2024-09-13', code: 'EV07',    name: 'Couronne Stellaire',          block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2024-11-08', code: 'EV08',    name: 'Étincelles Déferlantes',      block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2025-01-17', code: 'EV8.5',   name: 'Évolutions Prismatiques',     block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2025-03-28', code: 'EV09',    name: 'Aventures Ensemble',          block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2025-05-30', code: 'EV10',    name: 'Rivalités Destinées',         block: 'Écarlate et Violet', confidence: 'verified' },
+    { date: '2025-07-18', code: 'EV10.5',  name: 'Foudre Noire / Flamme Blanche', block: 'Écarlate et Violet', confidence: 'verified' },
+
+    // ═══ Méga-Évolution (2025-) ═══
+    { date: '2025-09-26', code: 'ME01',    name: 'Méga-Évolution',         block: 'Méga-Évolution', confidence: 'verified' },
+    { date: '2025-12-05', code: 'ME02',    name: 'Flammes Fantasmagoriques', block: 'Méga-Évolution', confidence: 'verified' },
+    { date: '2026-02-13', code: 'ME2.5',   name: 'Héros Transcendants',    block: 'Méga-Évolution', confidence: 'verified' },
+    { date: '2026-05-22', code: 'ME03',    name: 'Équilibre Parfait',      block: 'Méga-Évolution', confidence: 'estimated' },
+    // Sets a venir (estimations basees sur le rythme habituel ~10-12 semaines)
+    { date: '2026-08-14', code: 'ME3.5',   name: 'Set spécial été ME',     block: 'Méga-Évolution', confidence: 'rumored', note: 'Date estimée — non confirmée par Asmodee' },
+    { date: '2026-11-06', code: 'ME04',    name: 'Méga-Évolution 4',       block: 'Méga-Évolution', confidence: 'rumored', note: 'Nom et date à confirmer' },
+];
+
+function renderCalendarPage() {
+    const container = document.getElementById('calendarContent');
+    if (!container) return;
+
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+
+    // Enrichi chaque entree avec des metadonnees de status / countdown
+    const enriched = POKEMON_RELEASES.map(r => {
+        const releaseDate = new Date(r.date);
+        const daysFromNow = Math.round((releaseDate - now) / (1000 * 60 * 60 * 24));
+        let status, statusLabel, statusIcon;
+        if (daysFromNow < -30) {
+            status = 'past';
+            statusLabel = 'Sorti';
+            statusIcon = '✓';
+        } else if (daysFromNow < 0) {
+            status = 'recent';
+            statusLabel = 'Récent';
+            statusIcon = '🆕';
+        } else if (daysFromNow === 0) {
+            status = 'today';
+            statusLabel = "Aujourd'hui !";
+            statusIcon = '🎉';
+        } else if (daysFromNow <= 30) {
+            status = 'imminent';
+            statusLabel = `Dans ${daysFromNow} j`;
+            statusIcon = '⚡';
+        } else if (daysFromNow <= 90) {
+            status = 'upcoming';
+            statusLabel = `Dans ${daysFromNow} j`;
+            statusIcon = '📅';
+        } else {
+            status = 'future';
+            statusLabel = `Dans ${daysFromNow} j`;
+            statusIcon = '🔮';
+        }
+        return { ...r, status, statusLabel, statusIcon, daysFromNow, releaseDate };
+    });
+
+    // Trie par date descendante (le plus recent / a venir en premier)
+    enriched.sort((a, b) => b.releaseDate - a.releaseDate);
+
+    // Sépare en : à venir / passé
+    const upcoming = enriched.filter(r => r.daysFromNow >= -30).reverse(); // chronologique pour l'à venir
+    const past = enriched.filter(r => r.daysFromNow < -30); // déjà trié desc
+
+    // Stats
+    const nextSet = upcoming.find(r => r.daysFromNow > 0);
+    const lastReleased = enriched.find(r => r.daysFromNow <= 0);
+
+    const fmtDate = (date) => date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+    const fmtDateShort = (date) => date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
+
+    container.innerHTML = `
+        <!-- Hero KPIs : prochain set + dernier sorti -->
+        <div class="cal-hero-grid">
+            ${nextSet ? `
+                <div class="cal-hero-card cal-hero-next">
+                    <div class="cal-hero-icon">⏳</div>
+                    <div class="cal-hero-info">
+                        <div class="cal-hero-label">Prochaine sortie</div>
+                        <div class="cal-hero-name">${nextSet.code} — ${nextSet.name}</div>
+                        <div class="cal-hero-date">${fmtDate(nextSet.releaseDate)}</div>
+                        <div class="cal-hero-countdown">
+                            <span class="cal-countdown-num">${nextSet.daysFromNow}</span>
+                            <span class="cal-countdown-unit">jour${nextSet.daysFromNow > 1 ? 's' : ''}</span>
+                        </div>
+                    </div>
+                </div>
+            ` : ''}
+            ${lastReleased ? `
+                <div class="cal-hero-card cal-hero-last">
+                    <div class="cal-hero-icon">🆕</div>
+                    <div class="cal-hero-info">
+                        <div class="cal-hero-label">Dernière sortie</div>
+                        <div class="cal-hero-name">${lastReleased.code} — ${lastReleased.name}</div>
+                        <div class="cal-hero-date">${fmtDate(lastReleased.releaseDate)}</div>
+                        <div class="cal-hero-meta">il y a ${Math.abs(lastReleased.daysFromNow)} jour${Math.abs(lastReleased.daysFromNow) > 1 ? 's' : ''}</div>
+                    </div>
+                </div>
+            ` : ''}
+        </div>
+
+        <!-- A venir -->
+        ${upcoming.length > 0 ? `
+            <h2 class="cal-section-title">📅 À venir</h2>
+            <div class="cal-list">
+                ${upcoming.map(r => renderCalendarRow(r, fmtDate)).join('')}
+            </div>
+        ` : ''}
+
+        <!-- Passé (groupé par année) -->
+        <h2 class="cal-section-title">📜 Sorties passées</h2>
+        <div class="cal-past-wrap">
+            ${renderCalendarPastByYear(past, fmtDate)}
+        </div>
+
+        <p class="cal-disclaimer">
+            🔍 Sources : Asmodee France et annonces officielles.
+            Les dates avec ⚠️ sont des estimations basées sur le rythme habituel et peuvent changer.
+        </p>
+    `;
+}
+
+function renderCalendarRow(r, fmtDate) {
+    const safeName = r.name.replace(/'/g, "\\'");
+    const confBadge = r.confidence === 'verified' ? '' :
+        r.confidence === 'estimated' ? '<span class="cal-confidence cal-conf-est" title="Date estimée, à confirmer">⚠️</span>' :
+        '<span class="cal-confidence cal-conf-rumored" title="Date rumeur / non officielle">❓</span>';
+
+    return `<div class="cal-row cal-row-${r.status}" onclick="filterCatalogBySerie('${safeName}')">
+        <div class="cal-row-status">
+            <div class="cal-row-icon">${r.statusIcon}</div>
+            <div class="cal-row-status-label">${r.statusLabel}</div>
+        </div>
+        <div class="cal-row-info">
+            <div class="cal-row-code">${r.code} ${confBadge}</div>
+            <div class="cal-row-name">${r.name}</div>
+            <div class="cal-row-block">${r.block}</div>
+            ${r.note ? `<div class="cal-row-note">${r.note}</div>` : ''}
+        </div>
+        <div class="cal-row-date">
+            <div class="cal-row-date-main">${fmtDate(r.releaseDate)}</div>
+            ${r.daysFromNow > 0 ? `<div class="cal-row-countdown">+${r.daysFromNow} j</div>` : ''}
+            ${r.daysFromNow < 0 ? `<div class="cal-row-ago">il y a ${Math.abs(r.daysFromNow)} j</div>` : ''}
+        </div>
+    </div>`;
+}
+
+function renderCalendarPastByYear(past, fmtDate) {
+    const byYear = {};
+    for (const r of past) {
+        const year = r.releaseDate.getFullYear();
+        if (!byYear[year]) byYear[year] = [];
+        byYear[year].push(r);
+    }
+    const years = Object.keys(byYear).sort((a, b) => b - a);
+    return years.map(year => `
+        <details class="cal-past-year" ${year === years[0] ? 'open' : ''}>
+            <summary>${year} <span class="cal-year-count">${byYear[year].length} sortie${byYear[year].length > 1 ? 's' : ''}</span></summary>
+            <div class="cal-list">
+                ${byYear[year].map(r => renderCalendarRow(r, fmtDate)).join('')}
+            </div>
+        </details>
+    `).join('');
+}
+
+function filterCatalogBySerie(serieName) {
+    // Switch vers le catalogue avec un filtre sur la serie cible
+    switchSection('catalogue');
+    const search = document.getElementById('searchInput');
+    if (search) {
+        search.value = serieName;
+        search.dispatchEvent(new Event('input'));
+    }
 }
 
 // ── Chart.js : permet le scroll vertical sur mobile ──────────

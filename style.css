@@ -558,7 +558,8 @@ body {
 .section-simulation,
 .section-admin,
 .section-transactions,
-.section-movers {
+.section-movers,
+.section-calendar {
     flex: 1;
     overflow-y: auto;
     padding: 24px;
@@ -571,7 +572,8 @@ body {
 .section-simulation::-webkit-scrollbar,
 .section-admin::-webkit-scrollbar,
 .section-transactions::-webkit-scrollbar,
-.section-movers::-webkit-scrollbar {
+.section-movers::-webkit-scrollbar,
+.section-calendar::-webkit-scrollbar {
     width: 6px;
 }
 .section-dashboard::-webkit-scrollbar-thumb,
@@ -581,7 +583,8 @@ body {
 .section-simulation::-webkit-scrollbar-thumb,
 .section-admin::-webkit-scrollbar-thumb,
 .section-transactions::-webkit-scrollbar-thumb,
-.section-movers::-webkit-scrollbar-thumb {
+.section-movers::-webkit-scrollbar-thumb,
+.section-calendar::-webkit-scrollbar-thumb {
     background: var(--border-hover);
     border-radius: 3px;
 }
@@ -10032,7 +10035,8 @@ canvas,
     .section-simulation,
     .section-admin,
     .section-transactions,
-    .section-movers {
+    .section-movers,
+    .section-calendar {
         padding-bottom: calc(72px + env(safe-area-inset-bottom));
     }
 
@@ -10262,6 +10266,290 @@ canvas,
     button, a, [role="button"] {
         -webkit-tap-highlight-color: rgba(255,255,255,0.05);
     }
+}
+
+/* ============================================================
+   PAGE CALENDRIER DES SORTIES
+   ============================================================ */
+.section-calendar .section-header { margin-bottom: 24px; }
+
+.cal-loading {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+/* Hero KPIs : prochaine sortie + dernière */
+.cal-hero-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 28px;
+}
+.cal-hero-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    transition: all var(--dur-fast);
+}
+.cal-hero-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+.cal-hero-next {
+    background: linear-gradient(140deg, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.02) 60%), var(--bg-card);
+    border-color: rgba(245, 158, 11, 0.25);
+}
+.cal-hero-last {
+    background: linear-gradient(140deg, rgba(34, 197, 94, 0.06), rgba(34, 197, 94, 0.01) 60%), var(--bg-card);
+    border-color: rgba(34, 197, 94, 0.2);
+}
+.cal-hero-icon { font-size: 38px; flex-shrink: 0; }
+.cal-hero-info { flex: 1; min-width: 0; }
+.cal-hero-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+.cal-hero-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 2px;
+}
+.cal-hero-date {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+.cal-hero-countdown {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+.cal-countdown-num {
+    font-family: var(--font-mono);
+    font-size: 32px;
+    font-weight: 800;
+    color: #f59e0b;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+.cal-countdown-unit {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.cal-hero-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Section titles */
+.cal-section-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 28px 0 14px;
+    letter-spacing: -0.02em;
+}
+
+/* Liste des sorties */
+.cal-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.cal-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 130px;
+    gap: 14px;
+    align-items: center;
+    padding: 14px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all var(--dur-fast);
+}
+.cal-row:hover {
+    border-color: var(--border-hover);
+    transform: translateX(2px);
+    box-shadow: var(--shadow-sm);
+}
+
+/* Statuts */
+.cal-row-today { border-left-color: #ec4899; background: linear-gradient(90deg, rgba(236,72,153,0.08), transparent 60%), var(--bg-card); }
+.cal-row-imminent { border-left-color: #f59e0b; background: linear-gradient(90deg, rgba(245,158,11,0.08), transparent 60%), var(--bg-card); }
+.cal-row-upcoming { border-left-color: #38bdf8; }
+.cal-row-future { border-left-color: #8b5cf6; }
+.cal-row-recent { border-left-color: #22c55e; }
+.cal-row-past { border-left-color: var(--border); opacity: 0.85; }
+
+.cal-row-status {
+    text-align: center;
+}
+.cal-row-icon {
+    font-size: 22px;
+    margin-bottom: 4px;
+    line-height: 1;
+}
+.cal-row-status-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+.cal-row-imminent .cal-row-status-label { color: #f59e0b; }
+.cal-row-today .cal-row-status-label { color: #ec4899; }
+.cal-row-recent .cal-row-status-label { color: #22c55e; }
+.cal-row-upcoming .cal-row-status-label { color: #38bdf8; }
+.cal-row-future .cal-row-status-label { color: #8b5cf6; }
+
+.cal-row-info { min-width: 0; }
+.cal-row-code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.cal-row-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+.cal-row-block {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.cal-row-note {
+    font-size: 11px;
+    color: #fbbf24;
+    margin-top: 4px;
+    font-style: italic;
+}
+
+.cal-confidence {
+    font-size: 12px;
+    cursor: help;
+}
+
+.cal-row-date {
+    text-align: right;
+}
+.cal-row-date-main {
+    font-size: 12px;
+    color: var(--text-primary);
+    font-weight: 600;
+}
+.cal-row-countdown {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    color: #f59e0b;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+}
+.cal-row-ago {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* Past — collapsed by year */
+.cal-past-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.cal-past-year {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.015);
+}
+.cal-past-year > summary {
+    padding: 14px 16px;
+    cursor: pointer;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    list-style: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.cal-past-year > summary::-webkit-details-marker { display: none; }
+.cal-past-year > summary::after {
+    content: '▼';
+    font-size: 11px;
+    color: var(--text-muted);
+    transition: transform var(--dur-fast);
+}
+.cal-past-year[open] > summary::after { transform: rotate(180deg); }
+.cal-year-count {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+.cal-past-year[open] {
+    background: rgba(255,255,255,0.025);
+}
+.cal-past-year > .cal-list {
+    padding: 0 14px 14px;
+}
+
+.cal-disclaimer {
+    margin-top: 24px;
+    padding: 12px 16px;
+    background: rgba(245, 158, 11, 0.05);
+    border: 1px solid rgba(245, 158, 11, 0.15);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* Responsive */
+@media (max-width: 700px) {
+    .cal-hero-grid { grid-template-columns: 1fr; }
+    .cal-row {
+        grid-template-columns: 60px 1fr 80px;
+        gap: 10px;
+        padding: 12px;
+    }
+    .cal-row-icon { font-size: 18px; }
+    .cal-row-status-label { font-size: 9px; }
+    .cal-row-name { font-size: 14px; }
+    .cal-row-date-main { font-size: 11px; }
+    .cal-row-countdown { font-size: 12px; }
+}
+@media (max-width: 480px) {
+    .cal-hero-card { padding: 14px; gap: 12px; }
+    .cal-hero-icon { font-size: 28px; }
+    .cal-hero-name { font-size: 14px; }
+    .cal-countdown-num { font-size: 26px; }
 }
 
 /* ============================================================
