@@ -10265,6 +10265,96 @@ canvas,
 }
 
 /* ============================================================
+   MULTI-PORTFOLIOS : barre d'onglets
+   ============================================================ */
+.pf-tabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 4px 0 12px;
+    margin-bottom: 4px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+}
+.pf-tabs::-webkit-scrollbar { display: none; }
+.pf-tabs:empty { display: none; }
+
+.pf-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all var(--dur-fast);
+    font-family: inherit;
+    position: relative;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    min-height: 36px;
+}
+.pf-tab:hover {
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+}
+.pf-tab-active {
+    background: linear-gradient(90deg, rgba(34,197,94,0.18), rgba(34,197,94,0.08));
+    border-color: rgba(34,197,94,0.5);
+    color: #22c55e;
+    box-shadow: 0 0 0 1px rgba(34,197,94,0.3);
+}
+.pf-tab-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+.pf-tab-name {
+    line-height: 1;
+}
+.pf-tab-edit {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    margin-left: 2px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity var(--dur-fast);
+    font-family: inherit;
+}
+.pf-tab-edit:hover { opacity: 1; }
+.pf-tab-add {
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--text-muted);
+    padding: 8px 12px;
+}
+.pf-tab-add:hover {
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+    background: rgba(255,255,255,0.02);
+}
+.pf-tab-add .pf-tab-icon {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+@media (max-width: 640px) {
+    .pf-tab { padding: 7px 12px; font-size: 12px; min-height: 34px; }
+    .pf-tab-icon { font-size: 14px; }
+}
+
+/* ============================================================
    INDICATEURS TECHNIQUES (detail produit)
    ============================================================ */
 .detail-indicators-section {

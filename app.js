@@ -2502,6 +2502,175 @@ let _portfolioCache = null;
 let _portfolioLoading = null;       // promesse en cours de chargement, pour dédupliquer
 let _saveInflight = null;           // promesse du dernier PUT en cours
 let _saveDirty = false;             // indique qu'un save est en attente (utile pour beforeunload)
+let _currentPfGroup = 'default';    // groupe actuellement affiche (default ou un id de groupe extra)
+let _pfGroupsList = [{ id: 'default', name: 'Portefeuille principal', icon: '💼', color: '#22c55e', isDefault: true }];
+
+// ── Multi-portfolios : gestion des groupes ────────────────
+async function loadPfGroups() {
+    if (!authToken) {
+        _pfGroupsList = [{ id: 'default', name: 'Portefeuille principal', icon: '💼', color: '#22c55e', isDefault: true }];
+        renderPfTabs();
+        return;
+    }
+    try {
+        const res = await fetch('/api/portfolio-groups', {
+            headers: { 'Authorization': `Bearer ${authToken}` },
+            cache: 'no-store',
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        _pfGroupsList = data.groups || [];
+        renderPfTabs();
+    } catch {
+        // Fallback : juste le default
+        _pfGroupsList = [{ id: 'default', name: 'Portefeuille principal', icon: '💼', color: '#22c55e', isDefault: true }];
+        renderPfTabs();
+    }
+}
+
+function renderPfTabs() {
+    const wrap = document.getElementById('pfTabs');
+    if (!wrap) return;
+    if (_pfGroupsList.length <= 1) {
+        // Si uniquement le default, on affiche quand meme un bouton + petit pour creer le premier supplementaire
+        wrap.innerHTML = `
+            <button class="pf-tab pf-tab-active" onclick="switchPfGroup('default')">
+                <span class="pf-tab-icon">💼</span>
+                <span class="pf-tab-name">Portefeuille principal</span>
+            </button>
+            <button class="pf-tab pf-tab-add" onclick="openPfGroupCreateModal()" title="Créer un nouveau portefeuille">
+                <span class="pf-tab-icon">+</span>
+                <span class="pf-tab-name">Nouveau</span>
+            </button>
+        `;
+        return;
+    }
+    wrap.innerHTML = _pfGroupsList.map(g => {
+        const active = g.id === _currentPfGroup ? ' pf-tab-active' : '';
+        const safeId = g.id.replace(/'/g, "\\'");
+        const safeName = String(g.name).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        return `<button class="pf-tab${active}" onclick="switchPfGroup('${safeId}')" oncontextmenu="${g.isDefault ? '' : `openPfGroupMenu(event,'${safeId}','${safeName}')`}">
+            <span class="pf-tab-icon">${g.icon || '💼'}</span>
+            <span class="pf-tab-name">${g.name}</span>
+            ${g.isDefault ? '' : `<button class="pf-tab-edit" onclick="event.stopPropagation();openPfGroupMenu(event,'${safeId}','${safeName}')" title="Modifier">⋯</button>`}
+        </button>`;
+    }).join('') + `
+        <button class="pf-tab pf-tab-add" onclick="openPfGroupCreateModal()" title="Créer un nouveau portefeuille">
+            <span class="pf-tab-icon">+</span>
+        </button>
+    `;
+}
+
+async function switchPfGroup(groupId) {
+    if (groupId === _currentPfGroup) return;
+    // Sauvegarde en cours ? on attend pour eviter de perdre des donnees
+    if (_saveInflight || _saveDirty) {
+        try { await _saveInflight; } catch {}
+    }
+    _currentPfGroup = groupId;
+    _portfolioCache = null; // force le reload
+    renderPfTabs();
+    if (typeof renderPortfolio === 'function') renderPortfolio();
+    updatePortfolioBadge();
+}
+
+function openPfGroupCreateModal() {
+    if (!authToken) {
+        showToast('🔒', 'Connexion requise', '');
+        return;
+    }
+    const name = prompt('Nom du nouveau portefeuille (ex: Investissement, Collection perso, A vendre) :', '');
+    if (!name || !name.trim()) return;
+    if (name.length > 50) {
+        showToast('⚠️', 'Nom trop long', 'Max 50 caractères');
+        return;
+    }
+    const icon = prompt('Émoji pour ce portefeuille (1 caractère, ex: 💼 💰 🃏 🎯) :', '💼');
+    createPfGroup(name.trim(), icon || '💼');
+}
+
+async function createPfGroup(name, icon) {
+    try {
+        const res = await fetch('/api/portfolio-groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({ name, icon }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast('⚠️', 'Erreur', data.error || 'Création échouée');
+            return;
+        }
+        showToast('✅', 'Portefeuille créé', name);
+        await loadPfGroups();
+        // Switch direct vers le nouveau portfolio
+        switchPfGroup(data.id);
+    } catch {
+        showToast('⚠️', 'Erreur réseau', '');
+    }
+}
+
+function openPfGroupMenu(event, groupId, groupName) {
+    if (event) event.preventDefault();
+    const action = prompt(
+        `Action sur "${groupName}" :\n\n` +
+        `1 = Renommer\n` +
+        `2 = Supprimer (avec toutes ses positions)\n\n` +
+        `Tape 1 ou 2, ou laisse vide pour annuler :`,
+        ''
+    );
+    if (action === '1') {
+        const newName = prompt('Nouveau nom :', groupName.replace(/&quot;/g, '"'));
+        if (newName && newName.trim()) renamePfGroup(groupId, newName.trim());
+    } else if (action === '2') {
+        if (confirm(`Supprimer définitivement "${groupName}" et toutes ses positions ?\n\nCette action est irréversible.`)) {
+            deletePfGroup(groupId);
+        }
+    }
+}
+
+async function renamePfGroup(groupId, newName) {
+    try {
+        const res = await fetch(`/api/portfolio-groups/${encodeURIComponent(groupId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({ name: newName }),
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            showToast('⚠️', 'Erreur', data.error || 'Échec');
+            return;
+        }
+        showToast('✅', 'Renommé', newName);
+        loadPfGroups();
+    } catch {
+        showToast('⚠️', 'Erreur réseau', '');
+    }
+}
+
+async function deletePfGroup(groupId) {
+    try {
+        const res = await fetch(`/api/portfolio-groups/${encodeURIComponent(groupId)}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            showToast('⚠️', 'Erreur', data.error || 'Échec');
+            return;
+        }
+        showToast('✅', 'Portefeuille supprimé', '');
+        // Si on supprimait le portfolio actuel, on retourne au default
+        if (_currentPfGroup === groupId) {
+            _currentPfGroup = 'default';
+            _portfolioCache = null;
+        }
+        await loadPfGroups();
+        if (typeof renderPortfolio === 'function') renderPortfolio();
+    } catch {
+        showToast('⚠️', 'Erreur réseau', '');
+    }
+}
 
 async function loadPortfolio() {
     // Portefeuille strictement lie au compte : serveur seul fait foi.
@@ -2514,7 +2683,10 @@ async function loadPortfolio() {
     if (_portfolioLoading) return _portfolioLoading;
     _portfolioLoading = (async () => {
         try {
-            const res = await fetch('/api/portfolio', {
+            const url = _currentPfGroup === 'default'
+                ? '/api/portfolio'
+                : `/api/portfolio?group_id=${encodeURIComponent(_currentPfGroup)}`;
+            const res = await fetch(url, {
                 headers: { 'Authorization': `Bearer ${authToken}` },
                 cache: 'no-store',
             });
@@ -2569,7 +2741,10 @@ async function savePortfolio(pf) {
 
     _saveInflight = (async () => {
         try {
-            const res = await fetch('/api/portfolio', {
+            const url = _currentPfGroup === 'default'
+                ? '/api/portfolio'
+                : `/api/portfolio?group_id=${encodeURIComponent(_currentPfGroup)}`;
+            const res = await fetch(url, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
                 body: JSON.stringify(pf),
@@ -3346,6 +3521,8 @@ function renderPortfolioHistory(remoteHistory) {
 }
 
 async function renderPortfolio() {
+    // Charge la liste des groupes en parallele du chargement du portfolio
+    loadPfGroups();
     const pf = await loadPortfolio();
 
     // Sauvegarder un snapshot local
