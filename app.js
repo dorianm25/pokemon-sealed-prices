@@ -5504,23 +5504,25 @@ async function loadAdminPage() {
 
     try {
         const headers = { 'Authorization': `Bearer ${authToken}` };
-        const [statsRes, usersRes, barcodesRes] = await Promise.all([
+        const [statsRes, usersRes, barcodesRes, calRes] = await Promise.all([
             fetch('/api/admin/stats', { headers, cache: 'no-store' }),
             fetch('/api/admin/users', { headers, cache: 'no-store' }),
             fetch('/api/barcodes', { headers, cache: 'no-store' }),
+            fetch('/api/calendar', { cache: 'no-store' }),
         ]);
         if (!statsRes.ok || !usersRes.ok) throw new Error('HTTP error');
         const stats = await statsRes.json();
         const usersData = await usersRes.json();
         const barcodesData = barcodesRes.ok ? await barcodesRes.json() : { count: 0, barcodes: [] };
+        const calData = calRes.ok ? await calRes.json() : { count: 0, releases: [] };
 
-        container.innerHTML = renderAdminPage(stats, usersData, barcodesData);
+        container.innerHTML = renderAdminPage(stats, usersData, barcodesData, calData);
     } catch (e) {
         container.innerHTML = `<div class="admin-empty">Erreur de chargement (${e.message || 'inconnue'}).</div>`;
     }
 }
 
-function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: [] }) {
+function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: [] }, calData = { count: 0, releases: [] }) {
     const fmtDate = (iso) => {
         if (!iso) return '—';
         const d = new Date(iso);
@@ -5632,6 +5634,46 @@ function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: 
                     ${barcodesData.barcodes.length > 100 ? `<div class="admin-barcodes-truncated">+ ${barcodesData.barcodes.length - 100} autres mappings</div>` : ''}
                 </div>
             </details>` : '<p class="admin-card-sub" style="font-style:italic;margin-top:8px">Aucun mapping pour l\'instant. Scannez vos produits pour commencer à enrichir la base.</p>'}
+        </div>
+
+        <!-- Calendrier des sorties : edition admin -->
+        <div class="admin-card">
+            <h3 class="admin-card-title">📅 Calendrier des sorties (${calData.count})</h3>
+            <p class="admin-card-sub">Dates de sortie FR Asmodee. Modifiable en bulk depuis la page Calendrier.</p>
+
+            <div class="admin-bulk-actions" style="margin-bottom:14px">
+                <button class="admin-btn admin-btn-primary" onclick="adminAddCalendarEntry()">➕ Ajouter un set</button>
+                ${calData.count === 0 ? `<button class="admin-btn admin-btn-secondary" onclick="seedCalendarFromDefaults()">📥 Pré-remplir avec les défauts (38 sets)</button>` : ''}
+            </div>
+
+            ${calData.count > 0 ? `
+                <details class="admin-bulk-import" open>
+                    <summary>Voir/éditer les ${calData.count} entrées</summary>
+                    <div class="admin-cal-table">
+                        <div class="admin-cal-head">
+                            <span>Code</span>
+                            <span>Date</span>
+                            <span>Nom</span>
+                            <span>Confiance</span>
+                            <span>Actions</span>
+                        </div>
+                        ${calData.releases.slice().reverse().map(r => {
+                            const confIcon = r.confidence === 'verified' ? '✅' : r.confidence === 'estimated' ? '⚠️' : '❓';
+                            const safeCode = r.code.replace(/'/g, "\\'");
+                            return `<div class="admin-cal-row">
+                                <span class="admin-cal-code">${r.code}</span>
+                                <span class="admin-cal-date">${r.date}</span>
+                                <span class="admin-cal-name">${r.name}${r.note ? ` <em>(${r.note})</em>` : ''}</span>
+                                <span class="admin-cal-confidence" title="${r.confidence}">${confIcon}</span>
+                                <span class="admin-cal-actions">
+                                    <button class="admin-btn admin-btn-secondary admin-btn-mini" onclick="adminEditCalendarEntry('${safeCode}')">✏️</button>
+                                    <button class="admin-btn admin-btn-danger admin-btn-mini" onclick="adminDeleteCalendarEntry('${safeCode}')">🗑</button>
+                                </span>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </details>
+            ` : '<p class="admin-card-sub" style="font-style:italic;margin-top:8px">Aucune entrée. Pré-remplis avec les défauts ou ajoute manuellement.</p>'}
         </div>
 
         <!-- Liste des comptes -->
@@ -7258,9 +7300,12 @@ function addScannedToPortfolio() {
 }
 
 // ── Calendrier des sorties (Pokemon TCG France / Asmodee) ──
-// Source : dates de sortie officielles francaises Asmodee + estimations
-// pour les sets a venir. Confiance = 'verified' / 'estimated' / 'rumored'.
-const POKEMON_RELEASES = [
+// Les donnees sont stockees en DB (table release_calendar) et editables
+// par l'admin via l'UI. Cette constante sert UNIQUEMENT de jeu de donnees
+// initial (seed) au premier deploiement OU si l'API renvoie une liste vide.
+// Confiance : 'verified' (date connue/officielle), 'estimated' (rythme),
+// 'rumored' (non confirme).
+const POKEMON_RELEASES_DEFAULT = [
     // ═══ Épée et Bouclier (2020-2023) ═══
     { date: '2020-02-07', code: 'EB01',    name: 'Épée et Bouclier',     block: 'Épée et Bouclier', confidence: 'verified' },
     { date: '2020-05-01', code: 'EB02',    name: 'Clash des Rebelles',   block: 'Épée et Bouclier', confidence: 'verified' },
@@ -7296,25 +7341,67 @@ const POKEMON_RELEASES = [
     { date: '2025-05-30', code: 'EV10',    name: 'Rivalités Destinées',         block: 'Écarlate et Violet', confidence: 'verified' },
     { date: '2025-07-18', code: 'EV10.5',  name: 'Foudre Noire / Flamme Blanche', block: 'Écarlate et Violet', confidence: 'verified' },
 
-    // ═══ Méga-Évolution (2025-) ═══
-    { date: '2025-09-26', code: 'ME01',    name: 'Méga-Évolution',         block: 'Méga-Évolution', confidence: 'verified' },
-    { date: '2025-12-05', code: 'ME02',    name: 'Flammes Fantasmagoriques', block: 'Méga-Évolution', confidence: 'verified' },
-    { date: '2026-02-13', code: 'ME2.5',   name: 'Héros Transcendants',    block: 'Méga-Évolution', confidence: 'verified' },
-    { date: '2026-05-22', code: 'ME03',    name: 'Équilibre Parfait',      block: 'Méga-Évolution', confidence: 'estimated' },
-    // Sets a venir (estimations basees sur le rythme habituel ~10-12 semaines)
-    { date: '2026-08-14', code: 'ME3.5',   name: 'Set spécial été ME',     block: 'Méga-Évolution', confidence: 'rumored', note: 'Date estimée — non confirmée par Asmodee' },
-    { date: '2026-11-06', code: 'ME04',    name: 'Méga-Évolution 4',       block: 'Méga-Évolution', confidence: 'rumored', note: 'Nom et date à confirmer' },
+    // ═══ Méga-Évolution (2025-) — dates non verifiees, à confirmer par admin ═══
+    { date: '2025-09-26', code: 'ME01',    name: 'Méga-Évolution',           block: 'Méga-Évolution', confidence: 'estimated', note: 'À confirmer par l\'admin' },
+    { date: '2025-12-05', code: 'ME02',    name: 'Flammes Fantasmagoriques', block: 'Méga-Évolution', confidence: 'estimated', note: 'À confirmer par l\'admin' },
+    { date: '2026-02-13', code: 'ME2.5',   name: 'Héros Transcendants',      block: 'Méga-Évolution', confidence: 'estimated', note: 'À confirmer par l\'admin' },
+    { date: '2026-05-22', code: 'ME03',    name: 'Équilibre Parfait',        block: 'Méga-Évolution', confidence: 'estimated', note: 'Date estimée' },
+    { date: '2026-08-14', code: 'ME3.5',   name: 'Set spécial été ME',       block: 'Méga-Évolution', confidence: 'rumored',   note: 'Non confirmé par Asmodee' },
+    { date: '2026-11-06', code: 'ME04',    name: 'Méga-Évolution 4',         block: 'Méga-Évolution', confidence: 'rumored',   note: 'Nom et date à confirmer' },
 ];
 
-function renderCalendarPage() {
+// Cache local du calendrier serveur (rempli au 1er load de la page)
+let _calendarCache = null;
+let _calendarLoading = null;
+
+async function fetchCalendar(force = false) {
+    if (!force && _calendarCache) return _calendarCache;
+    if (_calendarLoading) return _calendarLoading;
+    _calendarLoading = (async () => {
+        try {
+            const res = await fetch('/api/calendar', { cache: 'no-store' });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            _calendarCache = data.releases || [];
+            return _calendarCache;
+        } catch {
+            // En cas d'erreur on retombe sur les defaults (mode degrade)
+            _calendarCache = [...POKEMON_RELEASES_DEFAULT];
+            return _calendarCache;
+        } finally {
+            _calendarLoading = null;
+        }
+    })();
+    return _calendarLoading;
+}
+
+async function renderCalendarPage() {
     const container = document.getElementById('calendarContent');
     if (!container) return;
+
+    container.innerHTML = '<div class="cal-loading">Chargement du calendrier…</div>';
+
+    const releases = await fetchCalendar();
+
+    // Cas vide : aucune donnee en DB
+    if (!releases || releases.length === 0) {
+        container.innerHTML = `
+            <div class="cal-empty-seed">
+                <div class="cal-empty-icon">📅</div>
+                <h3>Aucune date de sortie en base</h3>
+                <p>Le calendrier est vide. ${isAdminUser() ? 'Tu peux le pré-remplir avec un jeu de données initial (38 sets) que tu pourras ensuite éditer/corriger.' : 'L\'administrateur doit le pré-remplir.'}</p>
+                ${isAdminUser() ? `<button class="cal-seed-btn" onclick="seedCalendarFromDefaults()">📥 Pré-remplir avec les 38 sets par défaut</button>` : ''}
+                <p class="cal-empty-help">⚠️ Une fois pré-rempli, vérifie/corrige les dates depuis la page Admin → Calendrier.</p>
+            </div>
+        `;
+        return;
+    }
 
     const now = new Date();
     const today = now.toISOString().slice(0, 10);
 
     // Enrichi chaque entree avec des metadonnees de status / countdown
-    const enriched = POKEMON_RELEASES.map(r => {
+    const enriched = releases.map(r => {
         const releaseDate = new Date(r.date);
         const daysFromNow = Math.round((releaseDate - now) / (1000 * 60 * 60 * 24));
         let status, statusLabel, statusIcon;
@@ -7461,6 +7548,186 @@ function filterCatalogBySerie(serieName) {
     if (search) {
         search.value = serieName;
         search.dispatchEvent(new Event('input'));
+    }
+}
+
+// ── Admin : gestion du calendrier ─────────────────────────
+async function seedCalendarFromDefaults() {
+    if (!isAdminUser()) {
+        showToast('🔒', 'Réservé admin', '');
+        return;
+    }
+    if (!confirm(`Pré-remplir le calendrier avec ${POKEMON_RELEASES_DEFAULT.length} sets par défaut ?\n\nLes entrées existantes ne seront pas écrasées.`)) {
+        return;
+    }
+    try {
+        const res = await fetch('/api/calendar/seed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({ entries: POKEMON_RELEASES_DEFAULT }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast('⚠️', 'Erreur', data.error || 'Échec');
+            return;
+        }
+        showToast('✅', 'Calendrier pré-rempli', `${data.added} sets ajoutés`);
+        _calendarCache = null;
+        renderCalendarPage();
+    } catch {
+        showToast('⚠️', 'Erreur réseau', '');
+    }
+}
+
+async function adminEditCalendarEntry(code) {
+    if (!isAdminUser()) return;
+    const list = await fetchCalendar(true);
+    const entry = list.find(e => e.code === code);
+    if (!entry) {
+        showToast('⚠️', 'Introuvable', '');
+        return;
+    }
+    showCalendarEditModal(entry);
+}
+
+async function adminDeleteCalendarEntry(code) {
+    if (!isAdminUser()) return;
+    if (!confirm(`Supprimer définitivement le set ${code} du calendrier ?`)) return;
+    try {
+        const res = await fetch(`/api/calendar/${encodeURIComponent(code)}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            showToast('⚠️', 'Erreur', data.error || 'Échec');
+            return;
+        }
+        showToast('✅', 'Supprimé', code);
+        _calendarCache = null;
+        loadAdminPage();
+    } catch {
+        showToast('⚠️', 'Erreur réseau', '');
+    }
+}
+
+function adminAddCalendarEntry() {
+    if (!isAdminUser()) return;
+    showCalendarEditModal({
+        code: '',
+        name: '',
+        block: '',
+        date: new Date().toISOString().slice(0, 10),
+        confidence: 'verified',
+        note: '',
+        isNew: true,
+    });
+}
+
+function showCalendarEditModal(entry) {
+    // Modal simple injectee dans le body
+    const existing = document.getElementById('calendarEditModal');
+    if (existing) existing.remove();
+
+    const isNew = !!entry.isNew;
+    const overlay = document.createElement('div');
+    overlay.id = 'calendarEditModal';
+    overlay.className = 'tx-modal-overlay open';
+    overlay.innerHTML = `
+        <div class="tx-modal" style="max-width:500px">
+            <div class="tx-modal-head">
+                <h3>${isNew ? '➕ Ajouter un set' : `✏️ Éditer ${entry.code}`}</h3>
+                <button class="tx-modal-close" type="button" aria-label="Fermer" onclick="document.getElementById('calendarEditModal').remove()">&times;</button>
+            </div>
+            <form class="tx-form" onsubmit="submitCalendarEdit(event, ${isNew ? 'true' : 'false'}, '${entry.code.replace(/'/g, "\\'")}')">
+                <div class="tx-form-row">
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Code (ex: EV01, ME03)</label>
+                        <input type="text" class="tx-form-input" id="calEditCode" required maxlength="20" value="${entry.code || ''}" ${isNew ? '' : 'readonly'}>
+                    </div>
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Date de sortie</label>
+                        <input type="date" class="tx-form-input" id="calEditDate" required value="${entry.date || ''}">
+                    </div>
+                </div>
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">Nom du set</label>
+                        <input type="text" class="tx-form-input" id="calEditName" required maxlength="200" value="${(entry.name || '').replace(/"/g, '&quot;')}">
+                    </div>
+                </div>
+                <div class="tx-form-row">
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Bloc</label>
+                        <input type="text" class="tx-form-input" id="calEditBlock" maxlength="100" value="${(entry.block || '').replace(/"/g, '&quot;')}" placeholder="Ex: Méga-Évolution">
+                    </div>
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Confiance</label>
+                        <select class="tx-form-input" id="calEditConfidence">
+                            <option value="verified" ${entry.confidence === 'verified' ? 'selected' : ''}>✅ Vérifiée</option>
+                            <option value="estimated" ${entry.confidence === 'estimated' ? 'selected' : ''}>⚠️ Estimée</option>
+                            <option value="rumored" ${entry.confidence === 'rumored' ? 'selected' : ''}>❓ Rumeur</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">Note (optionnel)</label>
+                        <textarea class="tx-form-input tx-form-textarea" id="calEditNote" rows="2" maxlength="500" placeholder="Ex: Source officielle Asmodee, à reconfirmer...">${(entry.note || '').replace(/</g, '&lt;')}</textarea>
+                    </div>
+                </div>
+                <div id="calEditError" class="tx-form-error"></div>
+                <div class="tx-form-actions">
+                    <button type="button" class="tx-btn tx-btn-ghost" onclick="document.getElementById('calendarEditModal').remove()">Annuler</button>
+                    <button type="submit" class="tx-btn tx-btn-primary">${isNew ? 'Ajouter' : 'Enregistrer'}</button>
+                </div>
+            </form>
+        </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+    setTimeout(() => document.getElementById('calEditCode')?.focus(), 100);
+}
+
+async function submitCalendarEdit(event, isNew, originalCode) {
+    event.preventDefault();
+    const errEl = document.getElementById('calEditError');
+    errEl.textContent = '';
+
+    const code = document.getElementById('calEditCode').value.trim();
+    const name = document.getElementById('calEditName').value.trim();
+    const block = document.getElementById('calEditBlock').value.trim();
+    const date = document.getElementById('calEditDate').value;
+    const confidence = document.getElementById('calEditConfidence').value;
+    const note = document.getElementById('calEditNote').value.trim();
+
+    if (!code) { errEl.textContent = 'Code requis'; return; }
+    if (!name) { errEl.textContent = 'Nom requis'; return; }
+    if (!date) { errEl.textContent = 'Date requise'; return; }
+
+    try {
+        const url = isNew ? '/api/calendar' : `/api/calendar/${encodeURIComponent(originalCode)}`;
+        const method = isNew ? 'POST' : 'PUT';
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({ code, name, block, date, confidence, note }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            errEl.textContent = data.error || 'Erreur';
+            return;
+        }
+        showToast('✅', isNew ? 'Set ajouté' : 'Set mis à jour', code);
+        document.getElementById('calendarEditModal').remove();
+        _calendarCache = null;
+        // Refresh ce qui est ouvert
+        if (currentSection === 'calendar') renderCalendarPage();
+        if (currentSection === 'admin') loadAdminPage();
+    } catch {
+        errEl.textContent = 'Erreur réseau';
     }
 }
 

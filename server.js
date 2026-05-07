@@ -21,6 +21,8 @@ import {
     getBarcode, listBarcodes, setBarcode, deleteBarcode,
     listPortfolioGroups, createPortfolioGroup, updatePortfolioGroup,
     deletePortfolioGroup, getPortfolioByGroup, setPortfolioByGroup,
+    listReleaseCalendar, upsertReleaseCalendar, deleteReleaseCalendar,
+    bulkSeedReleaseCalendar,
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
     getAllCache as dbGetAllCache,
     getCustomQueries, setCustomQuery,
@@ -1019,6 +1021,117 @@ app.get('/api/indicators/:productId', async (req, res) => {
     } catch (e) {
         console.error('[indicators] error:', e);
         res.status(500).json({ error: 'Erreur calcul indicateurs' });
+    }
+});
+
+// ── Calendrier des sorties Pokemon TCG (FR) ────────────────
+// Lecture publique. CRUD reserve admin.
+
+app.get('/api/calendar', async (_req, res) => {
+    try {
+        const list = await listReleaseCalendar();
+        res.json({ count: list.length, releases: list });
+    } catch (e) {
+        console.error('[calendar/list] error:', e);
+        res.status(500).json({ error: 'Erreur lecture calendrier' });
+    }
+});
+
+app.post('/api/calendar', authMiddleware, requireAdmin, async (req, res) => {
+    const { code, name, block, date, confidence, note, sortOrder } = req.body || {};
+    if (!code || typeof code !== 'string' || !code.trim()) {
+        return res.status(400).json({ error: 'Code requis (ex: EV01)' });
+    }
+    if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'Nom requis' });
+    }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ error: 'Date doit etre au format YYYY-MM-DD' });
+    }
+    const validConfidence = ['verified', 'estimated', 'rumored'];
+    const conf = confidence && validConfidence.includes(confidence) ? confidence : 'verified';
+
+    try {
+        await upsertReleaseCalendar({
+            code: code.trim(),
+            name: name.trim().slice(0, 200),
+            block: (block || '').trim().slice(0, 100),
+            date,
+            confidence: conf,
+            note: (note || '').trim().slice(0, 500),
+            sortOrder: parseInt(sortOrder) || 0,
+        }, req.adminUser?.username || 'admin');
+        res.json({ ok: true, code: code.trim() });
+    } catch (e) {
+        console.error('[calendar/upsert] error:', e);
+        res.status(500).json({ error: 'Erreur enregistrement' });
+    }
+});
+
+// PUT alias (semantique d'update)
+app.put('/api/calendar/:code', authMiddleware, requireAdmin, async (req, res) => {
+    const code = req.params.code;
+    const body = { ...(req.body || {}), code };
+    req.body = body;
+    // Reuse la logique du POST
+    const { name, block, date, confidence, note, sortOrder } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'Nom requis' });
+    }
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ error: 'Date doit etre au format YYYY-MM-DD' });
+    }
+    const validConfidence = ['verified', 'estimated', 'rumored'];
+    const conf = confidence && validConfidence.includes(confidence) ? confidence : 'verified';
+    try {
+        await upsertReleaseCalendar({
+            code,
+            name: name.trim().slice(0, 200),
+            block: (block || '').trim().slice(0, 100),
+            date,
+            confidence: conf,
+            note: (note || '').trim().slice(0, 500),
+            sortOrder: parseInt(sortOrder) || 0,
+        }, req.adminUser?.username || 'admin');
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[calendar/update] error:', e);
+        res.status(500).json({ error: 'Erreur mise a jour' });
+    }
+});
+
+app.delete('/api/calendar/:code', authMiddleware, requireAdmin, async (req, res) => {
+    try {
+        const ok = await deleteReleaseCalendar(req.params.code);
+        if (!ok) return res.status(404).json({ error: 'Code introuvable' });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[calendar/delete] error:', e);
+        res.status(500).json({ error: 'Erreur suppression' });
+    }
+});
+
+// Seed depuis une liste fournie par le frontend (les valeurs hardcodees actuelles).
+// N'ecrase PAS les entrees existantes (ON CONFLICT DO NOTHING).
+app.post('/api/calendar/seed', authMiddleware, requireAdmin, async (req, res) => {
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : null;
+    if (!entries) {
+        return res.status(400).json({ error: 'Body doit contenir entries: []' });
+    }
+    try {
+        const before = await listReleaseCalendar();
+        await bulkSeedReleaseCalendar(entries, req.adminUser?.username || 'seed');
+        const after = await listReleaseCalendar();
+        res.json({
+            ok: true,
+            attempted: entries.length,
+            beforeCount: before.length,
+            afterCount: after.length,
+            added: after.length - before.length,
+        });
+    } catch (e) {
+        console.error('[calendar/seed] error:', e);
+        res.status(500).json({ error: 'Erreur seed' });
     }
 });
 

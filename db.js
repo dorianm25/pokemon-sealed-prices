@@ -99,6 +99,20 @@ const SCHEMA = [
         data TEXT NOT NULL
     )`,
 
+    // Calendrier des sorties Pokemon TCG (FR/Asmodee)
+    // Editable par l'admin via UI. Lecture publique.
+    `CREATE TABLE IF NOT EXISTS release_calendar (
+        code TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        block TEXT,
+        release_date TEXT NOT NULL,
+        confidence TEXT NOT NULL DEFAULT 'verified',
+        note TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT
+    )`,
+
     // Mapping codes-barres EAN -> nom de produit (partage entre tous les users)
     `CREATE TABLE IF NOT EXISTS barcodes (
         ean TEXT PRIMARY KEY,
@@ -129,6 +143,7 @@ const SCHEMA = [
     `CREATE INDEX IF NOT EXISTS idx_transactions_user_product ON transactions(user_id, product_name)`,
     `CREATE INDEX IF NOT EXISTS idx_pf_groups_user ON portfolio_groups(user_id, sort_order)`,
     `CREATE INDEX IF NOT EXISTS idx_pf_extra_user_group ON portfolios_extra(user_id, group_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_release_calendar_date ON release_calendar(release_date)`,
 ];
 
 export async function initSchema() {
@@ -407,6 +422,82 @@ export async function setCustomQuery(productId, data) {
               ON CONFLICT (product_id) DO UPDATE SET data = excluded.data`,
         args: [productId, JSON.stringify(data)],
     });
+}
+
+// ── Calendrier des sorties (release_calendar) ──────────────
+
+export async function listReleaseCalendar() {
+    const r = await db.execute(
+        'SELECT code, name, block, release_date, confidence, note, sort_order, updated_at, updated_by FROM release_calendar ORDER BY release_date ASC'
+    );
+    return r.rows.map(row => ({
+        code: row.code,
+        name: row.name,
+        block: row.block || '',
+        date: row.release_date,
+        confidence: row.confidence || 'verified',
+        note: row.note || '',
+        sortOrder: Number(row.sort_order) || 0,
+        updatedAt: row.updated_at,
+        updatedBy: row.updated_by,
+    }));
+}
+
+export async function upsertReleaseCalendar(entry, updatedBy) {
+    await db.execute({
+        sql: `INSERT INTO release_calendar (code, name, block, release_date, confidence, note, sort_order, updated_at, updated_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT (code) DO UPDATE SET
+                name = excluded.name,
+                block = excluded.block,
+                release_date = excluded.release_date,
+                confidence = excluded.confidence,
+                note = excluded.note,
+                sort_order = excluded.sort_order,
+                updated_at = excluded.updated_at,
+                updated_by = excluded.updated_by`,
+        args: [
+            entry.code,
+            entry.name,
+            entry.block || null,
+            entry.date,
+            entry.confidence || 'verified',
+            entry.note || null,
+            entry.sortOrder || 0,
+            new Date().toISOString(),
+            updatedBy || null,
+        ],
+    });
+}
+
+export async function deleteReleaseCalendar(code) {
+    const r = await db.execute({
+        sql: 'DELETE FROM release_calendar WHERE code = ?',
+        args: [code],
+    });
+    return r.rowsAffected > 0;
+}
+
+export async function bulkSeedReleaseCalendar(entries, updatedBy) {
+    const statements = entries.map((entry, idx) => ({
+        sql: `INSERT INTO release_calendar (code, name, block, release_date, confidence, note, sort_order, updated_at, updated_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT (code) DO NOTHING`,
+        args: [
+            entry.code,
+            entry.name,
+            entry.block || null,
+            entry.date,
+            entry.confidence || 'verified',
+            entry.note || null,
+            entry.sortOrder || idx,
+            new Date().toISOString(),
+            updatedBy || 'seed',
+        ],
+    }));
+    if (statements.length === 0) return 0;
+    await db.batch(statements, 'write');
+    return statements.length;
 }
 
 // ── Multi-portfolios (groupes) ──────────────────────────────
