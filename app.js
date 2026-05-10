@@ -1083,6 +1083,8 @@ function switchSection(section, e) {
     document.getElementById('sectionPortfolio').style.display = section === 'portfolio' ? 'block' : 'none';
     document.getElementById('sectionTendances').style.display = section === 'tendances' ? 'block' : 'none';
     document.getElementById('sectionSimulation').style.display = section === 'simulation' ? 'block' : 'none';
+    const suggSec = document.getElementById('sectionSuggestions');
+    if (suggSec) suggSec.style.display = section === 'suggestions' ? 'block' : 'none';
     const adminSec = document.getElementById('sectionAdmin');
     if (adminSec) adminSec.style.display = section === 'admin' ? 'block' : 'none';
     const txSec = document.getElementById('sectionTransactions');
@@ -1106,6 +1108,7 @@ function switchSection(section, e) {
     if (section === 'movers') loadMoversPage();
     if (section === 'calendar') renderCalendarPage();
     if (section === 'news') loadNewsPage();
+    if (section === 'suggestions') loadSuggestionsPage();
 }
 
 // Helper : verifie si l'utilisateur connecte est l'admin (par defaut 'dorian').
@@ -1125,6 +1128,9 @@ function updateAdminLinkVisibility() {
     if (txLink) {
         txLink.style.display = currentUser ? 'flex' : 'none';
     }
+    // FAB AI Advisor : visible uniquement si connecte (besoin du portfolio en contexte)
+    const aiFab = document.getElementById('aiFab');
+    if (aiFab) aiFab.hidden = !currentUser;
     // Si on quitte le compte admin alors qu'on est sur la section admin, on rebascule
     if (currentSection === 'admin' && !isAdminUser()) {
         switchSection('catalogue');
@@ -6436,6 +6442,33 @@ function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: 
             <div id="adminSyncCostsResult" class="admin-bulk-result"></div>
         </div>
 
+        <!-- Backup DB : telechargement direct + upload S3 si configure -->
+        <div class="admin-card">
+            <h3 class="admin-card-title">💾 Sauvegarde de la base</h3>
+            <p class="admin-card-sub">Dump complet de toutes les tables (users, portfolios, transactions, prix, barcodes, etc.) au format JSON. Idéal avant un gros changement ou pour archive périodique.</p>
+            <div class="admin-bulk-actions" style="margin-top:10px;flex-wrap:wrap">
+                <button class="admin-btn admin-btn-primary" onclick="adminDownloadBackup()">📥 Télécharger le backup (.json)</button>
+                <button class="admin-btn admin-btn-secondary" onclick="adminUploadBackupS3()">☁️ Créer + uploader sur S3</button>
+            </div>
+            <details class="admin-bulk-import" style="margin-top:14px">
+                <summary>📋 Configurer le backup S3 automatique</summary>
+                <p class="admin-bulk-help">
+                    Pour activer l'upload S3, définissez ces variables d'environnement sur Render :
+                </p>
+                <ul style="font-size:12px;padding-left:18px;color:var(--text-secondary);line-height:1.7">
+                    <li><code>S3_BUCKET</code> · nom du bucket (ex: <code>pokescelle-backups</code>)</li>
+                    <li><code>S3_ACCESS_KEY</code> · access key S3</li>
+                    <li><code>S3_SECRET_KEY</code> · secret S3</li>
+                    <li><code>S3_ENDPOINT</code> · optionnel — pour Backblaze B2 / R2 / etc. (défaut AWS)</li>
+                    <li><code>S3_REGION</code> · optionnel — défaut <code>us-east-1</code></li>
+                </ul>
+                <p class="admin-bulk-help" style="margin-top:8px">
+                    💡 <strong>Backblaze B2</strong> est gratuit jusqu'à 10 GB. Endpoint format : <code>https://s3.us-west-002.backblazeb2.com</code>
+                </p>
+            </details>
+            <div id="adminBackupResult" class="admin-bulk-result"></div>
+        </div>
+
         <!-- Liste des comptes -->
         <div class="admin-card">
             <h3 class="admin-card-title">👥 Comptes utilisateurs (${usersData.count})</h3>
@@ -9383,3 +9416,345 @@ fetchEbayPrices().then(() => {
     // Cache prices for offline
     try { localStorage.setItem('pokescelle-cache', JSON.stringify({ ts: Date.now(), products: products.map(p => ({ name: p.name, price: p.price, lastPrice: p.lastPrice, trend: p.trend, low: p.low, high: p.high, sampleSize: p.sampleSize })) })); } catch {}
 });
+
+// ═══════════════════════════════════════════════════════════════
+// SUGGESTIONS D'ACHAT SMART
+// ═══════════════════════════════════════════════════════════════
+
+let _suggMinScore = 55;
+
+function setSuggMinScore(v) {
+    _suggMinScore = parseInt(v) || 55;
+    const lbl = document.getElementById('suggMinScoreValue');
+    if (lbl) lbl.textContent = _suggMinScore;
+    // Debounce reload
+    clearTimeout(window._suggDebounce);
+    window._suggDebounce = setTimeout(loadSuggestionsPage, 350);
+}
+
+async function loadSuggestionsPage() {
+    const container = document.getElementById('suggestionsContent');
+    const info = document.getElementById('suggInfo');
+    if (!container) return;
+    container.innerHTML = '<div class="sugg-loading">Calcul des signaux…</div>';
+    if (info) info.textContent = '';
+
+    const limit = parseInt(document.getElementById('suggLimit')?.value) || 20;
+    const minScore = _suggMinScore;
+    try {
+        const res = await fetch(`/api/suggestions?limit=${limit}&minScore=${minScore}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (info) info.textContent = `${data.suggestions.length} suggestion${data.suggestions.length > 1 ? 's' : ''} sur ${data.count} candidate${data.count > 1 ? 's' : ''}`;
+        container.innerHTML = renderSuggestions(data.suggestions);
+    } catch (e) {
+        container.innerHTML = `<div class="sugg-empty">Erreur de chargement (${e.message || 'inconnue'}).</div>`;
+    }
+}
+
+function renderSuggestions(list) {
+    if (!list || list.length === 0) {
+        return `<div class="sugg-empty">
+            <div class="sugg-empty-icon">🔍</div>
+            <h3>Aucune suggestion ce niveau de score</h3>
+            <p>Baisse le score minimum pour voir plus d'opportunités, ou reviens demain quand les prix auront évolué.</p>
+        </div>`;
+    }
+    return `<div class="sugg-grid">
+        ${list.map(s => renderSuggestionCard(s)).join('')}
+    </div>`;
+}
+
+function renderSuggestionCard(s) {
+    const product = products.find(p => p.id === s.productId || p.name === s.name);
+    const img = product?._imageUrlOverride || product?.lastListing?.image || '';
+    const tier = s.score >= 80 ? 'gold' : s.score >= 65 ? 'silver' : 'bronze';
+    const tierLabel = s.score >= 80 ? '🔥 Très fort' : s.score >= 65 ? '👍 Bon' : '🤔 Moyen';
+    const change7Class = s.change7d >= 0 ? 'up' : 'down';
+    const change30Class = s.change30d >= 0 ? 'up' : 'down';
+    const rsiClass = s.rsi == null ? '' : s.rsi < 30 ? 'rsi-low' : s.rsi > 70 ? 'rsi-high' : '';
+    const safeName = (s.name || '').replace(/'/g, "\\'");
+
+    return `<div class="sugg-card sugg-card-${tier}" onclick="openDetail('${safeName}')">
+        <div class="sugg-card-head">
+            ${img ? `<img class="sugg-card-img" src="${img}" alt="" loading="lazy">` : '<div class="sugg-card-img sugg-card-img-empty">📦</div>'}
+            <div class="sugg-card-title">
+                <strong>${s.name}</strong>
+                <span class="sugg-card-price">${fmt(s.currentPrice)}</span>
+            </div>
+            <div class="sugg-score">
+                <div class="sugg-score-circle sugg-score-${tier}">
+                    <span class="sugg-score-num">${s.score}</span>
+                    <span class="sugg-score-max">/100</span>
+                </div>
+                <span class="sugg-score-label">${tierLabel}</span>
+            </div>
+        </div>
+        <div class="sugg-card-stats">
+            <div class="sugg-stat">
+                <span class="sugg-stat-label">7j</span>
+                <span class="sugg-stat-value sugg-stat-${change7Class}">${s.change7d >= 0 ? '+' : ''}${s.change7d}%</span>
+            </div>
+            <div class="sugg-stat">
+                <span class="sugg-stat-label">30j</span>
+                <span class="sugg-stat-value sugg-stat-${change30Class}">${s.change30d >= 0 ? '+' : ''}${s.change30d}%</span>
+            </div>
+            <div class="sugg-stat">
+                <span class="sugg-stat-label">RSI</span>
+                <span class="sugg-stat-value ${rsiClass}">${s.rsi != null ? s.rsi : '—'}</span>
+            </div>
+            <div class="sugg-stat">
+                <span class="sugg-stat-label">Vol</span>
+                <span class="sugg-stat-value">${s.volatility}%</span>
+            </div>
+            <div class="sugg-stat">
+                <span class="sugg-stat-label">MA30</span>
+                <span class="sugg-stat-value">${s.ma30 != null ? fmt(s.ma30) : '—'}</span>
+            </div>
+            <div class="sugg-stat">
+                <span class="sugg-stat-label">Liq.</span>
+                <span class="sugg-stat-value">${s.sampleSize}</span>
+            </div>
+        </div>
+        ${s.reasons && s.reasons.length ? `<div class="sugg-reasons">
+            ${s.reasons.slice(0, 5).map(r => `<span class="sugg-reason-chip">${r}</span>`).join('')}
+        </div>` : ''}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AI ADVISOR (chat avec Claude)
+// ═══════════════════════════════════════════════════════════════
+
+const AI_HISTORY_KEY = 'pokescelle-ai-history';
+let _aiHistory = [];
+let _aiSending = false;
+
+function loadAiHistory() {
+    try {
+        const raw = localStorage.getItem(AI_HISTORY_KEY);
+        _aiHistory = raw ? JSON.parse(raw) : [];
+    } catch { _aiHistory = []; }
+}
+
+function saveAiHistory() {
+    try { localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(_aiHistory.slice(-30))); } catch {}
+}
+
+function openAiChat() {
+    if (!currentUser) {
+        openAuthModal('login');
+        return;
+    }
+    const modal = document.getElementById('aiModal');
+    if (!modal) return;
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    loadAiHistory();
+    renderAiMessages();
+    setTimeout(() => document.getElementById('aiInput')?.focus(), 50);
+}
+
+function closeAiChat() {
+    const modal = document.getElementById('aiModal');
+    if (!modal) return;
+    modal.hidden = true;
+    document.body.style.overflow = '';
+}
+
+function clearAiChat() {
+    if (!confirm('Effacer la conversation ?')) return;
+    _aiHistory = [];
+    saveAiHistory();
+    renderAiMessages();
+    const tokensEl = document.getElementById('aiTokensLast');
+    if (tokensEl) tokensEl.textContent = '';
+}
+
+function renderAiMessages() {
+    const wrap = document.getElementById('aiMessages');
+    if (!wrap) return;
+    if (!_aiHistory.length) {
+        wrap.innerHTML = `<div class="ai-empty">
+            <div class="ai-empty-icon">✨</div>
+            <h3>Bonjour ! Je suis ton conseiller IA</h3>
+            <p>Je connais ton portfolio en détail (positions, P&L, prix actuels). Pose-moi une question, ou clique sur une suggestion ci-dessus.</p>
+        </div>`;
+        return;
+    }
+    wrap.innerHTML = _aiHistory.map(m => renderAiMessage(m)).join('');
+    // Scroll en bas
+    wrap.scrollTop = wrap.scrollHeight;
+}
+
+function renderAiMessage(m) {
+    const isUser = m.role === 'user';
+    const cls = isUser ? 'ai-msg ai-msg-user' : 'ai-msg ai-msg-assistant';
+    const safe = aiEscapeHtml(m.content || '');
+    // Format basique : ** = bold, retours ligne = <br>, listes - = puces
+    const formatted = safe
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/^- (.+)$/gm, '<li>$1</li>')
+        .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+        .replace(/\n/g, '<br>');
+    return `<div class="${cls}">
+        <div class="ai-msg-avatar">${isUser ? (currentUser?.[0]?.toUpperCase() || '?') : '✨'}</div>
+        <div class="ai-msg-bubble">${formatted}</div>
+    </div>`;
+}
+
+function aiEscapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function aiAutoGrow(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(180, el.scrollHeight) + 'px';
+}
+
+function aiInputKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendAiMessage();
+    }
+}
+
+function askAi(question) {
+    const input = document.getElementById('aiInput');
+    if (!input) return;
+    input.value = question;
+    aiAutoGrow(input);
+    sendAiMessage();
+}
+
+async function sendAiMessage() {
+    if (_aiSending) return;
+    const input = document.getElementById('aiInput');
+    const sendBtn = document.getElementById('aiSendBtn');
+    if (!input) return;
+    const message = (input.value || '').trim();
+    if (!message) return;
+    if (!currentUser) {
+        showToast('🔒', 'Connexion requise', 'Connecte-toi pour utiliser l\'AI Advisor');
+        return;
+    }
+
+    // Ajoute le message user à l'historique et clear l'input
+    _aiHistory.push({ role: 'user', content: message });
+    saveAiHistory();
+    input.value = '';
+    aiAutoGrow(input);
+    renderAiMessages();
+
+    // Affiche un placeholder "en train d'écrire"
+    const wrap = document.getElementById('aiMessages');
+    if (wrap) {
+        const typing = document.createElement('div');
+        typing.id = 'aiTyping';
+        typing.className = 'ai-msg ai-msg-assistant';
+        typing.innerHTML = `<div class="ai-msg-avatar">✨</div><div class="ai-msg-bubble ai-typing"><span></span><span></span><span></span></div>`;
+        wrap.appendChild(typing);
+        wrap.scrollTop = wrap.scrollHeight;
+    }
+    _aiSending = true;
+    if (sendBtn) sendBtn.disabled = true;
+
+    try {
+        const res = await fetch('/api/ai/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+            },
+            body: JSON.stringify({
+                message,
+                history: _aiHistory.slice(0, -1), // sans le dernier (qu'on vient d'ajouter)
+            }),
+        });
+        const data = await res.json();
+        document.getElementById('aiTyping')?.remove();
+        if (!res.ok) {
+            const errMsg = data?.error || `HTTP ${res.status}`;
+            const helpMsg = data?.help ? `\n\n💡 ${data.help}` : '';
+            _aiHistory.push({ role: 'assistant', content: `⚠️ Erreur : ${errMsg}${helpMsg}` });
+        } else {
+            _aiHistory.push({ role: 'assistant', content: data.reply || '(réponse vide)' });
+            const tokensEl = document.getElementById('aiTokensLast');
+            if (tokensEl && data.usage) tokensEl.textContent = `${data.usage.input}→${data.usage.output} tokens`;
+        }
+        saveAiHistory();
+        renderAiMessages();
+    } catch (e) {
+        document.getElementById('aiTyping')?.remove();
+        _aiHistory.push({ role: 'assistant', content: `⚠️ Erreur réseau : ${e.message || 'inconnue'}` });
+        renderAiMessages();
+    } finally {
+        _aiSending = false;
+        if (sendBtn) sendBtn.disabled = false;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BACKUP DB (admin)
+// ═══════════════════════════════════════════════════════════════
+
+async function adminDownloadBackup() {
+    if (!isAdminUser()) return;
+    showToast('💾', 'Génération du backup', 'Cela peut prendre 5-10 sec…');
+    try {
+        const res = await fetch('/api/admin/backup/download', {
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+            const t = await res.text().catch(() => '');
+            showToast('⚠️', 'Erreur backup', t.slice(0, 80) || `HTTP ${res.status}`);
+            return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `pokescelle-backup-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showToast('✅', 'Backup téléchargé', 'Conserve-le en lieu sûr');
+    } catch (e) {
+        showToast('⚠️', 'Erreur réseau', e.message || 'Téléchargement échoué');
+    }
+}
+
+async function adminUploadBackupS3() {
+    if (!isAdminUser()) return;
+    const result = document.getElementById('adminBackupResult');
+    if (result) result.innerHTML = '<div class="admin-bulk-running">⏳ Création du dump et upload S3 en cours…</div>';
+    try {
+        const res = await fetch('/api/admin/backup', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            if (result) result.innerHTML = `<div class="admin-bulk-error">❌ ${data.error || 'Erreur'}</div>`;
+            return;
+        }
+        const s3Block = data.s3
+            ? (data.s3.error
+                ? `<div class="admin-bulk-error" style="margin-top:8px">⚠️ S3 a échoué : ${data.s3.error}</div>`
+                : `<div class="admin-bulk-success" style="margin-top:8px">☁️ Upload S3 OK<br><code style="font-size:11px">${data.s3.key}</code></div>`)
+            : `<div class="admin-bulk-help" style="margin-top:8px">💡 S3 non configuré (env vars S3_BUCKET / S3_ACCESS_KEY / S3_SECRET_KEY absentes). Le backup a juste été calculé sans être uploadé.</div>`;
+        const counts = Object.entries(data.counts || {}).map(([k, v]) => `<li>${k} : <strong>${v}</strong></li>`).join('');
+        if (result) result.innerHTML = `<div class="admin-bulk-success">
+            ✅ Backup créé · ${data.sizeKB} KB · ${data.tables} tables
+            <details style="margin-top:8px"><summary>Détails</summary>
+                <ul style="margin:6px 0;padding-left:18px;font-size:12px">${counts}</ul>
+            </details>
+        </div>${s3Block}`;
+        showToast('✅', 'Backup OK', `${data.sizeKB} KB`);
+    } catch (e) {
+        if (result) result.innerHTML = `<div class="admin-bulk-error">❌ ${e.message || 'Erreur réseau'}</div>`;
+    }
+}

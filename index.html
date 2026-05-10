@@ -70,6 +70,11 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                         Tendances
                     </a>
+                    <a href="#" class="sidebar-link" data-section="suggestions" onclick="switchSection('suggestions', event)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L9.5 8.5 2 9.3l5.5 5.4L6 22l6-3.2 6 3.2-1.5-7.3L22 9.3l-7.5-.8z"/></svg>
+                        Suggestions
+                        <span class="sidebar-badge sidebar-badge-new">NEW</span>
+                    </a>
                     <a href="#" class="sidebar-link" data-section="movers" onclick="switchSection('movers', event)">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 6l-9.5 9.5-5-5L1 18"/><polyline points="17 6 23 6 23 12"/></svg>
                         Mouvements
@@ -499,6 +504,47 @@
                 </div>
             </section>
 
+            <!-- ═══ SUGGESTIONS D'ACHAT SMART ═══ -->
+            <section class="section-suggestions" id="sectionSuggestions" style="display:none">
+                <div class="section-header">
+                    <div>
+                        <h1 class="page-title">💎 Suggestions d'achat du jour</h1>
+                        <p class="page-desc">Top opportunités calculées en temps réel : RSI, moyennes mobiles, volatilité et liquidité combinés en un score 0–100</p>
+                    </div>
+                    <button class="btn-icon-subtle" onclick="loadSuggestionsPage()" title="Rafraîchir" aria-label="Rafraîchir">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                    </button>
+                </div>
+
+                <div class="sugg-toolbar">
+                    <div class="sugg-filter-group">
+                        <label class="sugg-filter-label">Score min</label>
+                        <div class="sugg-range-wrap">
+                            <input type="range" id="suggMinScore" min="40" max="90" step="5" value="55" oninput="setSuggMinScore(this.value)">
+                            <span class="sugg-range-value" id="suggMinScoreValue">55</span>
+                        </div>
+                    </div>
+                    <div class="sugg-filter-group">
+                        <label class="sugg-filter-label">Afficher</label>
+                        <select id="suggLimit" onchange="loadSuggestionsPage()">
+                            <option value="10">Top 10</option>
+                            <option value="20" selected>Top 20</option>
+                            <option value="30">Top 30</option>
+                            <option value="50">Top 50</option>
+                        </select>
+                    </div>
+                    <div class="sugg-info" id="suggInfo"></div>
+                </div>
+
+                <div id="suggestionsContent">
+                    <div class="sugg-loading">Calcul des signaux…</div>
+                </div>
+
+                <div class="sugg-disclaimer">
+                    ⚠️ Ces suggestions sont algorithmiques et basées sur les données historiques. Elles ne constituent pas un conseil en investissement. Le marché du Pokémon scellé reste volatile.
+                </div>
+            </section>
+
             <!-- ═══ SIMULATION ═══ -->
             <section class="section-simulation" id="sectionSimulation" style="display:none">
                 <h1 class="section-title">Simulation de prix</h1>
@@ -747,6 +793,60 @@
     <button class="mobile-sort-fab" id="mobileSortFab" onclick="openMobileSortSheet()" title="Trier" aria-label="Trier les produits">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
     </button>
+
+    <!-- AI Advisor FAB (visible si user connecté) -->
+    <button class="ai-fab" id="aiFab" onclick="openAiChat()" title="AI Advisor — pose une question sur ton portfolio" aria-label="Ouvrir l'AI Advisor" hidden>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span class="ai-fab-label">AI Advisor</span>
+    </button>
+
+    <!-- AI Advisor modal -->
+    <div class="ai-modal" id="aiModal" hidden>
+        <div class="ai-modal-backdrop" onclick="closeAiChat()"></div>
+        <div class="ai-modal-panel" role="dialog" aria-modal="true" aria-label="AI Advisor">
+            <div class="ai-modal-head">
+                <div class="ai-modal-title">
+                    <span class="ai-modal-icon">✨</span>
+                    <div>
+                        <strong>AI Advisor</strong>
+                        <small>Powered by Claude · Connaît ton portfolio</small>
+                    </div>
+                </div>
+                <div class="ai-modal-actions">
+                    <button class="ai-modal-clear" onclick="clearAiChat()" title="Nouvelle conversation" aria-label="Effacer">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 01-2 2H9a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                    </button>
+                    <button class="ai-modal-close" onclick="closeAiChat()" aria-label="Fermer">&times;</button>
+                </div>
+            </div>
+            <div class="ai-suggest-bar" id="aiSuggestBar">
+                <button class="ai-suggest-chip" onclick="askAi('Quelles positions devrais-je vendre en priorité ?')">💸 Quoi vendre ?</button>
+                <button class="ai-suggest-chip" onclick="askAi('Quels produits scellés ont le meilleur potentiel sur 6 mois ?')">📈 Top potentiels</button>
+                <button class="ai-suggest-chip" onclick="askAi('Mon portefeuille est-il bien diversifié ?')">⚖️ Diversification</button>
+                <button class="ai-suggest-chip" onclick="askAi('Devrais-je acheter pendant cette baisse ou attendre ?')">🛒 Acheter maintenant ?</button>
+                <button class="ai-suggest-chip" onclick="askAi('Quel est mon meilleur trade ? Et le pire ?')">🏆 Best/Worst</button>
+            </div>
+            <div class="ai-messages" id="aiMessages">
+                <div class="ai-empty">
+                    <div class="ai-empty-icon">✨</div>
+                    <h3>Bonjour ! Je suis ton conseiller IA</h3>
+                    <p>Je connais ton portfolio en détail (positions, P&L, prix actuels). Pose-moi une question, ou clique sur une suggestion ci-dessus.</p>
+                </div>
+            </div>
+            <div class="ai-input-wrap">
+                <textarea id="aiInput" class="ai-input" rows="1" placeholder="Pose une question sur ton portfolio…" maxlength="2000" onkeydown="aiInputKey(event)" oninput="aiAutoGrow(this)"></textarea>
+                <button class="ai-send" id="aiSendBtn" onclick="sendAiMessage()" aria-label="Envoyer">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+            </div>
+            <div class="ai-foot">
+                <span class="ai-foot-tip">💡 Entrée pour envoyer · Maj+Entrée pour saut de ligne</span>
+                <span class="ai-foot-tokens" id="aiTokensLast"></span>
+            </div>
+        </div>
+    </div>
 
     <!-- Mobile sort bottom sheet -->
     <div class="mobile-sheet-overlay" id="mobileSortSheet">

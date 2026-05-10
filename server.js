@@ -2114,6 +2114,409 @@ async function requireAdmin(req, res, next) {
     next();
 }
 
+// AI Advisor : chat avec Claude API qui a en contexte le portfolio + le marche.
+// Necessite ANTHROPIC_API_KEY env var. Coute ~$0.003 par message (Sonnet 4.5).
+//
+// Le user pose une question (ex: 'devrais-je vendre mes ETB ?') et Claude
+// repond avec analyse basee sur les donnees fournies en contexte.
+app.post('/api/ai/chat', authMiddleware, async (req, res) => {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+        return res.status(503).json({
+            error: 'AI Advisor non configure',
+            help: 'L\'admin doit definir ANTHROPIC_API_KEY dans les env vars Render.',
+        });
+    }
+
+    const { message, history } = req.body || {};
+    if (!message || typeof message !== 'string' || !message.trim()) {
+        return res.status(400).json({ error: 'Message requis' });
+    }
+    if (message.length > 2000) {
+        return res.status(400).json({ error: 'Message trop long (max 2000 caracteres)' });
+    }
+
+    try {
+        // Charge le contexte du user (portfolio principal + market index recent)
+        const pf = await getPortfolio(req.userId);
+        const positions = [];
+        let totalInvested = 0, totalValue = 0;
+        for (const product of PRODUCTS_TO_TRACK) {
+            const h = pf[product.name];
+            if (!h || h.qty <= 0) continue;
+            const cached = await readCache(product.id);
+            const price = cached?.price || 0;
+            const inv = h.qty * h.cost;
+            const val = h.qty * price;
+            totalInvested += inv;
+            totalValue += val;
+            positions.push({
+                name: product.name,
+                qty: h.qty,
+                pru: h.cost,
+                priceMedian: price,
+                lastPrice: cached?.lastPrice || 0,
+                invested: Math.round(inv * 100) / 100,
+                value: Math.round(val * 100) / 100,
+                pnl: Math.round((val - inv) * 100) / 100,
+                pnlPct: inv > 0 ? Math.round(((val - inv) / inv) * 100) : null,
+            });
+        }
+        positions.sort((a, b) => b.value - a.value);
+        const topPositions = positions.slice(0, 20); // top 20 pour limiter le contexte
+
+        // Construit le prompt systeme avec le contexte
+        const systemPrompt = `Tu es un conseiller financier specialise dans le marche des cartes Pokemon scellees francaises.
+Tu aides l'utilisateur a prendre des decisions sur son portefeuille de produits scelles (boosters, displays, ETB, coffrets, etc.).
+Tu reponds en francais, avec un ton professionnel mais accessible.
+Tu peux suggerer d'acheter, vendre, ou conserver, et tu argumentes avec les donnees du portfolio.
+Si la question est hors sujet (pas Pokemon TCG), tu refuses poliment de repondre.
+Sois concis : reponds en 3-6 phrases maximum sauf demande de detail.
+
+Contexte du portfolio principal de l'utilisateur :
+- Total investi : ${totalInvested.toFixed(2)} €
+- Valeur actuelle : ${totalValue.toFixed(2)} €
+- P&L : ${(totalValue - totalInvested).toFixed(2)} € (${totalInvested > 0 ? Math.round(((totalValue - totalInvested) / totalInvested) * 100) : 0} %)
+- Nombre de positions : ${positions.length}
+
+Top 20 positions par valeur (qty * prix median actuel) :
+${topPositions.map(p => `- ${p.name} : ${p.qty}x acheté à ${p.pru} €, prix actuel ${p.priceMedian} €, valeur ${p.value} €, P&L ${p.pnl >= 0 ? '+' : ''}${p.pnl} € (${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct} %)`).join('\n')}
+
+Date du jour : ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+
+        // Construit l'historique de conversation (max 10 derniers tours pour contenir le cout)
+        const messages = [];
+        if (Array.isArray(history)) {
+            for (const m of history.slice(-10)) {
+                if (m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string') {
+                    messages.push({ role: m.role, content: m.content.slice(0, 4000) });
+                }
+            }
+        }
+        messages.push({ role: 'user', content: message });
+
+        // Appelle l'API Anthropic
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+                model: 'claude-sonnet-4-5',
+                max_tokens: 1024,
+                system: systemPrompt,
+                messages,
+            }),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+            console.error('[ai/chat] anthropic error:', data);
+            return res.status(502).json({
+                error: 'Erreur API Claude : ' + (data?.error?.message || `HTTP ${r.status}`),
+            });
+        }
+        const reply = data.content?.[0]?.text || '(reponse vide)';
+        const usage = data.usage || {};
+        res.json({
+            reply,
+            usage: {
+                input: usage.input_tokens || 0,
+                output: usage.output_tokens || 0,
+            },
+        });
+    } catch (e) {
+        console.error('[ai/chat] error:', e);
+        res.status(500).json({ error: 'Erreur AI : ' + (e.message || 'inconnue') });
+    }
+});
+
+// Smart purchase suggestions : combine plusieurs signaux pour suggerer les
+// meilleurs achats du moment. Chaque produit avec assez d'historique est note
+// sur 100 selon : RSI bas (technique), prix sous MA30 (decote), volatilite
+// modere (pas trop risque), tendance 7j a la baisse mais MA7 > MA30 (rebond
+// potentiel), echantillon eBay suffisant (liquidite).
+app.get('/api/suggestions', async (req, res) => {
+    const limit = Math.max(1, Math.min(50, parseInt(req.query.limit) || 10));
+    const minScore = parseFloat(req.query.minScore) || 50;
+
+    try {
+        const suggestions = [];
+        for (const product of PRODUCTS_TO_TRACK) {
+            const history = await getPriceHistory(product.id);
+            if (history.length < 14) continue;
+
+            const prices = history.map(h => h.median || h.lastPrice || 0).filter(p => p > 0);
+            if (prices.length < 14) continue;
+            const currentPrice = prices[prices.length - 1];
+            if (currentPrice <= 0) continue;
+
+            // ── Signaux ──
+            const ma7 = avg(prices.slice(-7));
+            const ma30 = avg(prices.slice(-Math.min(30, prices.length)));
+            const rsi = computeRSILast(prices, 14);
+            const vol = volatilityPct(prices.slice(-30));
+
+            // Variation 7j et 30j
+            const change7d = prices.length >= 8 ? ((currentPrice - prices[prices.length - 8]) / prices[prices.length - 8]) * 100 : 0;
+            const change30d = prices.length >= 31 ? ((currentPrice - prices[prices.length - 31]) / prices[prices.length - 31]) * 100 : 0;
+
+            // Sample size pour la liquidite (de l'historique le plus recent)
+            const lastSample = history[history.length - 1].sampleSize || 0;
+
+            // ── Scoring (0-100) ──
+            const reasons = [];
+            let score = 50; // baseline
+
+            // RSI : zone survente = bonne entree
+            if (rsi != null) {
+                if (rsi < 30) { score += 25; reasons.push(`RSI ${rsi.toFixed(0)} (survente)`); }
+                else if (rsi < 40) { score += 12; reasons.push(`RSI ${rsi.toFixed(0)} (bas)`); }
+                else if (rsi > 70) { score -= 20; reasons.push(`RSI ${rsi.toFixed(0)} (surachat)`); }
+            }
+            // Prix vs MA30 : decote = opportunite
+            if (ma30 > 0) {
+                const gap = ((currentPrice - ma30) / ma30) * 100;
+                if (gap < -10) { score += 20; reasons.push(`-${Math.abs(gap).toFixed(0)}% sous MA30`); }
+                else if (gap < -5) { score += 10; reasons.push(`-${Math.abs(gap).toFixed(0)}% sous MA30`); }
+                else if (gap > 15) { score -= 15; reasons.push(`+${gap.toFixed(0)}% sur MA30 (cher)`); }
+            }
+            // Cross MA7 > MA30 = momentum naissant
+            if (ma7 > 0 && ma30 > 0 && ma7 > ma30 * 1.02) {
+                score += 8; reasons.push('MA7 > MA30 (momentum)');
+            }
+            // Volatilite : modere = ideal (eviter trop volatile = risque)
+            if (vol > 0) {
+                if (vol < 30) { score += 5; }
+                else if (vol > 60) { score -= 10; reasons.push(`vol ${vol.toFixed(0)}% (risque eleve)`); }
+            }
+            // Liquidite : sample size > 5 = liquide
+            if (lastSample >= 10) score += 5;
+            else if (lastSample < 3) { score -= 10; reasons.push('liquidite faible'); }
+            // Recent dip : -10% sur 7j peut indiquer une opportunite
+            if (change7d < -10) { score += 10; reasons.push(`${change7d.toFixed(0)}% sur 7j`); }
+            // Tendance long-terme positive
+            if (change30d > 5) { score += 5; reasons.push(`+${change30d.toFixed(0)}% sur 30j`); }
+
+            score = Math.max(0, Math.min(100, score));
+
+            if (score >= minScore) {
+                suggestions.push({
+                    productId: product.id,
+                    name: product.name,
+                    currentPrice: Math.round(currentPrice * 100) / 100,
+                    ma7: ma7 ? Math.round(ma7 * 100) / 100 : null,
+                    ma30: ma30 ? Math.round(ma30 * 100) / 100 : null,
+                    rsi: rsi != null ? Math.round(rsi) : null,
+                    volatility: Math.round(vol),
+                    change7d: Math.round(change7d * 10) / 10,
+                    change30d: Math.round(change30d * 10) / 10,
+                    sampleSize: lastSample,
+                    score: Math.round(score),
+                    reasons,
+                });
+            }
+        }
+
+        // Tri par score descendant
+        suggestions.sort((a, b) => b.score - a.score);
+        res.json({
+            count: suggestions.length,
+            suggestions: suggestions.slice(0, limit),
+        });
+    } catch (e) {
+        console.error('[suggestions] error:', e);
+        res.status(500).json({ error: 'Erreur calcul suggestions' });
+    }
+});
+
+// Helpers locaux pour les calculs (extracts simples sans dep)
+function avg(arr) {
+    if (!arr.length) return 0;
+    return arr.reduce((s, v) => s + v, 0) / arr.length;
+}
+function computeRSILast(prices, period = 14) {
+    if (prices.length < period + 1) return null;
+    const gains = [], losses = [];
+    for (let i = 1; i < prices.length; i++) {
+        const c = prices[i] - prices[i - 1];
+        gains.push(c > 0 ? c : 0);
+        losses.push(c < 0 ? -c : 0);
+    }
+    let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    for (let i = period; i < gains.length; i++) {
+        avgGain = (avgGain * (period - 1) + gains[i]) / period;
+        avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
+    }
+    if (avgLoss === 0) return 100;
+    return 100 - 100 / (1 + avgGain / avgLoss);
+}
+function volatilityPct(prices) {
+    if (prices.length < 2) return 0;
+    const returns = [];
+    for (let i = 1; i < prices.length; i++) {
+        if (prices[i - 1] > 0) returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+    }
+    const m = avg(returns);
+    const variance = returns.reduce((s, r) => s + (r - m) ** 2, 0) / returns.length;
+    return Math.sqrt(variance) * Math.sqrt(365) * 100;
+}
+
+// Backup : dump complet de la DB en JSON, download direct ou upload S3 si configure.
+// Utile pour la sauvegarde periodique. Le cron daily peut l'appeler.
+app.post('/api/admin/backup', authMiddleware, requireAdmin, async (req, res) => {
+    try {
+        const dump = await createBackupDump();
+        // Si l'env S3 est configuree, on upload aussi
+        let s3Result = null;
+        if (process.env.S3_BUCKET && process.env.S3_ACCESS_KEY && process.env.S3_SECRET_KEY) {
+            try {
+                s3Result = await uploadBackupToS3(dump);
+            } catch (e) {
+                console.error('[backup/S3] upload failed:', e.message);
+                s3Result = { error: e.message };
+            }
+        }
+        const body = JSON.stringify(dump, null, 2);
+        res.json({
+            ok: true,
+            sizeBytes: body.length,
+            sizeKB: Math.round(body.length / 1024),
+            tables: Object.keys(dump.data).length,
+            counts: Object.fromEntries(Object.entries(dump.data).map(([k, v]) => [k, Array.isArray(v) ? v.length : 0])),
+            s3: s3Result,
+        });
+    } catch (e) {
+        console.error('[backup] error:', e);
+        res.status(500).json({ error: 'Erreur backup : ' + (e.message || 'inconnue') });
+    }
+});
+
+// Telecharge le backup en JSON brut (pour sauvegarde locale)
+app.get('/api/admin/backup/download', authMiddleware, requireAdmin, async (_req, res) => {
+    try {
+        const dump = await createBackupDump();
+        const filename = `pokescelle-backup-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(JSON.stringify(dump, null, 2));
+    } catch (e) {
+        console.error('[backup/download] error:', e);
+        res.status(500).json({ error: 'Erreur : ' + e.message });
+    }
+});
+
+async function createBackupDump() {
+    // Dump toutes les tables qu'on a en DB (sauf les colonnes sensibles : pas de salt/hash)
+    const tables = [
+        { name: 'users', sql: 'SELECT id, username, created_at FROM users' },
+        { name: 'portfolios', sql: 'SELECT * FROM portfolios' },
+        { name: 'portfolios_extra', sql: 'SELECT * FROM portfolios_extra' },
+        { name: 'portfolio_groups', sql: 'SELECT * FROM portfolio_groups' },
+        { name: 'portfolio_history', sql: 'SELECT * FROM portfolio_history' },
+        { name: 'price_history', sql: 'SELECT * FROM price_history' },
+        { name: 'transactions', sql: 'SELECT * FROM transactions' },
+        { name: 'barcodes', sql: 'SELECT * FROM barcodes' },
+        { name: 'news_articles', sql: 'SELECT * FROM news_articles' },
+        { name: 'release_calendar', sql: 'SELECT * FROM release_calendar' },
+        { name: 'tracked_products_custom', sql: 'SELECT * FROM tracked_products_custom' },
+        { name: 'custom_queries', sql: 'SELECT * FROM custom_queries' },
+        { name: 'portfolio_groups', sql: 'SELECT * FROM portfolio_groups' },
+    ];
+    const data = {};
+    for (const t of tables) {
+        try {
+            const r = await db.execute(t.sql);
+            data[t.name] = r.rows.map(row => ({ ...row })); // shallow copy plain object
+        } catch (e) {
+            data[t.name] = { error: e.message };
+        }
+    }
+    return {
+        version: 1,
+        createdAt: new Date().toISOString(),
+        source: 'pokescelle',
+        appCommit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
+        data,
+    };
+}
+
+// Upload S3-compatible (Backblaze B2, AWS S3, etc.) via SigV4 signature.
+// Requiert : S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, S3_ENDPOINT (optionnel
+// pour B2 = https://s3.us-west-002.backblazeb2.com), S3_REGION (defaut us-east-1).
+async function uploadBackupToS3(dump) {
+    const bucket = process.env.S3_BUCKET;
+    const accessKey = process.env.S3_ACCESS_KEY;
+    const secretKey = process.env.S3_SECRET_KEY;
+    const endpoint = process.env.S3_ENDPOINT || 'https://s3.amazonaws.com';
+    const region = process.env.S3_REGION || 'us-east-1';
+    if (!bucket || !accessKey || !secretKey) throw new Error('Env S3 manquantes');
+
+    const body = JSON.stringify(dump);
+    const date = new Date();
+    const isoDate = date.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const key = `pokescelle-backups/backup-${isoDate}.json`;
+
+    const url = `${endpoint.replace(/\/$/, '')}/${bucket}/${key}`;
+
+    // Signature AWS SigV4 (manual, pas de dep AWS SDK)
+    const amzDate = date.toISOString().replace(/[:-]/g, '').slice(0, 15) + 'Z';
+    const dateStamp = amzDate.slice(0, 8);
+    const payloadHash = await sha256Hex(body);
+
+    const host = new URL(url).host;
+    const canonicalUri = `/${bucket}/${key}`;
+    const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+    const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
+    const canonicalRequest = `PUT\n${canonicalUri}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+    const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
+    const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credentialScope}\n${await sha256Hex(canonicalRequest)}`;
+    const signingKey = await getSigningKey(secretKey, dateStamp, region, 's3');
+    const signature = (await hmacSha256Hex(signingKey, stringToSign));
+    const authHeader = `AWS4-HMAC-SHA256 Credential=${accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+    const r = await fetch(url, {
+        method: 'PUT',
+        headers: {
+            'Host': host,
+            'X-Amz-Content-Sha256': payloadHash,
+            'X-Amz-Date': amzDate,
+            'Authorization': authHeader,
+            'Content-Type': 'application/json',
+            'Content-Length': String(body.length),
+        },
+        body,
+    });
+    if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`S3 ${r.status}: ${t.slice(0, 200)}`);
+    }
+    return { ok: true, key, sizeBytes: body.length, url };
+}
+
+// Helpers crypto pour SigV4 (Node 18+ a webcrypto natif, sinon fallback)
+async function sha256Hex(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function hmacSha256(key, data) {
+    const k = typeof key === 'string' ? new TextEncoder().encode(key) : key;
+    const cryptoKey = await crypto.subtle.importKey('raw', k, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(data)));
+}
+async function hmacSha256Hex(key, data) {
+    const buf = await hmacSha256(key, data);
+    return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function getSigningKey(secret, dateStamp, region, service) {
+    const kDate = await hmacSha256('AWS4' + secret, dateStamp);
+    const kRegion = await hmacSha256(kDate, region);
+    const kService = await hmacSha256(kRegion, service);
+    return await hmacSha256(kService, 'aws4_request');
+}
+
 // Sync : prend les costs (prix d'achat) du portfolio principal et les applique
 // aux items correspondants dans tous les portfolios extra du user. Utile apres
 // l'import bulk pour propager les PRU sans avoir a tout retaper.
