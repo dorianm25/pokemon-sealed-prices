@@ -12592,3 +12592,159 @@ canvas,
     .ai-fab-label { display: none; }
     .ai-fab { padding: 14px; border-radius: 50%; }
 }
+
+/* ============================================================
+   ADMIN : LIMITES DE PRIX EBAY (modal détail produit)
+   ============================================================ */
+
+.detail-price-limits {
+    margin-top: 24px;
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.04), rgba(239, 68, 68, 0.02));
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+}
+.dpl-head {
+    margin-bottom: 14px;
+}
+.dpl-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.dpl-admin-badge {
+    font-size: 9px;
+    font-weight: 800;
+    padding: 2px 6px;
+    background: linear-gradient(135deg, #f59e0b, #ef4444);
+    color: white;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+}
+.dpl-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin: 0;
+}
+.dpl-loading {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 12px;
+}
+.dpl-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.dpl-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.dpl-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.dpl-input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 600;
+    transition: border-color var(--dur-fast) var(--ease-out);
+}
+.dpl-input:focus {
+    outline: none;
+    border-color: rgba(245, 158, 11, 0.5);
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+.dpl-default {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+.dpl-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.dpl-btn {
+    flex: 1;
+    min-width: 100px;
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    transition: all var(--dur-fast) var(--ease-out);
+}
+.dpl-btn:hover {
+    background: var(--bg-card-hover);
+    border-color: var(--border-hover);
+}
+.dpl-btn-reset {
+    color: var(--text-secondary);
+}
+.dpl-btn-save {
+    background: var(--green-bg);
+    border-color: rgba(34, 197, 94, 0.3);
+    color: var(--green-light);
+}
+.dpl-btn-save:hover {
+    background: rgba(34, 197, 94, 0.18);
+    border-color: rgba(34, 197, 94, 0.5);
+}
+.dpl-btn-saverefresh {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(239, 68, 68, 0.08));
+    border-color: rgba(245, 158, 11, 0.4);
+    color: #fbbf24;
+}
+.dpl-btn-saverefresh:hover {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(239, 68, 68, 0.15));
+    border-color: rgba(245, 158, 11, 0.6);
+}
+.dpl-result {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    line-height: 1.4;
+}
+.dpl-result:empty { display: none; }
+.dpl-result-ok {
+    background: var(--green-bg);
+    color: var(--green-light);
+    border: 1px solid rgba(34, 197, 94, 0.25);
+}
+.dpl-result-err {
+    background: var(--red-bg);
+    color: var(--red-light);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+.dpl-result-warn {
+    background: rgba(245, 158, 11, 0.1);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+@media (max-width: 540px) {
+    .dpl-fields { grid-template-columns: 1fr; }
+    .dpl-actions { flex-direction: column; }
+    .dpl-btn { width: 100%; }
+}

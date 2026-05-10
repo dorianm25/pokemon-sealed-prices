@@ -521,6 +521,36 @@ function openDetail(productName) {
                             <div class="kpi-value">${fmt(p.high)}</div>
                         </div>
                     </div>
+
+                    <!-- Section admin : limites de prix eBay (filtre des annonces) -->
+                    ${isAdminUser() && ebayId ? `
+                    <div class="detail-price-limits" id="detailPriceLimits-${ebayId}">
+                        <div class="dpl-head">
+                            <h4 class="dpl-title">⚙️ Limites de prix eBay <small class="dpl-admin-badge">ADMIN</small></h4>
+                            <p class="dpl-desc">Filtre les annonces eBay : seules celles dans cette fourchette sont prises en compte pour calculer le prix médian. Modifie ici si l'eBay capte des annonces faussées.</p>
+                        </div>
+                        <div class="dpl-loading" id="dplLoading-${ebayId}">Chargement…</div>
+                        <div class="dpl-form" id="dplForm-${ebayId}" style="display:none">
+                            <div class="dpl-fields">
+                                <div class="dpl-field">
+                                    <label class="dpl-label">Prix min (€)</label>
+                                    <input type="number" class="dpl-input" id="dplMin-${ebayId}" min="0" step="0.01">
+                                    <span class="dpl-default" id="dplDefMin-${ebayId}"></span>
+                                </div>
+                                <div class="dpl-field">
+                                    <label class="dpl-label">Prix max (€)</label>
+                                    <input type="number" class="dpl-input" id="dplMax-${ebayId}" min="0" step="0.01">
+                                    <span class="dpl-default" id="dplDefMax-${ebayId}"></span>
+                                </div>
+                            </div>
+                            <div class="dpl-actions">
+                                <button class="dpl-btn dpl-btn-reset" onclick="resetPriceLimits('${ebayId}','${p.name.replace(/'/g, "\\'")}')" title="Revenir aux valeurs par défaut">↺ Reset</button>
+                                <button class="dpl-btn dpl-btn-save" onclick="savePriceLimits('${ebayId}','${p.name.replace(/'/g, "\\'")}')">💾 Enregistrer</button>
+                                <button class="dpl-btn dpl-btn-saverefresh" onclick="savePriceLimits('${ebayId}','${p.name.replace(/'/g, "\\'")}',true)">💾 + Actualiser eBay</button>
+                            </div>
+                            <div class="dpl-result" id="dplResult-${ebayId}"></div>
+                        </div>
+                    </div>` : ''}
                     <div class="detail-chart-section">
                         <div class="detail-chart-head">
                             <h4>Évolution des prix</h4>
@@ -586,6 +616,121 @@ function openDetail(productName) {
     if (ebayId) {
         loadPriceChart(ebayId);
         loadIndicators(ebayId);
+        // Si admin, charge les limites de prix actuelles pour pre-remplir
+        if (isAdminUser()) loadPriceLimits(ebayId);
+    }
+}
+
+// ── Admin : limites de prix par produit ──────────────────────
+async function loadPriceLimits(ebayId) {
+    const loading = document.getElementById(`dplLoading-${ebayId}`);
+    const form = document.getElementById(`dplForm-${ebayId}`);
+    if (!loading || !form) return;
+    try {
+        const res = await fetch(`/api/query/${ebayId}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const minInput = document.getElementById(`dplMin-${ebayId}`);
+        const maxInput = document.getElementById(`dplMax-${ebayId}`);
+        const minDef = document.getElementById(`dplDefMin-${ebayId}`);
+        const maxDef = document.getElementById(`dplDefMax-${ebayId}`);
+        if (minInput) minInput.value = data.effectiveMinPrice ?? '';
+        if (maxInput) maxInput.value = data.effectiveMaxPrice ?? '';
+        const isCustomMin = data.customMinPrice != null;
+        const isCustomMax = data.customMaxPrice != null;
+        if (minDef) minDef.textContent = isCustomMin ? `défaut : ${data.defaultMinPrice} €` : `(défaut)`;
+        if (maxDef) maxDef.textContent = isCustomMax ? `défaut : ${data.defaultMaxPrice} €` : `(défaut)`;
+        loading.style.display = 'none';
+        form.style.display = 'block';
+    } catch (e) {
+        loading.textContent = 'Erreur de chargement : ' + e.message;
+    }
+}
+
+async function savePriceLimits(ebayId, productName, refresh = false) {
+    const minInput = document.getElementById(`dplMin-${ebayId}`);
+    const maxInput = document.getElementById(`dplMax-${ebayId}`);
+    const result = document.getElementById(`dplResult-${ebayId}`);
+    if (!minInput || !maxInput) return;
+    const minP = parseFloat(minInput.value);
+    const maxP = parseFloat(maxInput.value);
+    if (Number.isNaN(minP) || minP < 0) {
+        if (result) { result.textContent = '⚠️ Prix min invalide'; result.className = 'dpl-result dpl-result-err'; }
+        return;
+    }
+    if (Number.isNaN(maxP) || maxP <= minP) {
+        if (result) { result.textContent = '⚠️ Prix max doit être > prix min'; result.className = 'dpl-result dpl-result-err'; }
+        return;
+    }
+    if (result) { result.textContent = '⏳ Enregistrement…'; result.className = 'dpl-result'; }
+    try {
+        const res = await fetch(`/api/query/${ebayId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+            },
+            body: JSON.stringify({ minPrice: minP, maxPrice: maxP }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            if (result) { result.textContent = '❌ ' + (data.error || `HTTP ${res.status}`); result.className = 'dpl-result dpl-result-err'; }
+            return;
+        }
+        if (refresh) {
+            if (result) { result.textContent = '🔄 Actualisation eBay en cours…'; result.className = 'dpl-result'; }
+            const refRes = await fetch(`/api/refresh/${ebayId}`, { method: 'POST' });
+            const refData = await refRes.json();
+            if (refData.price != null) {
+                applyEbayPrice(refData);
+                try {
+                    const cache = loadClientPriceCache();
+                    cache[ebayId] = { cachedAt: Date.now(), data: refData };
+                    saveClientPriceCache(cache);
+                } catch {}
+                if (result) {
+                    result.textContent = `✅ Limites enregistrées + nouveau prix médian : ${fmt(refData.price)} (${refData.sampleSize || 0} résultats)`;
+                    result.className = 'dpl-result dpl-result-ok';
+                }
+                // Recharge le détail pour voir les nouveaux KPIs
+                setTimeout(() => { document.getElementById('detailOverlay')?.remove(); openDetail(productName); }, 1500);
+            } else {
+                if (result) {
+                    result.textContent = '⚠️ Limites enregistrées mais aucun résultat eBay avec ces filtres. Élargis la fourchette.';
+                    result.className = 'dpl-result dpl-result-warn';
+                }
+            }
+        } else {
+            if (result) { result.textContent = '✅ Limites enregistrées (les prix se rafraichiront au prochain fetch)'; result.className = 'dpl-result dpl-result-ok'; }
+            loadPriceLimits(ebayId); // refresh des "default" labels
+        }
+    } catch (e) {
+        if (result) { result.textContent = '❌ Erreur réseau : ' + (e.message || 'inconnue'); result.className = 'dpl-result dpl-result-err'; }
+    }
+}
+
+async function resetPriceLimits(ebayId, productName) {
+    const result = document.getElementById(`dplResult-${ebayId}`);
+    if (!confirm('Revenir aux limites de prix par défaut pour ce produit ?')) return;
+    if (result) { result.textContent = '⏳ Reset…'; result.className = 'dpl-result'; }
+    try {
+        const res = await fetch(`/api/query/${ebayId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+            },
+            body: JSON.stringify({ resetPriceLimits: true }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            if (result) { result.textContent = '❌ ' + (data.error || `HTTP ${res.status}`); result.className = 'dpl-result dpl-result-err'; }
+            return;
+        }
+        if (result) { result.textContent = '✅ Limites par défaut restaurées'; result.className = 'dpl-result dpl-result-ok'; }
+        loadPriceLimits(ebayId);
+    } catch (e) {
+        if (result) { result.textContent = '❌ Erreur réseau : ' + (e.message || 'inconnue'); result.className = 'dpl-result dpl-result-err'; }
     }
 }
 

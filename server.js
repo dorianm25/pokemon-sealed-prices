@@ -758,10 +758,13 @@ app.get('/api/price/:productId', async (req, res) => {
             }
         }
 
-        // Sinon, recherche classique avec filtre de prix du produit
+        // Sinon, recherche classique avec filtre de prix du produit (custom override possible)
         if (!priceData) {
             const query = custom?.query || product.query;
-            const limits = { min: product.minPrice, max: product.maxPrice };
+            const limits = {
+                min: custom?.minPrice ?? product.minPrice,
+                max: custom?.maxPrice ?? product.maxPrice,
+            };
             const ebayData = await searchEbaySold(query, 20, limits);
             priceData = extractPrices(ebayData, limits, query, product);
         }
@@ -811,6 +814,8 @@ app.get('/api/prices-cached', async (_req, res) => {
 // API : tous les prix (avec cache)
 app.get('/api/prices', async (req, res) => {
     const results = [];
+    // Charge les overrides custom une seule fois (query, url, minPrice, maxPrice)
+    const customQueries = await loadCustomQueries();
 
     for (const product of PRODUCTS_TO_TRACK) {
         try {
@@ -823,9 +828,14 @@ app.get('/api/prices', async (req, res) => {
             // Throttle entre chaque appel eBay
             await new Promise(r => setTimeout(r, 300));
 
-            const limits = { min: product.minPrice, max: product.maxPrice };
-            const ebayData = await searchEbaySold(product.query, 20, limits);
-            const priceData = extractPrices(ebayData, limits, product.query, product);
+            const custom = customQueries[product.id] || {};
+            const query = custom.query || product.query;
+            const limits = {
+                min: custom.minPrice ?? product.minPrice,
+                max: custom.maxPrice ?? product.maxPrice,
+            };
+            const ebayData = await searchEbaySold(query, 20, limits);
+            const priceData = extractPrices(ebayData, limits, query, product);
 
             if (priceData) {
                 const result = { id: product.id, name: product.name, ...priceData };
@@ -875,7 +885,10 @@ async function refreshProductPrice(product) {
 
     if (!priceData) {
         const query = custom?.query || product.query;
-        const limits = { min: product.minPrice, max: product.maxPrice };
+        const limits = {
+            min: custom?.minPrice ?? product.minPrice,
+            max: custom?.maxPrice ?? product.maxPrice,
+        };
         const ebayData = await searchEbaySold(query, 20, limits);
         priceData = extractPrices(ebayData, limits, query, product);
     }
@@ -1990,32 +2003,46 @@ app.get('/api/query/:productId', async (req, res) => {
         customQuery: custom.query || null,
         customUrl: custom.url || null,
         mode: custom.url ? 'url' : 'search',
+        // Overrides admin pour le filtre de prix eBay
+        defaultMinPrice: product.minPrice,
+        defaultMaxPrice: product.maxPrice,
+        customMinPrice: custom.minPrice ?? null,
+        customMaxPrice: custom.maxPrice ?? null,
+        effectiveMinPrice: custom.minPrice ?? product.minPrice,
+        effectiveMaxPrice: custom.maxPrice ?? product.maxPrice,
     });
 });
 
-// Modifier la config eBay d'un produit
+// Modifier la config eBay d'un produit. Pour les overrides minPrice/maxPrice,
+// on n'applique cette modification que si l'utilisateur est admin (controle dans le PUT).
 app.put('/api/query/:productId', async (req, res) => {
     const product = PRODUCTS_TO_TRACK.find(p => p.id === req.params.productId);
     if (!product) return res.status(404).json({ error: 'Produit inconnu' });
 
-    const { query, url } = req.body;
+    const { query, url, minPrice, maxPrice, resetPriceLimits } = req.body;
     const customQueries = await loadCustomQueries();
+    const existing = customQueries[product.id] || {};
 
+    // Construit le nouveau payload
+    let next = { ...existing };
+
+    // 1. Query / URL (comportement existant)
     if (url && url.trim()) {
         const trimmedUrl = url.trim();
         const legacyId = extractItemIdFromUrl(trimmedUrl);
         if (legacyId) {
-            // Mode lien direct vers un article spécifique
-            customQueries[product.id] = { url: trimmedUrl };
+            next = { ...next, url: trimmedUrl };
+            delete next.query;
         } else if (trimmedUrl.includes('ebay.') && (trimmedUrl.includes('/sch/') || trimmedUrl.includes('_nkw='))) {
-            // Lien de recherche eBay — extraire les mots-clés
             try {
                 const parsed = new URL(trimmedUrl);
                 const nkw = parsed.searchParams.get('_nkw');
                 if (nkw) {
-                    customQueries[product.id] = { query: nkw };
+                    next = { ...next, query: nkw };
+                    delete next.url;
                 } else {
-                    customQueries[product.id] = { url: trimmedUrl };
+                    next = { ...next, url: trimmedUrl };
+                    delete next.query;
                 }
             } catch {
                 return res.status(400).json({ error: 'URL invalide' });
@@ -2024,19 +2051,64 @@ app.put('/api/query/:productId', async (req, res) => {
             return res.status(400).json({ error: 'Lien eBay invalide. Formats acceptés : https://www.ebay.fr/itm/123456789 ou lien de recherche eBay' });
         }
     } else if (query && query.trim()) {
-        // Mode recherche personnalisée
-        customQueries[product.id] = { query: query.trim() };
-    } else {
-        // Revenir au défaut
-        delete customQueries[product.id];
+        next = { ...next, query: query.trim() };
+        delete next.url;
+    } else if (query === '' || url === '') {
+        // Vidage explicite : revient au defaut pour query/url
+        delete next.query;
+        delete next.url;
     }
 
+    // 2. Limites de prix (admin uniquement)
+    if (minPrice !== undefined || maxPrice !== undefined || resetPriceLimits) {
+        // Verifie l'admin : on lit le token comme dans authMiddleware mais en ligne
+        const auth = req.headers.authorization || '';
+        const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+        let isAdmin = false;
+        if (token) {
+            try {
+                const payload = jwt.verify(token, JWT_SECRET);
+                const adminUsername = (process.env.ADMIN_USERNAME || 'dorian').toLowerCase();
+                isAdmin = payload.username && payload.username.toLowerCase() === adminUsername;
+            } catch {}
+        }
+        if (!isAdmin) {
+            return res.status(403).json({ error: 'Modification des limites de prix reservee a l\'admin' });
+        }
+        if (resetPriceLimits) {
+            delete next.minPrice;
+            delete next.maxPrice;
+        } else {
+            const minP = minPrice !== undefined && minPrice !== null && minPrice !== '' ? parseFloat(minPrice) : null;
+            const maxP = maxPrice !== undefined && maxPrice !== null && maxPrice !== '' ? parseFloat(maxPrice) : null;
+            if (minP != null && (Number.isNaN(minP) || minP < 0)) {
+                return res.status(400).json({ error: 'minPrice invalide' });
+            }
+            if (maxP != null && (Number.isNaN(maxP) || maxP <= 0)) {
+                return res.status(400).json({ error: 'maxPrice invalide' });
+            }
+            const effectiveMin = minP ?? next.minPrice ?? product.minPrice;
+            const effectiveMax = maxP ?? next.maxPrice ?? product.maxPrice;
+            if (effectiveMin >= effectiveMax) {
+                return res.status(400).json({ error: 'minPrice doit etre < maxPrice' });
+            }
+            if (minP != null) next.minPrice = minP;
+            if (maxP != null) next.maxPrice = maxP;
+        }
+    }
+
+    // 3. Sauvegarde : si plus aucune cle utile, on supprime
+    if (!next.query && !next.url && next.minPrice === undefined && next.maxPrice === undefined) {
+        delete customQueries[product.id];
+    } else {
+        customQueries[product.id] = next;
+    }
     await saveCustomQueries(customQueries);
 
     // Supprimer le cache pour forcer un refresh
     try { await dbDeleteCache(product.id); } catch {}
 
-    res.json({ ok: true });
+    res.json({ ok: true, custom: customQueries[product.id] || null });
 });
 
 // ── Auth Routes ─────────────────────────────────────────────
