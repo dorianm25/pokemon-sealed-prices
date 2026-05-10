@@ -2269,17 +2269,24 @@ app.post('/api/ai/chat', authMiddleware, async (req, res) => {
         boxStats.sort((a, b) => b.value - a.value);
 
         // 5. Construit les blocs de texte pour le system prompt
-        const positionsBlock = positions.slice(0, 35).map((p, i) => {
+        // Limite a 25 positions et 6 items/box pour controler la taille du contexte
+        const TOP_POSITIONS = 25;
+        const TOP_ITEMS_PER_BOX = 6;
+        const truncatedPositions = positions.length - TOP_POSITIONS;
+        const positionsBlock = positions.slice(0, TOP_POSITIONS).map((p, i) => {
             const locTxt = p.locations.length > 0
                 ? p.locations.map(l => `${l.qty}x ${l.box}`).join(' + ')
                 : 'non range';
-            const unassignedTxt = p.unassigned > 0 ? ` (${p.unassigned}x non range dans une box)` : '';
-            return `${i + 1}. ${p.name} : ${p.qty}x · PRU ${p.pru} € · prix ${p.price} € · valeur ${p.value} € · P&L ${p.pnl >= 0 ? '+' : ''}${p.pnl} € (${p.pnlPct != null ? (p.pnlPct >= 0 ? '+' : '') + p.pnlPct + ' %' : 'n/a'}) · range dans : ${locTxt}${unassignedTxt}`;
-        }).join('\n');
+            const unassignedTxt = p.unassigned > 0 ? ` (${p.unassigned}x non range)` : '';
+            return `${i + 1}. ${p.name} : ${p.qty}x · PRU ${p.pru}€ · prix ${p.price}€ · val ${p.value}€ · P&L ${p.pnl >= 0 ? '+' : ''}${p.pnl}€ (${p.pnlPct != null ? (p.pnlPct >= 0 ? '+' : '') + p.pnlPct + '%' : 'n/a'}) · ${locTxt}${unassignedTxt}`;
+        }).join('\n') + (truncatedPositions > 0 ? `\n... + ${truncatedPositions} autre(s) position(s) plus petites` : '');
 
         const boxesBlock = boxStats.map(b => {
-            const itemsTxt = b.topItems.map(it => `    - ${it.name} : ${it.qty}x · ${it.value} €`).join('\n');
-            return `═══ ${b.name} ═══\n  Valeur stockee : ${b.value} €  ·  P&L estime : ${b.pnl >= 0 ? '+' : ''}${b.pnl} € (${b.pnlPct != null ? (b.pnlPct >= 0 ? '+' : '') + b.pnlPct + ' %' : 'n/a'})  ·  ${b.itemsCount} item(s)\n${itemsTxt || '  (vide)'}`;
+            const items = b.topItems.slice(0, TOP_ITEMS_PER_BOX);
+            const truncatedBox = b.topItems.length - items.length;
+            const itemsTxt = items.map(it => `    - ${it.name} : ${it.qty}x · ${it.value}€`).join('\n');
+            const truncTxt = truncatedBox > 0 ? `\n    ... + ${truncatedBox} autre(s)` : '';
+            return `═══ ${b.name} ═══\n  Val stockee : ${b.value}€  ·  P&L : ${b.pnl >= 0 ? '+' : ''}${b.pnl}€ (${b.pnlPct != null ? (b.pnlPct >= 0 ? '+' : '') + b.pnlPct + '%' : 'n/a'})  ·  ${b.itemsCount} item(s)\n${itemsTxt || '  (vide)'}${truncTxt}`;
         }).join('\n\n');
 
         const systemPrompt = `Tu es un conseiller financier specialise dans le marche des cartes Pokemon scellees francaises.
@@ -2381,7 +2388,17 @@ async function callGemini(apiKey, systemPrompt, messages) {
                 role: m.role === 'assistant' ? 'model' : 'user',
                 parts: [{ text: m.content }],
             })),
-            generationConfig: { maxOutputTokens: 1024, temperature: 0.7 },
+            // 4096 tokens output : largement de quoi faire des listes detaillees sans risque
+            // de coupure en plein milieu d'une enumeration.
+            generationConfig: { maxOutputTokens: 4096, temperature: 0.7 },
+            // Desactive les filtres de securite trop agressifs (pas de contenu sensible ici,
+            // c'est juste du conseil financier sur des cartes Pokemon, pas Wall Street).
+            safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+            ],
         };
         const r = await fetch(url, {
             method: 'POST',
@@ -2390,12 +2407,27 @@ async function callGemini(apiKey, systemPrompt, messages) {
         });
         const data = await r.json();
         if (r.ok) {
-            const reply = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '(reponse vide)';
+            const candidate = data.candidates?.[0];
+            const reply = candidate?.content?.parts?.map(p => p.text).join('') || '';
+            const finishReason = candidate?.finishReason || 'UNKNOWN';
             const u = data.usageMetadata || {};
+
+            // Si la reponse a ete coupee (safety, max_tokens, etc.), on ajoute une note
+            let finalReply = reply || '(reponse vide)';
+            if (finishReason !== 'STOP' && finishReason !== 'UNKNOWN') {
+                const reasonMap = {
+                    MAX_TOKENS: '⚠️ Réponse coupée car trop longue. Demande-moi de continuer ou pose une question plus précise.',
+                    SAFETY: '⚠️ Réponse bloquée par les filtres de sécurité Gemini. Reformule ta question.',
+                    RECITATION: '⚠️ Réponse bloquée car trop proche de contenu copyrighté.',
+                    OTHER: '⚠️ Réponse interrompue prématurément.',
+                };
+                const note = reasonMap[finishReason] || `⚠️ Arrêt anormal : ${finishReason}`;
+                finalReply = (reply ? reply + '\n\n' : '') + note;
+            }
             return {
-                reply,
+                reply: finalReply,
                 usage: { input: u.promptTokenCount || 0, output: u.candidatesTokenCount || 0 },
-                model,
+                model: `${model} (${finishReason})`,
             };
         }
         // Si "limit: 0" (pas de quota free tier sur ce modele), on essaie le suivant
