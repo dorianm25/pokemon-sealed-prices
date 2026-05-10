@@ -2424,7 +2424,7 @@ app.post('/api/portfolio', authMiddleware, async (req, res) => {
 
 async function computeSnapshot(userId) {
     const pf = await getPortfolio(userId);
-    let totalInvested = 0, totalValue = 0;
+    let totalInvested = 0, totalValue = 0, totalValueLast = 0;
     let heldProducts = 0, pricedProducts = 0;
     for (const product of PRODUCTS_TO_TRACK) {
         const h = pf[product.name];
@@ -2432,27 +2432,33 @@ async function computeSnapshot(userId) {
         heldProducts++;
         totalInvested += h.qty * h.cost;
 
-        // Cherche un prix : d'abord le cache, sinon le dernier historique connu
-        // (evite d'ecrire value=0 quand le cache vient d'etre vide par un redeploy)
+        // Cherche un prix : d'abord le cache, sinon le dernier historique connu.
+        // On recupere AUSSI le lastPrice (= cheapest listing) pour le 2e chart.
         const cached = await readCache(product.id);
-        let price = cached?.price || 0;
-        if (price <= 0) {
+        let priceMedian = cached?.price || 0;
+        let priceLast = cached?.lastPrice || cached?.lastListing?.price || 0;
+        if (priceMedian <= 0) {
             try {
                 const hist = await getPriceHistory(product.id);
                 if (hist && hist.length > 0) {
-                    // hist est tri ASC, on prend le dernier
-                    price = Number(hist[hist.length - 1].median) || 0;
+                    const last = hist[hist.length - 1];
+                    priceMedian = Number(last.median) || 0;
+                    if (priceLast <= 0) priceLast = Number(last.lastPrice) || 0;
                 }
             } catch {}
         }
-        if (price > 0) {
+        if (priceMedian > 0) {
             pricedProducts++;
-            totalValue += h.qty * price;
+            totalValue += h.qty * priceMedian;
+        }
+        // valueLast : meme principe avec le lastPrice (fallback sur median si absent)
+        const effectiveLast = priceLast > 0 ? priceLast : priceMedian;
+        if (effectiveLast > 0) {
+            totalValueLast += h.qty * effectiveLast;
         }
     }
 
     // Si moins de 50% des produits detenus ont un prix, le snapshot n'est pas fiable.
-    // On retourne null pour que le caller skip l'ecriture.
     const coverage = heldProducts === 0 ? 1 : pricedProducts / heldProducts;
     if (heldProducts > 0 && coverage < 0.5) {
         console.warn(`[Portfolio] Snapshot ${userId} skip : couverture prix ${pricedProducts}/${heldProducts} trop faible`);
@@ -2465,7 +2471,9 @@ async function computeSnapshot(userId) {
         invested: Math.round(totalInvested * 100) / 100,
         value: Math.round(totalValue * 100) / 100,
         pnl: Math.round((totalValue - totalInvested) * 100) / 100,
-        coverage: Math.round(coverage * 100),   // % de positions dont on connait le prix
+        valueLast: Math.round(totalValueLast * 100) / 100,
+        pnlLast: Math.round((totalValueLast - totalInvested) * 100) / 100,
+        coverage: Math.round(coverage * 100),
     };
 }
 

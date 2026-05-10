@@ -3147,6 +3147,7 @@ function discardPfChanges() {
 // ── Portfolio v2 state ──────────────────────────────────────
 let _pfTab = 'positions';
 let _pfRange = 'all';
+let _pfRangeLast = 'all';
 let _pfAllocMode = 'type';
 let _pfAddTypeFilter = '';
 let _pfAllocChart = null;
@@ -3183,6 +3184,12 @@ function setPfRange(range) {
     _pfRange = range;
     document.querySelectorAll('#pfRange button').forEach(b => b.classList.toggle('active', b.dataset.range === range));
     loadPortfolioChart();
+}
+
+function setPfRangeLast(range) {
+    _pfRangeLast = range;
+    document.querySelectorAll('#pfRangeLast button').forEach(b => b.classList.toggle('active', b.dataset.range === range));
+    loadPortfolioChartLast();
 }
 
 function setAllocMode(mode) {
@@ -3580,19 +3587,125 @@ function _filterPfHistoryByRange(history, range) {
     });
 }
 
+// Cache partage des donnees portfolio-history pour eviter le double fetch
+let _portfolioHistoryCache = null;
+let _portfolioHistoryCacheAt = 0;
+
+async function fetchPortfolioHistoryShared() {
+    // Cache 30s pour eviter de hitter l'API 2 fois quand les 2 charts se chargent
+    const now = Date.now();
+    if (_portfolioHistoryCache && (now - _portfolioHistoryCacheAt) < 30000) {
+        return _portfolioHistoryCache;
+    }
+    let history = null;
+    if (authToken) {
+        try {
+            const res = await fetch('/api/portfolio-history', { headers: { 'Authorization': `Bearer ${authToken}` } });
+            if (res.ok) history = await res.json();
+        } catch {}
+    }
+    if (!history || history.length === 0) history = getPortfolioHistory();
+    _portfolioHistoryCache = history;
+    _portfolioHistoryCacheAt = now;
+    return history;
+}
+
+let portfolioChartLastInstance = null;
+
+async function loadPortfolioChartLast() {
+    const wrap = document.getElementById('portfolioChartLastWrap');
+    if (!wrap) return;
+    try {
+        const history = await fetchPortfolioHistoryShared();
+        const filtered = _filterPfHistoryByRange(history, _pfRangeLast);
+
+        // On filtre encore : on ne garde que les entrees qui ont valueLast
+        // (les vieilles entrees pre-migration n'ont pas ce champ)
+        const withLast = filtered ? filtered.filter(h => h.valueLast != null) : [];
+
+        if (withLast.length === 0) {
+            // Affiche un message expliquant pourquoi rien
+            wrap.style.display = 'block';
+            const ctx = document.getElementById('portfolioChartLast').getContext('2d');
+            if (portfolioChartLastInstance) { portfolioChartLastInstance.destroy(); portfolioChartLastInstance = null; }
+            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            // Affiche overlay info au-dessus du canvas
+            let info = wrap.querySelector('.pf-chart-empty-overlay');
+            if (!info) {
+                info = document.createElement('div');
+                info.className = 'pf-chart-empty-overlay';
+                info.innerHTML = `
+                    <div style="text-align:center;padding:30px 20px;color:var(--text-muted);font-size:13px">
+                        ⏳ Pas encore d'historique avec dernier prix.<br>
+                        <span style="font-size:11px">Le 1er snapshot avec ces données sera créé au prochain cron quotidien.</span>
+                    </div>
+                `;
+                wrap.insertBefore(info, wrap.querySelector('canvas'));
+            }
+            return;
+        }
+        // Cleanup empty overlay si presente
+        const oldInfo = wrap.querySelector('.pf-chart-empty-overlay');
+        if (oldInfo) oldInfo.remove();
+
+        wrap.style.display = 'block';
+        const labels = withLast.map(h => h.date);
+        const investedData = withLast.map(h => h.invested);
+        const valueLastData = withLast.map(h => h.valueLast);
+        const pnlLastData = withLast.map(h => h.pnlLast);
+
+        if (portfolioChartLastInstance) portfolioChartLastInstance.destroy();
+
+        const ctx = document.getElementById('portfolioChartLast').getContext('2d');
+        // Gradient bleu cyan pour distinguer de l'autre chart (vert)
+        const grad = ctx.createLinearGradient(0, 0, 0, 260);
+        grad.addColorStop(0, 'rgba(56,189,248,0.32)');
+        grad.addColorStop(1, 'rgba(56,189,248,0.02)');
+
+        portfolioChartLastInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    { label: 'Valeur (dernier prix)', data: valueLastData, borderColor: '#38bdf8', backgroundColor: grad, borderWidth: 2.4, pointRadius: 0, pointHoverRadius: 5, tension: 0.35, fill: true },
+                    { label: 'Investi', data: investedData, borderColor: 'rgba(148,163,184,0.8)', borderWidth: 1.5, borderDash: [4, 4], pointRadius: 0, pointHoverRadius: 4, tension: 0.3, fill: false },
+                    { label: 'P&L (dernier prix)', data: pnlLastData, borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.08)', borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.3, fill: false },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, boxHeight: 12, usePointStyle: true, pointStyle: 'circle' } },
+                    tooltip: {
+                        backgroundColor: 'rgba(15,19,25,0.95)',
+                        borderColor: 'rgba(56,189,248,0.3)',
+                        borderWidth: 1,
+                        padding: 10,
+                        titleColor: '#f0f6fc',
+                        bodyColor: '#9ba4b0',
+                        callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` },
+                    },
+                },
+                scales: {
+                    x: { ticks: { color: '#64748b', maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.06)' } },
+                    y: { ticks: { color: '#64748b', callback: v => fmt(v), font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.06)' } },
+                },
+            },
+        });
+    } catch {
+        if (wrap) wrap.style.display = 'none';
+    }
+}
+
 async function loadPortfolioChart() {
     const wrap = document.getElementById('portfolioChartWrap');
     if (!wrap) return;
     try {
-        // 1) Essayer la source distante si auth, sinon fallback local
-        let history = null;
-        if (authToken) {
-            try {
-                const res = await fetch('/api/portfolio-history', { headers: { 'Authorization': `Bearer ${authToken}` } });
-                if (res.ok) history = await res.json();
-            } catch {}
-        }
-        if (!history || history.length === 0) history = getPortfolioHistory();
+        // Utilise le cache partage avec loadPortfolioChartLast pour eviter
+        // 2 appels reseau identiques au chargement de la page portfolio.
+        const history = await fetchPortfolioHistoryShared();
 
         const filtered = _filterPfHistoryByRange(history, _pfRange);
         if (!filtered || filtered.length === 0) {
@@ -3806,6 +3919,7 @@ async function renderPortfolio() {
     renderPortfolioSummary(pf);
     renderTopPositions(pf);
     loadPortfolioChart();
+    loadPortfolioChartLast();
     renderAllocChart();
 
     // Réappliquer l'état dirty sur les cartes qui ont des modifs pendantes

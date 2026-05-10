@@ -6821,6 +6821,20 @@ body { transition: background-color 0.3s, color 0.3s; }
     gap: 16px;
     margin-bottom: 20px;
 }
+.pf-chart-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin: 12px 0 0;
+    padding: 10px 14px;
+    background: rgba(56,189,248,0.05);
+    border-left: 3px solid rgba(56,189,248,0.3);
+    border-radius: 4px;
+    line-height: 1.5;
+}
+.pf-chart-note strong { color: #38bdf8; }
+.pf-chart-empty-overlay { width: 100%; }
+#portfolioChartLastWrap { margin-top: 16px; }
+
 .pf-chart-card,
 .pf-alloc-card {
     background: var(--bg-card);

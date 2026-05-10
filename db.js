@@ -186,6 +186,11 @@ export async function initSchema() {
     for (const stmt of SCHEMA) {
         await db.execute(stmt);
     }
+    // ── Migrations idempotentes (try/catch : ignore si colonne deja la) ──
+    // value_last / pnl_last : 2nd chart portfolio base sur le dernier prix
+    // (au lieu du prix median). Permet de comparer 2 vues d'evaluation.
+    try { await db.execute('ALTER TABLE portfolio_history ADD COLUMN value_last REAL'); } catch {}
+    try { await db.execute('ALTER TABLE portfolio_history ADD COLUMN pnl_last REAL'); } catch {}
 }
 
 // ── Users ───────────────────────────────────────────────────
@@ -265,7 +270,7 @@ export async function listPortfolioUserIds() {
 
 export async function getPortfolioHistory(userId) {
     const r = await db.execute({
-        sql: 'SELECT date, invested, value, pnl FROM portfolio_history WHERE user_id = ? ORDER BY date ASC',
+        sql: 'SELECT date, invested, value, pnl, value_last, pnl_last FROM portfolio_history WHERE user_id = ? ORDER BY date ASC',
         args: [userId],
     });
     return r.rows.map(row => ({
@@ -273,19 +278,27 @@ export async function getPortfolioHistory(userId) {
         invested: Number(row.invested),
         value: Number(row.value),
         pnl: Number(row.pnl),
+        valueLast: row.value_last == null ? null : Number(row.value_last),
+        pnlLast: row.pnl_last == null ? null : Number(row.pnl_last),
     }));
 }
 
 // Upsert d'une entrée pour une date donnée (remplace si existe)
 export async function upsertPortfolioHistory(userId, entry) {
     await db.execute({
-        sql: `INSERT INTO portfolio_history (user_id, date, invested, value, pnl)
-              VALUES (?, ?, ?, ?, ?)
+        sql: `INSERT INTO portfolio_history (user_id, date, invested, value, pnl, value_last, pnl_last)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT (user_id, date) DO UPDATE SET
                 invested = excluded.invested,
                 value = excluded.value,
-                pnl = excluded.pnl`,
-        args: [userId, entry.date, entry.invested, entry.value, entry.pnl],
+                pnl = excluded.pnl,
+                value_last = excluded.value_last,
+                pnl_last = excluded.pnl_last`,
+        args: [
+            userId, entry.date, entry.invested, entry.value, entry.pnl,
+            entry.valueLast == null ? null : entry.valueLast,
+            entry.pnlLast == null ? null : entry.pnlLast,
+        ],
     });
     // Cap à 365 jours : supprimer les plus vieux
     await db.execute({

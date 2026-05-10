@@ -266,7 +266,7 @@
                     <div class="pf-analytics" id="pfAnalytics">
                         <div class="portfolio-chart-wrap pf-chart-card" id="portfolioChartWrap">
                             <div class="pf-chart-header">
-                                <h2 class="portfolio-chart-title">Évolution</h2>
+                                <h2 class="portfolio-chart-title">Évolution <small style="color:var(--text-muted);font-weight:400;font-size:11px">· prix médian</small></h2>
                                 <div class="pf-range" id="pfRange">
                                     <button data-range="7d" onclick="setPfRange('7d')">7j</button>
                                     <button data-range="30d" onclick="setPfRange('30d')">30j</button>
@@ -275,6 +275,24 @@
                                 </div>
                             </div>
                             <canvas id="portfolioChart" height="220"></canvas>
+                        </div>
+
+                        <!-- 2e chart : valeur basée sur le dernier prix listé -->
+                        <div class="portfolio-chart-wrap pf-chart-card" id="portfolioChartLastWrap">
+                            <div class="pf-chart-header">
+                                <h2 class="portfolio-chart-title">Évolution <small style="color:var(--text-muted);font-weight:400;font-size:11px">· dernier prix listé</small></h2>
+                                <div class="pf-range" id="pfRangeLast">
+                                    <button data-range="7d" onclick="setPfRangeLast('7d')">7j</button>
+                                    <button data-range="30d" onclick="setPfRangeLast('30d')">30j</button>
+                                    <button data-range="90d" onclick="setPfRangeLast('90d')">90j</button>
+                                    <button data-range="all" class="active" onclick="setPfRangeLast('all')">Tout</button>
+                                </div>
+                            </div>
+                            <canvas id="portfolioChartLast" height="220"></canvas>
+                            <p class="pf-chart-note">
+                                💡 Ce graphique utilise le <strong>dernier prix listé</strong> (annonce la moins chère du moment)
+                                au lieu du prix médian. Plus volatile mais reflète mieux les opportunités d'achat actuelles.
+                            </p>
                         </div>
                         <div class="portfolio-chart-wrap pf-alloc-card" id="pfAllocCard">
                             <div class="pf-chart-header">
