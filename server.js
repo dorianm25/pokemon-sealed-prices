@@ -2154,33 +2154,66 @@ app.post('/api/ai/chat', authMiddleware, async (req, res) => {
     }
 
     try {
-        // Charge le contexte du user (portfolio principal + market index recent)
-        const pf = await getPortfolio(req.userId);
+        // Charge le contexte du user : agrege le portfolio principal + tous les portfolios extra
+        // (les boxes additionnelles). Pour chaque produit on somme qty et on calcule un PRU
+        // pondere. Le prix actuel vient du cache.
+        const aggregated = {}; // { productName: { qty, totalCost, sourcesCount, sources: [groupName] } }
+
+        // 1. Portfolio principal
+        const mainPf = await getPortfolio(req.userId);
+        for (const [name, h] of Object.entries(mainPf || {})) {
+            if (!h || h.qty <= 0) continue;
+            aggregated[name] = {
+                qty: h.qty,
+                totalCost: h.qty * (h.cost || 0),
+                sources: ['Principal'],
+            };
+        }
+
+        // 2. Tous les portfolios extras
+        const groups = await listPortfolioGroups(req.userId);
+        for (const g of groups) {
+            const holdings = await getPortfolioByGroup(req.userId, g.id);
+            for (const [name, h] of Object.entries(holdings || {})) {
+                if (!h || h.qty <= 0) continue;
+                if (!aggregated[name]) {
+                    aggregated[name] = { qty: 0, totalCost: 0, sources: [] };
+                }
+                aggregated[name].qty += h.qty;
+                aggregated[name].totalCost += h.qty * (h.cost || 0);
+                aggregated[name].sources.push(g.name);
+            }
+        }
+
+        // 3. Construit les positions avec prix actuel
         const positions = [];
         let totalInvested = 0, totalValue = 0;
         for (const product of PRODUCTS_TO_TRACK) {
-            const h = pf[product.name];
-            if (!h || h.qty <= 0) continue;
+            const a = aggregated[product.name];
+            if (!a || a.qty <= 0) continue;
             const cached = await readCache(product.id);
-            const price = cached?.price || 0;
-            const inv = h.qty * h.cost;
-            const val = h.qty * price;
+            const price = cached?.price || cached?.lastPrice || 0;
+            const inv = a.totalCost;
+            const val = a.qty * price;
+            const pru = a.qty > 0 ? a.totalCost / a.qty : 0;
             totalInvested += inv;
             totalValue += val;
             positions.push({
                 name: product.name,
-                qty: h.qty,
-                pru: h.cost,
+                qty: a.qty,
+                pru: Math.round(pru * 100) / 100,
                 priceMedian: price,
                 lastPrice: cached?.lastPrice || 0,
                 invested: Math.round(inv * 100) / 100,
                 value: Math.round(val * 100) / 100,
                 pnl: Math.round((val - inv) * 100) / 100,
                 pnlPct: inv > 0 ? Math.round(((val - inv) / inv) * 100) : null,
+                sources: a.sources,
             });
         }
         positions.sort((a, b) => b.value - a.value);
-        const topPositions = positions.slice(0, 20); // top 20 pour limiter le contexte
+        const topPositions = positions.slice(0, 25); // top 25 pour limiter le contexte
+        const portfolioCount = 1 + groups.length; // principal + extras
 
         // Construit le prompt systeme avec le contexte
         const systemPrompt = `Tu es un conseiller financier specialise dans le marche des cartes Pokemon scellees francaises.
@@ -2190,14 +2223,15 @@ Tu peux suggerer d'acheter, vendre, ou conserver, et tu argumentes avec les donn
 Si la question est hors sujet (pas Pokemon TCG), tu refuses poliment de repondre.
 Sois concis : reponds en 3-6 phrases maximum sauf demande de detail.
 
-Contexte du portfolio principal de l'utilisateur :
+Contexte du portfolio agrege de l'utilisateur (somme principal + ${groups.length} box${groups.length > 1 ? 'es' : ''} additionnelle${groups.length > 1 ? 's' : ''}) :
 - Total investi : ${totalInvested.toFixed(2)} €
 - Valeur actuelle : ${totalValue.toFixed(2)} €
 - P&L : ${(totalValue - totalInvested).toFixed(2)} € (${totalInvested > 0 ? Math.round(((totalValue - totalInvested) / totalInvested) * 100) : 0} %)
-- Nombre de positions : ${positions.length}
+- Nombre de positions distinctes : ${positions.length}
+- Nombre de portefeuilles : ${portfolioCount}
 
-Top 20 positions par valeur (qty * prix median actuel) :
-${topPositions.map(p => `- ${p.name} : ${p.qty}x acheté à ${p.pru} €, prix actuel ${p.priceMedian} €, valeur ${p.value} €, P&L ${p.pnl >= 0 ? '+' : ''}${p.pnl} € (${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct} %)`).join('\n')}
+Top 25 positions par valeur actuelle (qty * prix median) :
+${topPositions.map(p => `- ${p.name} : ${p.qty}x · PRU ${p.pru} € · prix actuel ${p.priceMedian} € · valeur ${p.value} € · P&L ${p.pnl >= 0 ? '+' : ''}${p.pnl} € (${p.pnlPct != null ? (p.pnlPct >= 0 ? '+' : '') + p.pnlPct + ' %' : 'n/a'})${p.sources.length > 1 ? ` · reparti sur ${p.sources.length} portefeuilles` : ''}`).join('\n')}
 
 Date du jour : ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
 
