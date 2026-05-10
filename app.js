@@ -5665,25 +5665,27 @@ async function loadAdminPage() {
 
     try {
         const headers = { 'Authorization': `Bearer ${authToken}` };
-        const [statsRes, usersRes, barcodesRes, calRes] = await Promise.all([
+        const [statsRes, usersRes, barcodesRes, calRes, customRes] = await Promise.all([
             fetch('/api/admin/stats', { headers, cache: 'no-store' }),
             fetch('/api/admin/users', { headers, cache: 'no-store' }),
             fetch('/api/barcodes', { headers, cache: 'no-store' }),
             fetch('/api/calendar', { cache: 'no-store' }),
+            fetch('/api/admin/custom-products', { headers, cache: 'no-store' }),
         ]);
         if (!statsRes.ok || !usersRes.ok) throw new Error('HTTP error');
         const stats = await statsRes.json();
         const usersData = await usersRes.json();
         const barcodesData = barcodesRes.ok ? await barcodesRes.json() : { count: 0, barcodes: [] };
         const calData = calRes.ok ? await calRes.json() : { count: 0, releases: [] };
+        const customData = customRes.ok ? await customRes.json() : { count: 0, products: [] };
 
-        container.innerHTML = renderAdminPage(stats, usersData, barcodesData, calData);
+        container.innerHTML = renderAdminPage(stats, usersData, barcodesData, calData, customData);
     } catch (e) {
         container.innerHTML = `<div class="admin-empty">Erreur de chargement (${e.message || 'inconnue'}).</div>`;
     }
 }
 
-function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: [] }, calData = { count: 0, releases: [] }) {
+function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: [] }, calData = { count: 0, releases: [] }, customData = { count: 0, products: [] }) {
     const fmtDate = (iso) => {
         if (!iso) return '—';
         const d = new Date(iso);
@@ -5795,6 +5797,44 @@ function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: 
                     ${barcodesData.barcodes.length > 100 ? `<div class="admin-barcodes-truncated">+ ${barcodesData.barcodes.length - 100} autres mappings</div>` : ''}
                 </div>
             </details>` : '<p class="admin-card-sub" style="font-style:italic;margin-top:8px">Aucun mapping pour l\'instant. Scannez vos produits pour commencer à enrichir la base.</p>'}
+        </div>
+
+        <!-- Produits trackes custom (admin-added via UI) -->
+        <div class="admin-card">
+            <h3 class="admin-card-title">🛒 Produits personnalisés (${customData.count})</h3>
+            <p class="admin-card-sub">Produits ajoutés via l'UI (en plus du catalogue hardcoded). Visibles par tous les users immédiatement.</p>
+
+            <div class="admin-bulk-actions" style="margin-bottom:14px">
+                <button class="admin-btn admin-btn-primary" onclick="adminAddCustomProduct()">➕ Ajouter un produit</button>
+            </div>
+
+            ${customData.count > 0 ? `
+                <div class="admin-cal-table">
+                    <div class="admin-cal-head" style="grid-template-columns: 1fr 80px 110px 110px 90px">
+                        <span>Nom · Query</span>
+                        <span>Type</span>
+                        <span>Bloc</span>
+                        <span>Prix € (min/max)</span>
+                        <span>Actions</span>
+                    </div>
+                    ${customData.products.map(p => {
+                        const safeId = p.id.replace(/'/g, "\\'");
+                        return `<div class="admin-cal-row" style="grid-template-columns: 1fr 80px 110px 110px 90px">
+                            <div class="admin-cal-name">
+                                <strong>${p.name}</strong>
+                                <em style="display:block;font-size:11px;color:var(--text-muted);margin-top:2px">${p.query}</em>
+                            </div>
+                            <span class="admin-cal-confidence" style="text-align:left;font-size:11px;color:var(--text-secondary)">${p.type}</span>
+                            <span style="font-size:11px;color:var(--text-secondary)">${p.serie || '—'}${p.ext ? `<br><em>${p.ext}</em>` : ''}</span>
+                            <span style="font-size:11px;color:var(--text-secondary);font-family:var(--font-mono)">${p.minPrice}–${p.maxPrice}</span>
+                            <span class="admin-cal-actions">
+                                <button class="admin-btn admin-btn-secondary admin-btn-mini" onclick="adminEditCustomProduct('${safeId}')">✏️</button>
+                                <button class="admin-btn admin-btn-danger admin-btn-mini" onclick="adminDeleteCustomProduct('${safeId}')">🗑</button>
+                            </span>
+                        </div>`;
+                    }).join('')}
+                </div>
+            ` : '<p class="admin-card-sub" style="font-style:italic;margin-top:8px">Aucun produit personnalisé pour l\'instant.</p>'}
         </div>
 
         <!-- Calendrier des sorties : edition admin -->
@@ -7772,6 +7812,213 @@ async function adminDeleteCalendarEntry(code) {
     }
 }
 
+// ── Admin : produits trackes custom ──────────────────────
+async function adminCustomProductsFetch() {
+    if (!isAdminUser()) return [];
+    try {
+        const res = await fetch('/api/admin/custom-products', {
+            headers: { 'Authorization': `Bearer ${authToken}` },
+            cache: 'no-store',
+        });
+        const data = await res.json();
+        return data.products || [];
+    } catch { return []; }
+}
+
+function adminAddCustomProduct() {
+    if (!isAdminUser()) return;
+    showCustomProductEditModal({
+        id: '',
+        name: '',
+        query: '',
+        type: 'coffret',
+        serie: 'Écarlate et Violet',
+        ext: '',
+        minPrice: 0,
+        maxPrice: 99999,
+        imageUrl: '',
+        customUrl: '',
+        isNew: true,
+    });
+}
+
+async function adminEditCustomProduct(id) {
+    if (!isAdminUser()) return;
+    const list = await adminCustomProductsFetch();
+    const p = list.find(x => x.id === id);
+    if (!p) {
+        showToast('⚠️', 'Introuvable', '');
+        return;
+    }
+    showCustomProductEditModal({ ...p, isNew: false });
+}
+
+async function adminDeleteCustomProduct(id) {
+    if (!isAdminUser()) return;
+    if (!confirm(`Supprimer ce produit custom ?\n\nCela retire l'item du catalogue, du portfolio de tous les users, et de l'historique de prix.`)) return;
+    try {
+        const res = await fetch(`/api/admin/custom-products/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            showToast('⚠️', 'Erreur', d.error || 'Échec');
+            return;
+        }
+        showToast('✅', 'Produit supprimé', '');
+        loadAdminPage();
+    } catch {
+        showToast('⚠️', 'Erreur réseau', '');
+    }
+}
+
+function showCustomProductEditModal(p) {
+    const existing = document.getElementById('customProductEditModal');
+    if (existing) existing.remove();
+
+    const isNew = !!p.isNew;
+    const types = ['etb', 'display', 'display18', 'tripack', 'bundle', 'booster', 'dispbundle', 'coffret'];
+    const blocs = ['Écarlate et Violet', 'Méga-Évolution', 'Épée et Bouclier', 'Soleil et Lune', 'XY', 'Noir et Blanc'];
+
+    const overlay = document.createElement('div');
+    overlay.id = 'customProductEditModal';
+    overlay.className = 'tx-modal-overlay open';
+    overlay.innerHTML = `
+        <div class="tx-modal" style="max-width:580px">
+            <div class="tx-modal-head">
+                <h3>${isNew ? '➕ Ajouter un produit' : `✏️ Éditer ${p.name}`}</h3>
+                <button class="tx-modal-close" type="button" onclick="document.getElementById('customProductEditModal').remove()">&times;</button>
+            </div>
+            <form class="tx-form" onsubmit="submitCustomProductEdit(event, ${isNew}, '${(p.id || '').replace(/'/g, "\\'")}')">
+                <!-- Nom du produit (visible utilisateur) -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">Nom affiché aux utilisateurs</label>
+                        <input type="text" class="tx-form-input" id="cpEditName" required maxlength="200" value="${(p.name || '').replace(/"/g, '&quot;')}" placeholder="Ex: Coffret Pochette Évolutions Prismatiques">
+                    </div>
+                </div>
+
+                <!-- Query eBay -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">Query de recherche eBay</label>
+                        <input type="text" class="tx-form-input" id="cpEditQuery" required maxlength="500" value="${(p.query || '').replace(/"/g, '&quot;')}" placeholder="Ex: coffret pochette Evolutions Prismatiques pokemon -lot">
+                        <p class="tx-form-help">💡 Astuce : utilise <code>-lot</code> pour exclure les bundles vendeurs. Plus la query est précise, plus les prix le sont.</p>
+                    </div>
+                </div>
+
+                <!-- Type + Bloc -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Type / Catégorie</label>
+                        <select class="tx-form-input" id="cpEditType">
+                            ${types.map(t => `<option value="${t}" ${p.type === t ? 'selected' : ''}>${t.toUpperCase()}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Bloc</label>
+                        <select class="tx-form-input" id="cpEditSerie">
+                            ${blocs.map(b => `<option value="${b}" ${p.serie === b ? 'selected' : ''}>${b}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Extension -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">Extension (set d'origine, optionnel)</label>
+                        <input type="text" class="tx-form-input" id="cpEditExt" maxlength="100" value="${(p.ext || '').replace(/"/g, '&quot;')}" placeholder="Ex: EV8.5 — Évolutions Prismatiques">
+                    </div>
+                </div>
+
+                <!-- Prix min/max -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Prix minimum (€)</label>
+                        <input type="number" class="tx-form-input" id="cpEditMinPrice" min="0" step="0.01" value="${p.minPrice ?? 0}">
+                        <p class="tx-form-help">Annonces eBay sous ce prix sont ignorées (anti-fakes / bundles)</p>
+                    </div>
+                    <div class="tx-form-field">
+                        <label class="tx-form-label">Prix maximum (€)</label>
+                        <input type="number" class="tx-form-input" id="cpEditMaxPrice" min="0" step="0.01" value="${p.maxPrice ?? 99999}">
+                        <p class="tx-form-help">Annonces au-dessus = ignorées (lots, anomalies)</p>
+                    </div>
+                </div>
+
+                <!-- Image + lien custom -->
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">URL image personnalisée (optionnel)</label>
+                        <input type="url" class="tx-form-input" id="cpEditImage" maxlength="500" value="${(p.imageUrl || '').replace(/"/g, '&quot;')}" placeholder="https://... (laisse vide pour utiliser l'image eBay automatique)">
+                    </div>
+                </div>
+                <div class="tx-form-row">
+                    <div class="tx-form-field tx-form-field-full">
+                        <label class="tx-form-label">URL eBay forcée (optionnel)</label>
+                        <input type="url" class="tx-form-input" id="cpEditCustomUrl" maxlength="500" value="${(p.customUrl || '').replace(/"/g, '&quot;')}" placeholder="https://www.ebay.fr/itm/... (force ce lien au lieu du résultat de recherche)">
+                    </div>
+                </div>
+
+                <div id="cpEditError" class="tx-form-error"></div>
+                <div class="tx-form-actions">
+                    <button type="button" class="tx-btn tx-btn-ghost" onclick="document.getElementById('customProductEditModal').remove()">Annuler</button>
+                    <button type="submit" class="tx-btn tx-btn-primary">${isNew ? 'Ajouter' : 'Enregistrer'}</button>
+                </div>
+            </form>
+        </div>
+    `;
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+    });
+    document.body.appendChild(overlay);
+    setTimeout(() => document.getElementById('cpEditName')?.focus(), 100);
+}
+
+async function submitCustomProductEdit(event, isNew, originalId) {
+    event.preventDefault();
+    const errEl = document.getElementById('cpEditError');
+    errEl.textContent = '';
+
+    const payload = {
+        name: document.getElementById('cpEditName').value.trim(),
+        query: document.getElementById('cpEditQuery').value.trim(),
+        type: document.getElementById('cpEditType').value,
+        serie: document.getElementById('cpEditSerie').value,
+        ext: document.getElementById('cpEditExt').value.trim(),
+        minPrice: parseFloat(document.getElementById('cpEditMinPrice').value) || 0,
+        maxPrice: parseFloat(document.getElementById('cpEditMaxPrice').value) || 99999,
+        imageUrl: document.getElementById('cpEditImage').value.trim(),
+        customUrl: document.getElementById('cpEditCustomUrl').value.trim(),
+    };
+
+    if (!payload.name) { errEl.textContent = 'Nom requis'; return; }
+    if (!payload.query) { errEl.textContent = 'Query eBay requise'; return; }
+    if (payload.minPrice > payload.maxPrice) { errEl.textContent = 'Prix min > prix max'; return; }
+
+    try {
+        const url = isNew ? '/api/admin/custom-products' : `/api/admin/custom-products/${encodeURIComponent(originalId)}`;
+        const method = isNew ? 'POST' : 'PUT';
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            errEl.textContent = data.error || 'Erreur';
+            return;
+        }
+        showToast('✅', isNew ? 'Produit ajouté' : 'Produit modifié', payload.name);
+        document.getElementById('customProductEditModal').remove();
+        loadAdminPage();
+        // Recharge les custom products dans le catalogue front
+        loadCustomProductsAndMerge();
+    } catch {
+        errEl.textContent = 'Erreur réseau';
+    }
+}
+
 function adminAddCalendarEntry() {
     if (!isAdminUser()) return;
     showCalendarEditModal({
@@ -8361,6 +8608,50 @@ loadSharedPortfolio();
         setTimeout(() => switchSection(section), 100);
     }
 })();
+
+// Charge les produits personnalises ajoutes par l'admin via UI puis re-render.
+// Lance en parallele de fetchEbayPrices, sans bloquer le 1er render.
+loadCustomProductsAndMerge();
+
+async function loadCustomProductsAndMerge() {
+    try {
+        const res = await fetch('/api/custom-products', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.products || data.products.length === 0) return;
+
+        // Convertit les custom products au format products[]
+        let added = 0;
+        for (const c of data.products) {
+            // Skip si deja dans products (dedupe par nom)
+            if (products.some(p => p.name === c.name)) continue;
+            products.push({
+                name: c.name,
+                ext: c.ext || '',
+                serie: c.serie || 'Écarlate et Violet',
+                type: c.type || 'coffret',
+                price: 0,
+                old: 0,
+                trend: 0,
+                low: 0,
+                high: 0,
+                _isCustom: true,
+                _customId: c.id,
+                _imageUrlOverride: c.imageUrl,
+                _customUrlOverride: c.customUrl,
+            });
+            added++;
+        }
+        if (added > 0) {
+            // Re-render le catalogue + sidebar + tendances si visible
+            if (typeof renderBlocsAccordion === 'function') renderBlocsAccordion();
+            if (typeof render === 'function') render();
+            if (currentSection === 'tendances' && typeof renderTrends === 'function') renderTrends();
+        }
+    } catch (e) {
+        console.warn('[custom-products] load error', e);
+    }
+}
 
 fetchEbayPrices().then(() => {
     if (currentSection === 'portfolio') renderPortfolio();

@@ -25,6 +25,8 @@ import {
     bulkSeedReleaseCalendar,
     listNewsArticles, createNewsArticle, updateNewsArticle, deleteNewsArticle,
     newsArticleExists,
+    listCustomProducts, getCustomProduct, createCustomProduct,
+    updateCustomProduct, deleteCustomProduct,
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
     getAllCache as dbGetAllCache,
     getCustomQueries, setCustomQuery,
@@ -426,7 +428,10 @@ function serieProducts(id, nom, code, opts = {}) {
     ];
 }
 
-const PRODUCTS_TO_TRACK = [
+// Liste hardcoded de base. Les produits custom (admin-added via UI) viennent
+// s'ajouter au demarrage et a chaque CRUD via refreshProductsCache().
+// On garde 'PRODUCTS_TO_TRACK' comme variable mutable qui contient l'union.
+const PRODUCTS_HARDCODED = [
     ...serieProducts('ev01', 'Écarlate et Violet', 'EV01'),
     ...serieProducts('ev02', 'Évolutions à Paldea', 'EV02'),
     ...serieProducts('ev03', 'Flammes Obsidiennes', 'EV03'),
@@ -593,6 +598,38 @@ const PRODUCTS_TO_TRACK = [
     { id: 'duo-pack-aventure-flamme',  query: 'duo pack Aventures Ensemble Flammes Fantasmagoriques pokemon -lot', name: 'Duo Pack Aventures/Flammes',  minPrice: 8,   maxPrice: 40 },
     { id: 'case-24-mega-evolution',    query: 'case 24 boosters Mega Evolution ME01 pokemon scelle',               name: 'Case 24 Boosters Méga-Évolution', minPrice: 200, maxPrice: 800 },
 ];
+
+// PRODUCTS_TO_TRACK = hardcoded + custom. Mutable (refresh apres chaque
+// CRUD admin pour que cron, snapshots, /api/prices, etc. voient tout de suite
+// les nouveaux produits sans redemarrer le serveur).
+let PRODUCTS_TO_TRACK = [...PRODUCTS_HARDCODED];
+
+async function refreshProductsCache() {
+    try {
+        const customs = await listCustomProducts();
+        // Format custom -> meme shape que hardcoded
+        const customAsTrack = customs.map(c => ({
+            id: c.id,
+            query: c.query,
+            name: c.name,
+            minPrice: c.minPrice,
+            maxPrice: c.maxPrice,
+            // Champs additionnels passes-through pour le frontend
+            type: c.type,
+            serie: c.serie,
+            ext: c.ext,
+            imageUrl: c.imageUrl,
+            customUrl: c.customUrl,
+            isCustom: true,
+        }));
+        // Le custom apparait apres le hardcoded
+        PRODUCTS_TO_TRACK = [...PRODUCTS_HARDCODED, ...customAsTrack];
+        return PRODUCTS_TO_TRACK.length;
+    } catch (e) {
+        console.error('[refreshProductsCache] error:', e);
+        return PRODUCTS_TO_TRACK.length;
+    }
+}
 
 // ── Fetch specific eBay item by URL ─────────────────────────
 
@@ -2200,6 +2237,138 @@ app.post('/api/admin/users/:id/reset-password', authMiddleware, requireAdmin, as
     }
 });
 
+// ── Produits trackes custom (CRUD admin) ──────────────────
+//
+// Permet d'ajouter, modifier, supprimer des produits a tracker via
+// l'UI sans toucher au code. S'ajoute au catalogue hardcoded.
+
+const VALID_PRODUCT_TYPES = ['etb', 'display', 'display18', 'tripack', 'bundle', 'booster', 'dispbundle', 'coffret'];
+
+app.get('/api/admin/custom-products', authMiddleware, requireAdmin, async (_req, res) => {
+    try {
+        const list = await listCustomProducts();
+        res.json({ count: list.length, products: list });
+    } catch (e) {
+        console.error('[custom-products/list] error:', e);
+        res.status(500).json({ error: 'Erreur lecture' });
+    }
+});
+
+// Lecture publique simplifiee : pour le frontend qui a besoin de connaitre
+// les custom products afin de les ajouter au catalogue affiche.
+app.get('/api/custom-products', async (_req, res) => {
+    try {
+        const list = await listCustomProducts();
+        res.json({ count: list.length, products: list });
+    } catch (e) {
+        console.error('[custom-products/public] error:', e);
+        res.status(500).json({ error: 'Erreur lecture' });
+    }
+});
+
+app.post('/api/admin/custom-products', authMiddleware, requireAdmin, async (req, res) => {
+    const { id, name, query, type, serie, ext, minPrice, maxPrice, imageUrl, customUrl, sortOrder } = req.body || {};
+
+    // Validations
+    if (!name || typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'Nom requis' });
+    }
+    if (!query || typeof query !== 'string' || !query.trim()) {
+        return res.status(400).json({ error: 'Query eBay requise' });
+    }
+    if (type && !VALID_PRODUCT_TYPES.includes(type)) {
+        return res.status(400).json({ error: `Type invalide. Valeurs : ${VALID_PRODUCT_TYPES.join(', ')}` });
+    }
+    const minP = parseFloat(minPrice) || 0;
+    const maxP = parseFloat(maxPrice) || 99999;
+    if (minP < 0 || maxP < 0) {
+        return res.status(400).json({ error: 'Prix invalides' });
+    }
+    if (minP > maxP) {
+        return res.status(400).json({ error: 'minPrice > maxPrice' });
+    }
+
+    // Genere un id si non fourni (slug propre depuis le nom)
+    let pid = id;
+    if (!pid) {
+        pid = 'cust_' + (name.toLowerCase()
+            .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 40)) + '_' + crypto.randomBytes(3).toString('hex');
+    }
+
+    // Verifie qu'on n'a pas une collision avec un produit hardcoded
+    if (PRODUCTS_HARDCODED.some(p => p.id === pid)) {
+        return res.status(400).json({ error: `ID '${pid}' deja utilise par un produit hardcoded` });
+    }
+
+    try {
+        const me = await getUserById(req.userId);
+        await createCustomProduct({
+            id: pid,
+            name: name.trim().slice(0, 200),
+            query: query.trim().slice(0, 500),
+            type: type || 'coffret',
+            serie: (serie || '').trim().slice(0, 100),
+            ext: (ext || '').trim().slice(0, 100),
+            minPrice: minP,
+            maxPrice: maxP,
+            imageUrl: imageUrl?.trim() || null,
+            customUrl: customUrl?.trim() || null,
+            sortOrder: parseInt(sortOrder) || 0,
+        }, me?.username || 'admin');
+
+        // Refresh la liste en memoire
+        await refreshProductsCache();
+        res.json({ ok: true, id: pid });
+    } catch (e) {
+        if (e.message && e.message.includes('UNIQUE')) {
+            return res.status(409).json({ error: `Le produit avec l'id '${pid}' existe deja` });
+        }
+        console.error('[custom-products/create] error:', e);
+        res.status(500).json({ error: 'Erreur creation' });
+    }
+});
+
+app.put('/api/admin/custom-products/:id', authMiddleware, requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    const updates = { ...req.body };
+    delete updates.id; // l'id n'est pas modifiable
+
+    // Validation type si fourni
+    if (updates.type && !VALID_PRODUCT_TYPES.includes(updates.type)) {
+        return res.status(400).json({ error: `Type invalide. Valeurs : ${VALID_PRODUCT_TYPES.join(', ')}` });
+    }
+    if (updates.minPrice !== undefined && updates.maxPrice !== undefined) {
+        if (parseFloat(updates.minPrice) > parseFloat(updates.maxPrice)) {
+            return res.status(400).json({ error: 'minPrice > maxPrice' });
+        }
+    }
+
+    try {
+        const ok = await updateCustomProduct(id, updates);
+        if (!ok) return res.status(404).json({ error: 'Produit introuvable' });
+        await refreshProductsCache();
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[custom-products/update] error:', e);
+        res.status(500).json({ error: 'Erreur mise a jour' });
+    }
+});
+
+app.delete('/api/admin/custom-products/:id', authMiddleware, requireAdmin, async (req, res) => {
+    try {
+        const ok = await deleteCustomProduct(req.params.id);
+        if (!ok) return res.status(404).json({ error: 'Produit introuvable' });
+        await refreshProductsCache();
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[custom-products/delete] error:', e);
+        res.status(500).json({ error: 'Erreur suppression' });
+    }
+});
+
 // Changer de mot de passe (demande l'ancien pour confirmer)
 app.post('/api/change-password', authMiddleware, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
@@ -2664,6 +2833,10 @@ function scheduleMidnightSnapshot() {
 async function start() {
     await ensureDataDirs();
     await initSchema();
+
+    // Charge les produits custom (admin-added) en plus des hardcoded
+    await refreshProductsCache();
+    console.log(`[products] ${PRODUCTS_TO_TRACK.length} produits trackes (${PRODUCTS_HARDCODED.length} hardcoded + ${PRODUCTS_TO_TRACK.length - PRODUCTS_HARDCODED.length} custom)`);
 
     // Initialise TOKEN_SECRET : env var prioritaire, sinon secret
     // persistant dans la DB (genere une seule fois, survit aux redeploys).

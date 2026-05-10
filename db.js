@@ -99,6 +99,25 @@ const SCHEMA = [
         data TEXT NOT NULL
     )`,
 
+    // Produits personnalisés (ajoutés par l'admin via UI)
+    // S'ajoutent au catalogue hardcoded PRODUCTS_TO_TRACK
+    `CREATE TABLE IF NOT EXISTS tracked_products_custom (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        query TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'coffret',
+        serie TEXT,
+        ext TEXT,
+        min_price REAL NOT NULL DEFAULT 0,
+        max_price REAL NOT NULL DEFAULT 99999,
+        image_url TEXT,
+        custom_url TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        added_by TEXT
+    )`,
+
     // Articles d'actualite (curation admin avec liens vers Pokecardex et autres sources)
     `CREATE TABLE IF NOT EXISTS news_articles (
         id TEXT PRIMARY KEY,
@@ -160,6 +179,7 @@ const SCHEMA = [
     `CREATE INDEX IF NOT EXISTS idx_pf_extra_user_group ON portfolios_extra(user_id, group_id)`,
     `CREATE INDEX IF NOT EXISTS idx_release_calendar_date ON release_calendar(release_date)`,
     `CREATE INDEX IF NOT EXISTS idx_news_articles_date ON news_articles(published_date DESC, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_custom_products_serie ON tracked_products_custom(serie, type)`,
 ];
 
 export async function initSchema() {
@@ -528,6 +548,102 @@ export async function newsArticleExists(url) {
         args: [url],
     });
     return r.rows.length > 0;
+}
+
+// ── Produits trackes personnalises (admin-added) ─────────
+
+export async function listCustomProducts() {
+    const r = await db.execute(
+        'SELECT id, name, query, type, serie, ext, min_price, max_price, image_url, custom_url, sort_order, created_at, updated_at, added_by FROM tracked_products_custom ORDER BY sort_order ASC, created_at DESC'
+    );
+    return r.rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        query: row.query,
+        type: row.type || 'coffret',
+        serie: row.serie || '',
+        ext: row.ext || '',
+        minPrice: Number(row.min_price) || 0,
+        maxPrice: Number(row.max_price) || 99999,
+        imageUrl: row.image_url || null,
+        customUrl: row.custom_url || null,
+        sortOrder: Number(row.sort_order) || 0,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        addedBy: row.added_by,
+    }));
+}
+
+export async function getCustomProduct(id) {
+    const r = await db.execute({
+        sql: 'SELECT id, name, query, type, serie, ext, min_price, max_price, image_url, custom_url, sort_order FROM tracked_products_custom WHERE id = ?',
+        args: [id],
+    });
+    if (!r.rows[0]) return null;
+    const row = r.rows[0];
+    return {
+        id: row.id,
+        name: row.name,
+        query: row.query,
+        type: row.type || 'coffret',
+        serie: row.serie || '',
+        ext: row.ext || '',
+        minPrice: Number(row.min_price) || 0,
+        maxPrice: Number(row.max_price) || 99999,
+        imageUrl: row.image_url || null,
+        customUrl: row.custom_url || null,
+        sortOrder: Number(row.sort_order) || 0,
+    };
+}
+
+export async function createCustomProduct(p, addedBy) {
+    const now = new Date().toISOString();
+    await db.execute({
+        sql: `INSERT INTO tracked_products_custom
+              (id, name, query, type, serie, ext, min_price, max_price, image_url, custom_url, sort_order, created_at, updated_at, added_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+            p.id, p.name, p.query, p.type || 'coffret',
+            p.serie || null, p.ext || null,
+            p.minPrice ?? 0, p.maxPrice ?? 99999,
+            p.imageUrl || null, p.customUrl || null,
+            p.sortOrder || 0, now, now, addedBy || null,
+        ],
+    });
+}
+
+export async function updateCustomProduct(id, p) {
+    const fields = [];
+    const args = [];
+    const map = {
+        name: 'name', query: 'query', type: 'type', serie: 'serie', ext: 'ext',
+        minPrice: 'min_price', maxPrice: 'max_price',
+        imageUrl: 'image_url', customUrl: 'custom_url',
+        sortOrder: 'sort_order',
+    };
+    for (const [k, dbCol] of Object.entries(map)) {
+        if (p[k] !== undefined) {
+            fields.push(`${dbCol} = ?`);
+            args.push(p[k] === null ? null : p[k]);
+        }
+    }
+    if (fields.length === 0) return false;
+    fields.push('updated_at = ?');
+    args.push(new Date().toISOString());
+    args.push(id);
+    const r = await db.execute({
+        sql: `UPDATE tracked_products_custom SET ${fields.join(', ')} WHERE id = ?`,
+        args,
+    });
+    return r.rowsAffected > 0;
+}
+
+export async function deleteCustomProduct(id) {
+    const r = await db.execute({
+        sql: 'DELETE FROM tracked_products_custom WHERE id = ?',
+        args: [id],
+    });
+    return r.rowsAffected > 0;
 }
 
 // ── Calendrier des sorties (release_calendar) ──────────────
