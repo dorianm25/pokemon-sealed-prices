@@ -239,7 +239,7 @@
                             </button>
                             <div class="pf-menu" id="pfMenu">
                                 <button onclick="exportPortfolioCSV(); closePfMenu()"><span>📥</span> Exporter CSV (portefeuille actif)</button>
-                                <button onclick="exportAllPortfoliosFullCSV(); closePfMenu()"><span>📊</span> Exporter Excel complet (tous portfolios)</button>
+                                <button onclick="exportAllPortfoliosFullCSV(); closePfMenu()"><span>📊</span> Exporter Excel (1 onglet par portfolio)</button>
                                 <button onclick="sharePortfolio(); closePfMenu()"><span>🔗</span> Partager</button>
                                 <button onclick="resetPortfolio(); closePfMenu()" class="pf-menu-danger"><span>↺</span> Réinitialiser</button>
                             </div>
@@ -966,6 +966,8 @@
     <!-- ZXing pour le scanner code-barres (compat iOS Safari, Android, desktop)
          Lib expose le global window.ZXing -->
     <script src="https://unpkg.com/@zxing/library@0.21.0/umd/index.min.js"></script>
+    <!-- SheetJS pour l'export Excel multi-onglets (window.XLSX) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="app.js"></script>
     <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});</script>
 </body>

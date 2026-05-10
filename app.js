@@ -4106,15 +4106,22 @@ function exportPortfolioCSV() {
     showToast('📥', 'Portfolio exporté', 'Fichier CSV téléchargé');
 }
 
-// ── Export Excel-compatible TOUS les portfolios + detail complet ────────
+// ── Export Excel XLSX : 1 onglet par portfolio + onglet recap ──────────
+// User : 'fait une page excel par portfolio ne melange pas les valeur,
+// le portfolio principal est le combine de tout les portfolio'.
 async function exportAllPortfoliosFullCSV() {
     if (!authToken) {
         showToast('🔒', 'Connexion requise', '');
         return;
     }
+    if (typeof window.XLSX === 'undefined') {
+        showToast('⚠️', 'Lib non chargée', 'SheetJS pas disponible, recharge la page');
+        return;
+    }
     showToast('⏳', 'Export en cours...', 'Récupération des portfolios');
 
     try {
+        // 1. Liste les groupes
         const grpRes = await fetch('/api/portfolio-groups', {
             headers: { 'Authorization': `Bearer ${authToken}` },
             cache: 'no-store',
@@ -4123,129 +4130,198 @@ async function exportAllPortfoliosFullCSV() {
         const grpData = await grpRes.json();
         const groups = grpData.groups || [];
 
-        const allHoldings = [];
+        // 2. Pour chaque groupe, fetch ses holdings (separement, pas merge)
+        const portfolios = [];
         for (const g of groups) {
             const url = g.id === 'default' ? '/api/portfolio' : `/api/portfolio?group_id=${encodeURIComponent(g.id)}`;
             const r = await fetch(url, { headers: { 'Authorization': `Bearer ${authToken}` }, cache: 'no-store' });
             if (!r.ok) continue;
             const holdings = await r.json();
+            const items = [];
             for (const [name, h] of Object.entries(holdings || {})) {
                 if (!h || h.qty <= 0) continue;
-                allHoldings.push({ groupId: g.id, groupName: g.name, groupIcon: g.icon || '', name, qty: h.qty, cost: h.cost || 0 });
+                items.push({ name, qty: h.qty, cost: h.cost || 0 });
             }
+            portfolios.push({ id: g.id, name: g.name, icon: g.icon || '', items });
         }
 
-        if (allHoldings.length === 0) {
+        const totalItems = portfolios.reduce((s, p) => s + p.items.length, 0);
+        if (totalItems === 0) {
             showToast('⚠️', 'Aucune position', 'Tes portfolios sont vides');
             return;
         }
 
-        // Separateur ';' (defaut Excel FR), UTF-8 BOM, virgules decimales FR
-        const SEP = ';';
-        const escape = (v) => {
-            const s = String(v == null ? '' : v);
-            if (s.includes(SEP) || s.includes('"') || s.includes('\n') || s.includes('\r')) {
-                return '"' + s.replace(/"/g, '""') + '"';
+        // 3. Cree le workbook XLSX
+        const wb = XLSX.utils.book_new();
+
+        // Helper : construit les rows de detail d'un portfolio
+        const buildSheet = (pf) => {
+            const header = [
+                'Produit', 'Type', 'Bloc', 'Extension',
+                'Quantité', 'PRU (€)', 'Prix médian (€)', 'Dernier prix (€)',
+                'Investi (€)', 'Valeur médian (€)', 'Valeur dernier (€)',
+                'P&L médian (€)', 'P&L %', 'P&L dernier (€)',
+            ];
+            const rows = [header];
+            // Trie par valeur descendante
+            const sorted = [...pf.items].sort((a, b) => {
+                const pa = products.find(pr => pr.name === a.name);
+                const pb = products.find(pr => pr.name === b.name);
+                return ((pb?.price || 0) * b.qty) - ((pa?.price || 0) * a.qty);
+            });
+            let totInv = 0, totValMed = 0, totValLast = 0, totQty = 0;
+            for (const h of sorted) {
+                const p = products.find(pr => pr.name === h.name);
+                const priceMedian = p?.price || 0;
+                const priceLast = p?.lastPrice || p?.lastListing?.price || priceMedian;
+                const invested = h.qty * h.cost;
+                const valueMedian = h.qty * priceMedian;
+                const valueLast = h.qty * priceLast;
+                const pnlMedian = valueMedian - invested;
+                const pnlLast = valueLast - invested;
+                const pnlPct = invested > 0 ? (pnlMedian / invested) * 100 : null;
+                rows.push([
+                    h.name,
+                    TYPE_LABELS[p?.type] || p?.type || '',
+                    p?.serie || '',
+                    p?.ext || '',
+                    h.qty,
+                    Number(h.cost.toFixed(2)),
+                    Number(priceMedian.toFixed(2)),
+                    Number(priceLast.toFixed(2)),
+                    Number(invested.toFixed(2)),
+                    Number(valueMedian.toFixed(2)),
+                    Number(valueLast.toFixed(2)),
+                    Number(pnlMedian.toFixed(2)),
+                    pnlPct == null ? null : Number(pnlPct.toFixed(2)),
+                    Number(pnlLast.toFixed(2)),
+                ]);
+                totInv += invested;
+                totValMed += valueMedian;
+                totValLast += valueLast;
+                totQty += h.qty;
             }
-            return s;
-        };
-        const fmtNum = (n) => {
-            if (n == null || isNaN(n)) return '';
-            return n.toFixed(2).replace('.', ',');
-        };
-
-        const header = [
-            'Portefeuille', 'Icône', 'Produit', 'Type', 'Bloc', 'Extension',
-            'Quantité', 'PRU (€)', 'Prix médian (€)', 'Dernier prix (€)',
-            'Investi (€)', 'Valeur médian (€)', 'Valeur dernier (€)',
-            'P&L médian (€)', 'P&L %', 'P&L dernier (€)',
-        ];
-        const rows = [header];
-
-        allHoldings.sort((a, b) => {
-            if (a.groupName !== b.groupName) return a.groupName.localeCompare(b.groupName);
-            const pa = products.find(p => p.name === a.name);
-            const pb = products.find(p => p.name === b.name);
-            const va = (pa?.price || 0) * a.qty;
-            const vb = (pb?.price || 0) * b.qty;
-            return vb - va;
-        });
-
-        const portfolioTotals = {};
-        let totalInvested = 0, totalValueMedian = 0, totalValueLast = 0;
-
-        for (const h of allHoldings) {
-            const p = products.find(pr => pr.name === h.name);
-            const priceMedian = p?.price || 0;
-            const priceLast = p?.lastPrice || p?.lastListing?.price || priceMedian;
-            const invested = h.qty * h.cost;
-            const valueMedian = h.qty * priceMedian;
-            const valueLast = h.qty * priceLast;
-            const pnlMedian = valueMedian - invested;
-            const pnlLast = valueLast - invested;
-            const pnlPct = invested > 0 ? (pnlMedian / invested) * 100 : 0;
-
+            // Ligne vide + ligne totaux
+            rows.push([]);
+            const totPnlMed = totValMed - totInv;
+            const totPnlLast = totValLast - totInv;
+            const totPnlPct = totInv > 0 ? (totPnlMed / totInv) * 100 : null;
             rows.push([
-                h.groupName, h.groupIcon, h.name,
-                TYPE_LABELS[p?.type] || p?.type || '',
-                p?.serie || '',
-                p?.ext || '',
-                h.qty,
-                fmtNum(h.cost),
-                fmtNum(priceMedian),
-                fmtNum(priceLast),
-                fmtNum(invested),
-                fmtNum(valueMedian),
-                fmtNum(valueLast),
-                fmtNum(pnlMedian),
-                invested > 0 ? fmtNum(pnlPct) + ' %' : '',
-                fmtNum(pnlLast),
+                'TOTAL', '', '', '', totQty, null,
+                null, null,
+                Number(totInv.toFixed(2)), Number(totValMed.toFixed(2)), Number(totValLast.toFixed(2)),
+                Number(totPnlMed.toFixed(2)),
+                totPnlPct == null ? null : Number(totPnlPct.toFixed(2)),
+                Number(totPnlLast.toFixed(2)),
             ]);
+            return rows;
+        };
 
-            if (!portfolioTotals[h.groupName]) {
-                portfolioTotals[h.groupName] = { invested: 0, valueMedian: 0, valueLast: 0, count: 0 };
+        // Helper : nettoie le nom d'onglet (max 31 chars, pas de chars interdits Excel)
+        const cleanSheetName = (name) => {
+            return name
+                .replace(/[\\/?*[\]:]/g, '')
+                .slice(0, 31)
+                .trim() || 'Portfolio';
+        };
+
+        // 4. Onglet RECAP en 1er : totals par portfolio
+        const recapHeader = ['Portefeuille', 'Icône', 'Nb produits', 'Total qty',
+            'Investi (€)', 'Valeur médian (€)', 'Valeur dernier (€)',
+            'P&L médian (€)', 'P&L %', 'P&L dernier (€)'];
+        const recapRows = [recapHeader];
+        let grandInv = 0, grandValMed = 0, grandValLast = 0, grandQty = 0;
+        for (const pf of portfolios) {
+            let inv = 0, valMed = 0, valLast = 0, qty = 0;
+            for (const h of pf.items) {
+                const p = products.find(pr => pr.name === h.name);
+                const pMed = p?.price || 0;
+                const pLast = p?.lastPrice || p?.lastListing?.price || pMed;
+                inv += h.qty * h.cost;
+                valMed += h.qty * pMed;
+                valLast += h.qty * pLast;
+                qty += h.qty;
             }
-            portfolioTotals[h.groupName].invested += invested;
-            portfolioTotals[h.groupName].valueMedian += valueMedian;
-            portfolioTotals[h.groupName].valueLast += valueLast;
-            portfolioTotals[h.groupName].count += h.qty;
+            const pnlMed = valMed - inv;
+            const pnlLast = valLast - inv;
+            const pnlPct = inv > 0 ? (pnlMed / inv) * 100 : null;
+            recapRows.push([
+                pf.name, pf.icon, pf.items.length, qty,
+                Number(inv.toFixed(2)), Number(valMed.toFixed(2)), Number(valLast.toFixed(2)),
+                Number(pnlMed.toFixed(2)), pnlPct == null ? null : Number(pnlPct.toFixed(2)),
+                Number(pnlLast.toFixed(2)),
+            ]);
+            // Le portfolio principal est deja le "combine" -> ne pas double-compter
+            // dans le total global. On inclut SEULEMENT les autres dans le total.
+            if (pf.id !== 'default') {
+                grandInv += inv;
+                grandValMed += valMed;
+                grandValLast += valLast;
+                grandQty += qty;
+            }
+        }
+        recapRows.push([]);
+        recapRows.push(['── TOTAL (hors Principal, somme des autres) ──']);
+        const grandPnlMed = grandValMed - grandInv;
+        const grandPnlLast = grandValLast - grandInv;
+        const grandPnlPct = grandInv > 0 ? (grandPnlMed / grandInv) * 100 : null;
+        recapRows.push([
+            'TOTAL', '', '', grandQty,
+            Number(grandInv.toFixed(2)), Number(grandValMed.toFixed(2)), Number(grandValLast.toFixed(2)),
+            Number(grandPnlMed.toFixed(2)), grandPnlPct == null ? null : Number(grandPnlPct.toFixed(2)),
+            Number(grandPnlLast.toFixed(2)),
+        ]);
+        const wsRecap = XLSX.utils.aoa_to_sheet(recapRows);
+        // Largeurs colonnes recap
+        wsRecap['!cols'] = [
+            { wch: 24 }, { wch: 6 }, { wch: 11 }, { wch: 9 },
+            { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 9 }, { wch: 14 },
+        ];
+        XLSX.utils.book_append_sheet(wb, wsRecap, 'Récap');
 
-            totalInvested += invested;
-            totalValueMedian += valueMedian;
-            totalValueLast += valueLast;
+        // 5. Une feuille par portfolio
+        const usedNames = new Set(['Récap']);
+        for (const pf of portfolios) {
+            let sheetName = cleanSheetName(pf.name);
+            // Dedup si collision
+            let suffix = 1;
+            const baseName = sheetName;
+            while (usedNames.has(sheetName)) {
+                suffix++;
+                sheetName = (baseName.slice(0, 28) + ' ' + suffix).slice(0, 31);
+            }
+            usedNames.add(sheetName);
+
+            const rows = buildSheet(pf);
+            const ws = XLSX.utils.aoa_to_sheet(rows);
+            // Largeurs
+            ws['!cols'] = [
+                { wch: 38 }, // Produit
+                { wch: 12 }, // Type
+                { wch: 18 }, // Bloc
+                { wch: 28 }, // Extension
+                { wch: 7 },  // Quantite
+                { wch: 9 },  // PRU
+                { wch: 11 }, // Prix median
+                { wch: 12 }, // Dernier prix
+                { wch: 11 }, // Investi
+                { wch: 14 }, // Valeur median
+                { wch: 14 }, // Valeur dernier
+                { wch: 12 }, // P&L median
+                { wch: 8 },  // P&L %
+                { wch: 13 }, // P&L dernier
+            ];
+            XLSX.utils.book_append_sheet(wb, ws, sheetName);
         }
 
-        rows.push([]);
-        rows.push(['── RÉCAP PAR PORTEFEUILLE ──']);
-        rows.push(['Portefeuille', '', '', '', '', '', 'Total qty', '', '', '',
-                   'Investi (€)', 'Valeur médian (€)', 'Valeur dernier (€)', 'P&L médian (€)', 'P&L %', 'P&L dernier (€)']);
-        for (const [name, t] of Object.entries(portfolioTotals)) {
-            const pnlMed = t.valueMedian - t.invested;
-            const pnlLast = t.valueLast - t.invested;
-            const pnlPct = t.invested > 0 ? (pnlMed / t.invested) * 100 : 0;
-            rows.push([name, '', '', '', '', '', t.count, '', '', '',
-                       fmtNum(t.invested), fmtNum(t.valueMedian), fmtNum(t.valueLast),
-                       fmtNum(pnlMed), t.invested > 0 ? fmtNum(pnlPct) + ' %' : '', fmtNum(pnlLast)]);
-        }
-
-        rows.push([]);
-        const totalPnlMed = totalValueMedian - totalInvested;
-        const totalPnlLast = totalValueLast - totalInvested;
-        const totalPnlPct = totalInvested > 0 ? (totalPnlMed / totalInvested) * 100 : 0;
-        rows.push(['── TOTAL GLOBAL ──', '', '', '', '', '', allHoldings.reduce((s, h) => s + h.qty, 0), '', '', '',
-                   fmtNum(totalInvested), fmtNum(totalValueMedian), fmtNum(totalValueLast),
-                   fmtNum(totalPnlMed), totalInvested > 0 ? fmtNum(totalPnlPct) + ' %' : '', fmtNum(totalPnlLast)]);
-
-        const csv = rows.map(r => r.map(escape).join(SEP)).join('\r\n');
-        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
+        // 6. Genere et telecharge
         const today = new Date().toISOString().slice(0, 10);
-        link.download = `pokescelle-portfolios-complet-${today}.csv`;
-        link.click();
+        const filename = `pokescelle-portfolios-${today}.xlsx`;
+        XLSX.writeFile(wb, filename);
 
-        showToast('📥', 'Export complet', `${allHoldings.length} positions sur ${groups.length} portfolios`);
+        showToast('📊', 'Excel exporté', `${portfolios.length} portfolios + Récap dans ${filename}`);
     } catch (e) {
+        console.error('[exportXLSX] error:', e);
         showToast('⚠️', 'Erreur export', e.message || 'Inconnue');
     }
 }
@@ -7110,7 +7186,7 @@ function _cmdkActions() {
         { type: 'action', icon: '⬆️', label: 'Remonter en haut',        hint: 'h', run: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
         { type: 'action', icon: '⌨️', label: 'Afficher les raccourcis clavier', hint: '?', run: () => openKbdHelp() },
         ...(currentUser ? [{ type: 'action', icon: '📤', label: 'Exporter portfolio actif (CSV)', run: () => typeof exportPortfolioCSV === 'function' ? exportPortfolioCSV() : null }] : []),
-        ...(currentUser ? [{ type: 'action', icon: '📊', label: 'Exporter Excel complet (tous portfolios)', run: () => typeof exportAllPortfoliosFullCSV === 'function' ? exportAllPortfoliosFullCSV() : null }] : []),
+        ...(currentUser ? [{ type: 'action', icon: '📊', label: 'Exporter Excel (1 onglet par portfolio)', run: () => typeof exportAllPortfoliosFullCSV === 'function' ? exportAllPortfoliosFullCSV() : null }] : []),
     ].filter(a => !a.requiresAuth || !!currentUser);
 }
 
