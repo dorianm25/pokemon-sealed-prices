@@ -6870,7 +6870,8 @@ body { transition: background-color 0.3s, color 0.3s; }
 
 /* Range selector */
 .pf-range,
-.pf-alloc-toggle {
+.pf-alloc-toggle,
+.pf-chart-mode {
     display: inline-flex;
     background: var(--bg-input);
     border: 1px solid var(--border);
@@ -6879,7 +6880,8 @@ body { transition: background-color 0.3s, color 0.3s; }
     gap: 2px;
 }
 .pf-range button,
-.pf-alloc-toggle button {
+.pf-alloc-toggle button,
+.pf-chart-mode button {
     padding: 5px 10px;
     font-size: 11px;
     font-weight: 600;
@@ -6893,12 +6895,30 @@ body { transition: background-color 0.3s, color 0.3s; }
     font-variant-numeric: tabular-nums;
 }
 .pf-range button:hover,
-.pf-alloc-toggle button:hover { color: var(--text-primary); }
+.pf-alloc-toggle button:hover,
+.pf-chart-mode button:hover { color: var(--text-primary); }
 .pf-range button.active,
 .pf-alloc-toggle button.active {
     background: linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,211,238,0.15));
     color: var(--text-primary);
     box-shadow: inset 0 0 0 1px rgba(34,197,94,0.3);
+}
+/* Mode chart : couleur cyan pour bien differencier des autres toggles */
+.pf-chart-mode button.active {
+    background: linear-gradient(135deg, rgba(56,189,248,0.2), rgba(34,211,238,0.15));
+    color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px rgba(56,189,248,0.4);
+}
+/* Container des controles : mode + range cote a cote */
+.pf-chart-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+@media (max-width: 540px) {
+    .pf-chart-controls { gap: 6px; }
+    .pf-chart-mode button, .pf-range button { padding: 4px 8px; font-size: 10px; }
 }
 
 /* Allocation */
