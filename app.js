@@ -4106,6 +4106,150 @@ function exportPortfolioCSV() {
     showToast('📥', 'Portfolio exporté', 'Fichier CSV téléchargé');
 }
 
+// ── Export Excel-compatible TOUS les portfolios + detail complet ────────
+async function exportAllPortfoliosFullCSV() {
+    if (!authToken) {
+        showToast('🔒', 'Connexion requise', '');
+        return;
+    }
+    showToast('⏳', 'Export en cours...', 'Récupération des portfolios');
+
+    try {
+        const grpRes = await fetch('/api/portfolio-groups', {
+            headers: { 'Authorization': `Bearer ${authToken}` },
+            cache: 'no-store',
+        });
+        if (!grpRes.ok) throw new Error('Échec récupération groupes');
+        const grpData = await grpRes.json();
+        const groups = grpData.groups || [];
+
+        const allHoldings = [];
+        for (const g of groups) {
+            const url = g.id === 'default' ? '/api/portfolio' : `/api/portfolio?group_id=${encodeURIComponent(g.id)}`;
+            const r = await fetch(url, { headers: { 'Authorization': `Bearer ${authToken}` }, cache: 'no-store' });
+            if (!r.ok) continue;
+            const holdings = await r.json();
+            for (const [name, h] of Object.entries(holdings || {})) {
+                if (!h || h.qty <= 0) continue;
+                allHoldings.push({ groupId: g.id, groupName: g.name, groupIcon: g.icon || '', name, qty: h.qty, cost: h.cost || 0 });
+            }
+        }
+
+        if (allHoldings.length === 0) {
+            showToast('⚠️', 'Aucune position', 'Tes portfolios sont vides');
+            return;
+        }
+
+        // Separateur ';' (defaut Excel FR), UTF-8 BOM, virgules decimales FR
+        const SEP = ';';
+        const escape = (v) => {
+            const s = String(v == null ? '' : v);
+            if (s.includes(SEP) || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+                return '"' + s.replace(/"/g, '""') + '"';
+            }
+            return s;
+        };
+        const fmtNum = (n) => {
+            if (n == null || isNaN(n)) return '';
+            return n.toFixed(2).replace('.', ',');
+        };
+
+        const header = [
+            'Portefeuille', 'Icône', 'Produit', 'Type', 'Bloc', 'Extension',
+            'Quantité', 'PRU (€)', 'Prix médian (€)', 'Dernier prix (€)',
+            'Investi (€)', 'Valeur médian (€)', 'Valeur dernier (€)',
+            'P&L médian (€)', 'P&L %', 'P&L dernier (€)',
+        ];
+        const rows = [header];
+
+        allHoldings.sort((a, b) => {
+            if (a.groupName !== b.groupName) return a.groupName.localeCompare(b.groupName);
+            const pa = products.find(p => p.name === a.name);
+            const pb = products.find(p => p.name === b.name);
+            const va = (pa?.price || 0) * a.qty;
+            const vb = (pb?.price || 0) * b.qty;
+            return vb - va;
+        });
+
+        const portfolioTotals = {};
+        let totalInvested = 0, totalValueMedian = 0, totalValueLast = 0;
+
+        for (const h of allHoldings) {
+            const p = products.find(pr => pr.name === h.name);
+            const priceMedian = p?.price || 0;
+            const priceLast = p?.lastPrice || p?.lastListing?.price || priceMedian;
+            const invested = h.qty * h.cost;
+            const valueMedian = h.qty * priceMedian;
+            const valueLast = h.qty * priceLast;
+            const pnlMedian = valueMedian - invested;
+            const pnlLast = valueLast - invested;
+            const pnlPct = invested > 0 ? (pnlMedian / invested) * 100 : 0;
+
+            rows.push([
+                h.groupName, h.groupIcon, h.name,
+                TYPE_LABELS[p?.type] || p?.type || '',
+                p?.serie || '',
+                p?.ext || '',
+                h.qty,
+                fmtNum(h.cost),
+                fmtNum(priceMedian),
+                fmtNum(priceLast),
+                fmtNum(invested),
+                fmtNum(valueMedian),
+                fmtNum(valueLast),
+                fmtNum(pnlMedian),
+                invested > 0 ? fmtNum(pnlPct) + ' %' : '',
+                fmtNum(pnlLast),
+            ]);
+
+            if (!portfolioTotals[h.groupName]) {
+                portfolioTotals[h.groupName] = { invested: 0, valueMedian: 0, valueLast: 0, count: 0 };
+            }
+            portfolioTotals[h.groupName].invested += invested;
+            portfolioTotals[h.groupName].valueMedian += valueMedian;
+            portfolioTotals[h.groupName].valueLast += valueLast;
+            portfolioTotals[h.groupName].count += h.qty;
+
+            totalInvested += invested;
+            totalValueMedian += valueMedian;
+            totalValueLast += valueLast;
+        }
+
+        rows.push([]);
+        rows.push(['── RÉCAP PAR PORTEFEUILLE ──']);
+        rows.push(['Portefeuille', '', '', '', '', '', 'Total qty', '', '', '',
+                   'Investi (€)', 'Valeur médian (€)', 'Valeur dernier (€)', 'P&L médian (€)', 'P&L %', 'P&L dernier (€)']);
+        for (const [name, t] of Object.entries(portfolioTotals)) {
+            const pnlMed = t.valueMedian - t.invested;
+            const pnlLast = t.valueLast - t.invested;
+            const pnlPct = t.invested > 0 ? (pnlMed / t.invested) * 100 : 0;
+            rows.push([name, '', '', '', '', '', t.count, '', '', '',
+                       fmtNum(t.invested), fmtNum(t.valueMedian), fmtNum(t.valueLast),
+                       fmtNum(pnlMed), t.invested > 0 ? fmtNum(pnlPct) + ' %' : '', fmtNum(pnlLast)]);
+        }
+
+        rows.push([]);
+        const totalPnlMed = totalValueMedian - totalInvested;
+        const totalPnlLast = totalValueLast - totalInvested;
+        const totalPnlPct = totalInvested > 0 ? (totalPnlMed / totalInvested) * 100 : 0;
+        rows.push(['── TOTAL GLOBAL ──', '', '', '', '', '', allHoldings.reduce((s, h) => s + h.qty, 0), '', '', '',
+                   fmtNum(totalInvested), fmtNum(totalValueMedian), fmtNum(totalValueLast),
+                   fmtNum(totalPnlMed), totalInvested > 0 ? fmtNum(totalPnlPct) + ' %' : '', fmtNum(totalPnlLast)]);
+
+        const csv = rows.map(r => r.map(escape).join(SEP)).join('\r\n');
+        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        const today = new Date().toISOString().slice(0, 10);
+        link.download = `pokescelle-portfolios-complet-${today}.csv`;
+        link.click();
+
+        showToast('📥', 'Export complet', `${allHoldings.length} positions sur ${groups.length} portfolios`);
+    } catch (e) {
+        showToast('⚠️', 'Erreur export', e.message || 'Inconnue');
+    }
+}
+
 // ── Simulation ──────────────────────────────────────────────
 
 let simScenario = 'moderate';
@@ -6965,7 +7109,8 @@ function _cmdkActions() {
         { type: 'action', icon: '🎨', label: 'Basculer thème clair/sombre', hint: 't', run: () => toggleTheme?.() },
         { type: 'action', icon: '⬆️', label: 'Remonter en haut',        hint: 'h', run: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
         { type: 'action', icon: '⌨️', label: 'Afficher les raccourcis clavier', hint: '?', run: () => openKbdHelp() },
-        ...(currentUser ? [{ type: 'action', icon: '📤', label: 'Exporter portfolio (CSV)', run: () => typeof exportPortfolioCSV === 'function' ? exportPortfolioCSV() : null }] : []),
+        ...(currentUser ? [{ type: 'action', icon: '📤', label: 'Exporter portfolio actif (CSV)', run: () => typeof exportPortfolioCSV === 'function' ? exportPortfolioCSV() : null }] : []),
+        ...(currentUser ? [{ type: 'action', icon: '📊', label: 'Exporter Excel complet (tous portfolios)', run: () => typeof exportAllPortfoliosFullCSV === 'function' ? exportAllPortfoliosFullCSV() : null }] : []),
     ].filter(a => !a.requiresAuth || !!currentUser);
 }
 

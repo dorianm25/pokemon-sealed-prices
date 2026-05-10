@@ -238,7 +238,8 @@
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
                             </button>
                             <div class="pf-menu" id="pfMenu">
-                                <button onclick="exportPortfolioCSV(); closePfMenu()"><span>📥</span> Exporter CSV</button>
+                                <button onclick="exportPortfolioCSV(); closePfMenu()"><span>📥</span> Exporter CSV (portefeuille actif)</button>
+                                <button onclick="exportAllPortfoliosFullCSV(); closePfMenu()"><span>📊</span> Exporter Excel complet (tous portfolios)</button>
                                 <button onclick="sharePortfolio(); closePfMenu()"><span>🔗</span> Partager</button>
                                 <button onclick="resetPortfolio(); closePfMenu()" class="pf-menu-danger"><span>↺</span> Réinitialiser</button>
                             </div>
