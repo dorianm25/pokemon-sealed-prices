@@ -9674,7 +9674,29 @@ async function sendAiMessage() {
                 history: _aiHistory.slice(0, -1), // sans le dernier (qu'on vient d'ajouter)
             }),
         });
-        const data = await res.json();
+
+        // Detecte si la reponse n'est pas du JSON (page HTML d'erreur de Render, etc.)
+        const contentType = res.headers.get('content-type') || '';
+        let data = null;
+        if (contentType.includes('application/json')) {
+            data = await res.json();
+        } else {
+            // Probable redéploiement en cours ou crash serveur
+            const text = await res.text().catch(() => '');
+            const isHtml = text.includes('<!DOCTYPE') || text.includes('<html');
+            document.getElementById('aiTyping')?.remove();
+            const help = isHtml
+                ? '\n\n💡 Le serveur redéploie peut-être. Attends 1 min et retente avec Ctrl+Shift+R.'
+                : '';
+            _aiHistory.push({
+                role: 'assistant',
+                content: `⚠️ Erreur serveur (HTTP ${res.status}). Réponse non-JSON reçue.${help}`,
+            });
+            saveAiHistory();
+            renderAiMessages();
+            return;
+        }
+
         document.getElementById('aiTyping')?.remove();
         if (!res.ok) {
             const errMsg = data?.error || `HTTP ${res.status}`;
