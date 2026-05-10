@@ -2282,21 +2282,6 @@ app.post('/api/ai/chat', authMiddleware, async (req, res) => {
             return `═══ ${b.name} ═══\n  Valeur stockee : ${b.value} €  ·  P&L estime : ${b.pnl >= 0 ? '+' : ''}${b.pnl} € (${b.pnlPct != null ? (b.pnlPct >= 0 ? '+' : '') + b.pnlPct + ' %' : 'n/a'})  ·  ${b.itemsCount} item(s)\n${itemsTxt || '  (vide)'}`;
         }).join('\n\n');
 
-        // Construit le prompt systeme avec le contexte structure par portefeuille
-        // Limite le nombre d'items par portefeuille pour controler la taille du prompt
-        const MAX_ITEMS_PER_PF = 20;
-        const portfoliosBlock = portfolios.map(pf => {
-            const items = pf.positions.slice(0, MAX_ITEMS_PER_PF);
-            const truncated = pf.positions.length - items.length;
-            const itemsTxt = items.length > 0
-                ? items.map(p => `  - ${p.name} : ${p.qty}x · PRU ${p.pru} € · prix ${p.price} € · valeur ${p.value} € · P&L ${p.pnl >= 0 ? '+' : ''}${p.pnl} € (${p.pnlPct != null ? (p.pnlPct >= 0 ? '+' : '') + p.pnlPct + ' %' : 'n/a'})`).join('\n')
-                : '  (vide)';
-            const truncTxt = truncated > 0 ? `\n  ... + ${truncated} autre(s) position(s)` : '';
-            return `═══ ${pf.name} ═══
-  Investi : ${pf.invested} €  ·  Valeur : ${pf.value} €  ·  P&L : ${pf.pnl >= 0 ? '+' : ''}${pf.pnl} € (${pf.pnlPct != null ? (pf.pnlPct >= 0 ? '+' : '') + pf.pnlPct + ' %' : 'n/a'})  ·  ${pf.positionsCount} position(s)
-${itemsTxt}${truncTxt}`;
-        }).join('\n\n');
-
         const systemPrompt = `Tu es un conseiller financier specialise dans le marche des cartes Pokemon scellees francaises.
 Tu aides l'utilisateur a prendre des decisions sur son portefeuille de produits scelles (boosters, displays, ETB, coffrets, etc.).
 Tu reponds en francais, avec un ton professionnel mais accessible.
