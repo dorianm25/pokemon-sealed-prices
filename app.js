@@ -4106,19 +4106,22 @@ function exportPortfolioCSV() {
     showToast('📥', 'Portfolio exporté', 'Fichier CSV téléchargé');
 }
 
-// ── Export Excel XLSX : 1 onglet par portfolio + onglet recap ──────────
-// User : 'fait une page excel par portfolio ne melange pas les valeur,
-// le portfolio principal est le combine de tout les portfolio'.
+// ── Export Excel XLSX : 1 onglet par portfolio + recap + charts ──────
+// User : 'fait une page excel par portfolio... rajoute des graphique et
+// des couleurs etc que ça soit + beau et + comprehensible'.
+//
+// Utilise ExcelJS pour les couleurs/formatage + Chart.js pour generer
+// les images de graphiques embarquees dans le fichier.
 async function exportAllPortfoliosFullCSV() {
     if (!authToken) {
         showToast('🔒', 'Connexion requise', '');
         return;
     }
-    if (typeof window.XLSX === 'undefined') {
-        showToast('⚠️', 'Lib non chargée', 'SheetJS pas disponible, recharge la page');
+    if (typeof window.ExcelJS === 'undefined') {
+        showToast('⚠️', 'Lib non chargée', 'ExcelJS pas disponible, recharge la page');
         return;
     }
-    showToast('⏳', 'Export en cours...', 'Récupération des portfolios');
+    showToast('⏳', 'Export en cours...', 'Récupération des portfolios + génération des graphiques');
 
     try {
         // 1. Liste les groupes
@@ -4151,86 +4154,96 @@ async function exportAllPortfoliosFullCSV() {
             return;
         }
 
-        // 3. Cree le workbook XLSX
-        const wb = XLSX.utils.book_new();
+        // 3. Cree le workbook ExcelJS avec styling complet
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'PokéScellé';
+        wb.created = new Date();
 
-        // Helper : construit les rows de detail d'un portfolio
-        const buildSheet = (pf) => {
-            const header = [
-                'Produit', 'Type', 'Bloc', 'Extension',
-                'Quantité', 'PRU (€)', 'Prix médian (€)', 'Dernier prix (€)',
-                'Investi (€)', 'Valeur médian (€)', 'Valeur dernier (€)',
-                'P&L médian (€)', 'P&L %', 'P&L dernier (€)',
-            ];
-            const rows = [header];
-            // Trie par valeur descendante
-            const sorted = [...pf.items].sort((a, b) => {
-                const pa = products.find(pr => pr.name === a.name);
-                const pb = products.find(pr => pr.name === b.name);
-                return ((pb?.price || 0) * b.qty) - ((pa?.price || 0) * a.qty);
-            });
-            let totInv = 0, totValMed = 0, totValLast = 0, totQty = 0;
-            for (const h of sorted) {
-                const p = products.find(pr => pr.name === h.name);
-                const priceMedian = p?.price || 0;
-                const priceLast = p?.lastPrice || p?.lastListing?.price || priceMedian;
-                const invested = h.qty * h.cost;
-                const valueMedian = h.qty * priceMedian;
-                const valueLast = h.qty * priceLast;
-                const pnlMedian = valueMedian - invested;
-                const pnlLast = valueLast - invested;
-                const pnlPct = invested > 0 ? (pnlMedian / invested) * 100 : null;
-                rows.push([
-                    h.name,
-                    TYPE_LABELS[p?.type] || p?.type || '',
-                    p?.serie || '',
-                    p?.ext || '',
-                    h.qty,
-                    Number(h.cost.toFixed(2)),
-                    Number(priceMedian.toFixed(2)),
-                    Number(priceLast.toFixed(2)),
-                    Number(invested.toFixed(2)),
-                    Number(valueMedian.toFixed(2)),
-                    Number(valueLast.toFixed(2)),
-                    Number(pnlMedian.toFixed(2)),
-                    pnlPct == null ? null : Number(pnlPct.toFixed(2)),
-                    Number(pnlLast.toFixed(2)),
-                ]);
-                totInv += invested;
-                totValMed += valueMedian;
-                totValLast += valueLast;
-                totQty += h.qty;
-            }
-            // Ligne vide + ligne totaux
-            rows.push([]);
-            const totPnlMed = totValMed - totInv;
-            const totPnlLast = totValLast - totInv;
-            const totPnlPct = totInv > 0 ? (totPnlMed / totInv) * 100 : null;
-            rows.push([
-                'TOTAL', '', '', '', totQty, null,
-                null, null,
-                Number(totInv.toFixed(2)), Number(totValMed.toFixed(2)), Number(totValLast.toFixed(2)),
-                Number(totPnlMed.toFixed(2)),
-                totPnlPct == null ? null : Number(totPnlPct.toFixed(2)),
-                Number(totPnlLast.toFixed(2)),
-            ]);
-            return rows;
+        // Palette : couleurs ARGB (FF prefixe = opaque)
+        const COLORS = {
+            headerBg: 'FF1A2B3C',         // bleu sombre
+            headerText: 'FFFFFFFF',       // blanc
+            titleBg: 'FF2EA043',          // vert brand
+            titleText: 'FFFFFFFF',
+            zebraEven: 'FFF8FAFC',        // gris tres clair
+            zebraOdd: 'FFFFFFFF',         // blanc
+            totalBg: 'FFD1FAE5',          // vert clair pour la ligne TOTAL
+            totalText: 'FF065F46',        // vert sombre
+            pnlPositive: 'FF22C55E',
+            pnlNegative: 'FFEF4444',
+            border: 'FFCBD5E1',           // gris border
         };
 
-        // Helper : nettoie le nom d'onglet (max 31 chars, pas de chars interdits Excel)
+        // Helper : nettoie nom d'onglet
         const cleanSheetName = (name) => {
-            return name
-                .replace(/[\\/?*[\]:]/g, '')
-                .slice(0, 31)
-                .trim() || 'Portfolio';
+            return name.replace(/[\\/?*[\]:]/g, '').slice(0, 31).trim() || 'Portfolio';
         };
 
-        // 4. Onglet RECAP en 1er : totals par portfolio
+        // Helper : applique les bordures fines a une plage
+        const applyBorders = (ws, startRow, endRow, startCol, endCol) => {
+            for (let r = startRow; r <= endRow; r++) {
+                for (let c = startCol; c <= endCol; c++) {
+                    ws.getCell(r, c).border = {
+                        top: { style: 'thin', color: { argb: COLORS.border } },
+                        left: { style: 'thin', color: { argb: COLORS.border } },
+                        bottom: { style: 'thin', color: { argb: COLORS.border } },
+                        right: { style: 'thin', color: { argb: COLORS.border } },
+                    };
+                }
+            }
+        };
+
+        // Helper : color une cell P&L (vert / rouge / gris)
+        const colorPnlCell = (cell, value) => {
+            if (value == null || value === 0) {
+                cell.font = { color: { argb: 'FF64748B' } };
+            } else if (value > 0) {
+                cell.font = { color: { argb: COLORS.pnlPositive }, bold: true };
+            } else {
+                cell.font = { color: { argb: COLORS.pnlNegative }, bold: true };
+            }
+        };
+
+        // ═══ ONGLET RECAP (premier) ═══
+        const wsRecap = wb.addWorksheet('Récap', {
+            views: [{ state: 'frozen', ySplit: 3 }],
+        });
+
+        // Titre merge
+        wsRecap.mergeCells('A1:J1');
+        const titleCell = wsRecap.getCell('A1');
+        titleCell.value = `📊 Synthèse des portfolios — ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+        titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: COLORS.titleText } };
+        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.titleBg } };
+        titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        wsRecap.getRow(1).height = 32;
+
+        // Ligne vide
+        wsRecap.getRow(2).height = 6;
+
+        // Header
         const recapHeader = ['Portefeuille', 'Icône', 'Nb produits', 'Total qty',
             'Investi (€)', 'Valeur médian (€)', 'Valeur dernier (€)',
             'P&L médian (€)', 'P&L %', 'P&L dernier (€)'];
-        const recapRows = [recapHeader];
+        wsRecap.addRow([]); // row 2 deja existante (vide)
+        const headerRow = wsRecap.getRow(3);
+        recapHeader.forEach((h, i) => {
+            headerRow.getCell(i + 1).value = h;
+        });
+        headerRow.font = { bold: true, color: { argb: COLORS.headerText }, size: 11 };
+        headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.headerBg } };
+        headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
+        headerRow.height = 24;
+
+        // Largeurs colonnes recap
+        wsRecap.columns = [
+            { width: 28 }, { width: 8 }, { width: 12 }, { width: 11 },
+            { width: 14 }, { width: 17 }, { width: 17 }, { width: 15 }, { width: 11 }, { width: 15 },
+        ];
+
+        // Data rows
         let grandInv = 0, grandValMed = 0, grandValLast = 0, grandQty = 0;
+        const recapData = [];
         for (const pf of portfolios) {
             let inv = 0, valMed = 0, valLast = 0, qty = 0;
             for (const h of pf.items) {
@@ -4244,15 +4257,8 @@ async function exportAllPortfoliosFullCSV() {
             }
             const pnlMed = valMed - inv;
             const pnlLast = valLast - inv;
-            const pnlPct = inv > 0 ? (pnlMed / inv) * 100 : null;
-            recapRows.push([
-                pf.name, pf.icon, pf.items.length, qty,
-                Number(inv.toFixed(2)), Number(valMed.toFixed(2)), Number(valLast.toFixed(2)),
-                Number(pnlMed.toFixed(2)), pnlPct == null ? null : Number(pnlPct.toFixed(2)),
-                Number(pnlLast.toFixed(2)),
-            ]);
-            // Le portfolio principal est deja le "combine" -> ne pas double-compter
-            // dans le total global. On inclut SEULEMENT les autres dans le total.
+            const pnlPct = inv > 0 ? (pnlMed / inv) / 100 : null; // /100 pour format Excel %
+            recapData.push({ pf, inv, valMed, valLast, qty, pnlMed, pnlLast, pnlPct });
             if (pf.id !== 'default') {
                 grandInv += inv;
                 grandValMed += valMed;
@@ -4260,30 +4266,125 @@ async function exportAllPortfoliosFullCSV() {
                 grandQty += qty;
             }
         }
-        recapRows.push([]);
-        recapRows.push(['── TOTAL (hors Principal, somme des autres) ──']);
+
+        recapData.forEach((d, idx) => {
+            const rowIdx = 4 + idx;
+            const row = wsRecap.getRow(rowIdx);
+            row.getCell(1).value = d.pf.name;
+            row.getCell(2).value = d.pf.icon || '';
+            row.getCell(3).value = d.pf.items.length;
+            row.getCell(4).value = d.qty;
+            row.getCell(5).value = d.inv;
+            row.getCell(6).value = d.valMed;
+            row.getCell(7).value = d.valLast;
+            row.getCell(8).value = d.pnlMed;
+            row.getCell(9).value = d.pnlPct;
+            row.getCell(10).value = d.pnlLast;
+            // Zebra
+            const zebra = idx % 2 === 0 ? COLORS.zebraEven : COLORS.zebraOdd;
+            for (let c = 1; c <= 10; c++) {
+                row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: zebra } };
+            }
+            // Number formats
+            row.getCell(5).numFmt = '#,##0.00 "€"';
+            row.getCell(6).numFmt = '#,##0.00 "€"';
+            row.getCell(7).numFmt = '#,##0.00 "€"';
+            row.getCell(8).numFmt = '#,##0.00 "€"';
+            row.getCell(9).numFmt = '0.00%';
+            row.getCell(10).numFmt = '#,##0.00 "€"';
+            // Coloration P&L
+            colorPnlCell(row.getCell(8), d.pnlMed);
+            colorPnlCell(row.getCell(9), d.pnlPct);
+            colorPnlCell(row.getCell(10), d.pnlLast);
+            // Bold pour le portfolio Principal (pour le distinguer)
+            if (d.pf.id === 'default') {
+                row.getCell(1).font = { bold: true };
+            }
+        });
+
+        // Ligne TOTAL hors principal
+        const totalRowIdx = 4 + recapData.length + 1;
+        wsRecap.mergeCells(totalRowIdx, 1, totalRowIdx, 3);
+        const totalRow = wsRecap.getRow(totalRowIdx);
+        totalRow.getCell(1).value = 'TOTAL (somme des boxes, hors Principal)';
+        totalRow.getCell(4).value = grandQty;
+        totalRow.getCell(5).value = grandInv;
+        totalRow.getCell(6).value = grandValMed;
+        totalRow.getCell(7).value = grandValLast;
         const grandPnlMed = grandValMed - grandInv;
         const grandPnlLast = grandValLast - grandInv;
-        const grandPnlPct = grandInv > 0 ? (grandPnlMed / grandInv) * 100 : null;
-        recapRows.push([
-            'TOTAL', '', '', grandQty,
-            Number(grandInv.toFixed(2)), Number(grandValMed.toFixed(2)), Number(grandValLast.toFixed(2)),
-            Number(grandPnlMed.toFixed(2)), grandPnlPct == null ? null : Number(grandPnlPct.toFixed(2)),
-            Number(grandPnlLast.toFixed(2)),
-        ]);
-        const wsRecap = XLSX.utils.aoa_to_sheet(recapRows);
-        // Largeurs colonnes recap
-        wsRecap['!cols'] = [
-            { wch: 24 }, { wch: 6 }, { wch: 11 }, { wch: 9 },
-            { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 9 }, { wch: 14 },
-        ];
-        XLSX.utils.book_append_sheet(wb, wsRecap, 'Récap');
+        const grandPnlPct = grandInv > 0 ? (grandPnlMed / grandInv) / 100 : null;
+        totalRow.getCell(8).value = grandPnlMed;
+        totalRow.getCell(9).value = grandPnlPct;
+        totalRow.getCell(10).value = grandPnlLast;
+        for (let c = 1; c <= 10; c++) {
+            totalRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.totalBg } };
+            totalRow.getCell(c).font = { bold: true, color: { argb: COLORS.totalText } };
+        }
+        totalRow.getCell(5).numFmt = '#,##0.00 "€"';
+        totalRow.getCell(6).numFmt = '#,##0.00 "€"';
+        totalRow.getCell(7).numFmt = '#,##0.00 "€"';
+        totalRow.getCell(8).numFmt = '#,##0.00 "€"';
+        totalRow.getCell(9).numFmt = '0.00%';
+        totalRow.getCell(10).numFmt = '#,##0.00 "€"';
+        totalRow.height = 22;
+        applyBorders(wsRecap, 3, totalRowIdx, 1, 10);
 
-        // 5. Une feuille par portfolio
+        // Auto-filter sur header
+        wsRecap.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + recapData.length, column: 10 } };
+
+        // ═══ CHART : barres horizontales Investi vs Valeur par portfolio ═══
+        try {
+            const chartCanvas = document.createElement('canvas');
+            chartCanvas.width = 900;
+            chartCanvas.height = 450;
+            // Le canvas doit etre dans le DOM pour Chart.js
+            chartCanvas.style.position = 'fixed';
+            chartCanvas.style.left = '-9999px';
+            document.body.appendChild(chartCanvas);
+            const chartLabels = recapData.map(d => d.pf.name);
+            const chartInv = recapData.map(d => d.inv);
+            const chartValMed = recapData.map(d => d.valMed);
+            new Chart(chartCanvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: chartLabels,
+                    datasets: [
+                        { label: 'Investi (€)', data: chartInv, backgroundColor: 'rgba(148,163,184,0.7)', borderColor: '#94a3b8', borderWidth: 1 },
+                        { label: 'Valeur médian (€)', data: chartValMed, backgroundColor: 'rgba(46,160,67,0.7)', borderColor: '#2ea043', borderWidth: 1 },
+                    ],
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: false,
+                    animation: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#1e293b', font: { size: 12 } } },
+                        title: { display: true, text: 'Investi vs Valeur médiane par portfolio', font: { size: 14, weight: 'bold' }, color: '#1e293b' },
+                    },
+                    scales: {
+                        x: { ticks: { color: '#475569', callback: v => v + ' €' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                        y: { ticks: { color: '#1e293b', font: { weight: '600' } }, grid: { display: false } },
+                    },
+                },
+            });
+            // Petit delai pour que Chart.js dessine, puis convert
+            await new Promise(r => setTimeout(r, 100));
+            const imgBase64 = chartCanvas.toDataURL('image/png').split(',')[1];
+            document.body.removeChild(chartCanvas);
+            const imgId = wb.addImage({ base64: imgBase64, extension: 'png' });
+            wsRecap.addImage(imgId, {
+                tl: { col: 0, row: totalRowIdx + 2 },
+                ext: { width: 900, height: 450 },
+            });
+        } catch (e) {
+            console.warn('[exportXLSX] chart embed failed', e);
+        }
+
+        // ═══ ONGLETS PAR PORTFOLIO ═══
         const usedNames = new Set(['Récap']);
         for (const pf of portfolios) {
             let sheetName = cleanSheetName(pf.name);
-            // Dedup si collision
             let suffix = 1;
             const baseName = sheetName;
             while (usedNames.has(sheetName)) {
@@ -4292,34 +4393,133 @@ async function exportAllPortfoliosFullCSV() {
             }
             usedNames.add(sheetName);
 
-            const rows = buildSheet(pf);
-            const ws = XLSX.utils.aoa_to_sheet(rows);
-            // Largeurs
-            ws['!cols'] = [
-                { wch: 38 }, // Produit
-                { wch: 12 }, // Type
-                { wch: 18 }, // Bloc
-                { wch: 28 }, // Extension
-                { wch: 7 },  // Quantite
-                { wch: 9 },  // PRU
-                { wch: 11 }, // Prix median
-                { wch: 12 }, // Dernier prix
-                { wch: 11 }, // Investi
-                { wch: 14 }, // Valeur median
-                { wch: 14 }, // Valeur dernier
-                { wch: 12 }, // P&L median
-                { wch: 8 },  // P&L %
-                { wch: 13 }, // P&L dernier
+            const ws = wb.addWorksheet(sheetName, { views: [{ state: 'frozen', ySplit: 3 }] });
+
+            // Titre
+            ws.mergeCells('A1:N1');
+            const t = ws.getCell('A1');
+            t.value = `${pf.icon || ''} ${pf.name}`;
+            t.font = { name: 'Calibri', size: 14, bold: true, color: { argb: COLORS.titleText } };
+            t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.titleBg } };
+            t.alignment = { horizontal: 'center', vertical: 'middle' };
+            ws.getRow(1).height = 28;
+            ws.getRow(2).height = 6;
+
+            // Header
+            const header = ['Produit', 'Type', 'Bloc', 'Extension',
+                'Quantité', 'PRU (€)', 'Prix médian (€)', 'Dernier prix (€)',
+                'Investi (€)', 'Valeur médian (€)', 'Valeur dernier (€)',
+                'P&L médian (€)', 'P&L %', 'P&L dernier (€)'];
+            const hRow = ws.getRow(3);
+            header.forEach((h, i) => { hRow.getCell(i + 1).value = h; });
+            hRow.font = { bold: true, color: { argb: COLORS.headerText }, size: 11 };
+            hRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.headerBg } };
+            hRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            hRow.height = 28;
+
+            ws.columns = [
+                { width: 38 }, { width: 13 }, { width: 19 }, { width: 26 },
+                { width: 8 }, { width: 9 }, { width: 12 }, { width: 13 },
+                { width: 12 }, { width: 14 }, { width: 14 }, { width: 13 }, { width: 9 }, { width: 14 },
             ];
-            XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+            // Trie items par valeur descendante
+            const sorted = [...pf.items].sort((a, b) => {
+                const pa = products.find(pr => pr.name === a.name);
+                const pb = products.find(pr => pr.name === b.name);
+                return ((pb?.price || 0) * b.qty) - ((pa?.price || 0) * a.qty);
+            });
+
+            let totInv = 0, totValMed = 0, totValLast = 0, totQty = 0;
+            sorted.forEach((h, idx) => {
+                const p = products.find(pr => pr.name === h.name);
+                const priceMedian = p?.price || 0;
+                const priceLast = p?.lastPrice || p?.lastListing?.price || priceMedian;
+                const invested = h.qty * h.cost;
+                const valueMedian = h.qty * priceMedian;
+                const valueLast = h.qty * priceLast;
+                const pnlMedian = valueMedian - invested;
+                const pnlLast = valueLast - invested;
+                const pnlPct = invested > 0 ? (pnlMedian / invested) / 100 : null;
+
+                const rowIdx = 4 + idx;
+                const row = ws.getRow(rowIdx);
+                row.getCell(1).value = h.name;
+                row.getCell(2).value = TYPE_LABELS[p?.type] || p?.type || '';
+                row.getCell(3).value = p?.serie || '';
+                row.getCell(4).value = p?.ext || '';
+                row.getCell(5).value = h.qty;
+                row.getCell(6).value = h.cost;
+                row.getCell(7).value = priceMedian;
+                row.getCell(8).value = priceLast;
+                row.getCell(9).value = invested;
+                row.getCell(10).value = valueMedian;
+                row.getCell(11).value = valueLast;
+                row.getCell(12).value = pnlMedian;
+                row.getCell(13).value = pnlPct;
+                row.getCell(14).value = pnlLast;
+
+                // Zebra
+                const zebra = idx % 2 === 0 ? COLORS.zebraEven : COLORS.zebraOdd;
+                for (let c = 1; c <= 14; c++) {
+                    row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: zebra } };
+                }
+                // Formats numeriques
+                ['6', '7', '8', '9', '10', '11', '12', '14'].forEach(col => {
+                    row.getCell(parseInt(col)).numFmt = '#,##0.00 "€"';
+                });
+                row.getCell(13).numFmt = '0.00%';
+                // Color P&L
+                colorPnlCell(row.getCell(12), pnlMedian);
+                colorPnlCell(row.getCell(13), pnlPct);
+                colorPnlCell(row.getCell(14), pnlLast);
+
+                totInv += invested;
+                totValMed += valueMedian;
+                totValLast += valueLast;
+                totQty += h.qty;
+            });
+
+            // Ligne TOTAL
+            const totRowIdx = 4 + sorted.length + 1;
+            ws.mergeCells(totRowIdx, 1, totRowIdx, 4);
+            const tr = ws.getRow(totRowIdx);
+            tr.getCell(1).value = 'TOTAL';
+            tr.getCell(5).value = totQty;
+            tr.getCell(9).value = totInv;
+            tr.getCell(10).value = totValMed;
+            tr.getCell(11).value = totValLast;
+            const totPnlMed = totValMed - totInv;
+            const totPnlLast = totValLast - totInv;
+            const totPnlPct = totInv > 0 ? (totPnlMed / totInv) / 100 : null;
+            tr.getCell(12).value = totPnlMed;
+            tr.getCell(13).value = totPnlPct;
+            tr.getCell(14).value = totPnlLast;
+            for (let c = 1; c <= 14; c++) {
+                tr.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.totalBg } };
+                tr.getCell(c).font = { bold: true, color: { argb: COLORS.totalText } };
+            }
+            ['9', '10', '11', '12', '14'].forEach(col => { tr.getCell(parseInt(col)).numFmt = '#,##0.00 "€"'; });
+            tr.getCell(13).numFmt = '0.00%';
+            tr.height = 22;
+
+            applyBorders(ws, 3, totRowIdx, 1, 14);
+            ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + sorted.length, column: 14 } };
         }
 
         // 6. Genere et telecharge
         const today = new Date().toISOString().slice(0, 10);
         const filename = `pokescelle-portfolios-${today}.xlsx`;
-        XLSX.writeFile(wb, filename);
+        const buffer = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(url);
 
-        showToast('📊', 'Excel exporté', `${portfolios.length} portfolios + Récap dans ${filename}`);
+        showToast('📊', 'Excel exporté', `${portfolios.length} portfolios + Récap + graphique`);
     } catch (e) {
         console.error('[exportXLSX] error:', e);
         showToast('⚠️', 'Erreur export', e.message || 'Inconnue');
