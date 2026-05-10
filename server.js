@@ -2226,6 +2226,46 @@ app.post('/api/ai/chat', authMiddleware, async (req, res) => {
         portfolios.sort((a, b) => b.value - a.value);
         const portfolioCount = portfolios.length;
 
+        // Vue agregee PAR PRODUIT (pour repondre a "top 5 positions" sans doublons).
+        // On somme qty et valeur, mais on garde le detail des emplacements pour transparence.
+        const byProduct = {}; // name -> { qty, value, invested, breakdown:[{pf,qty}] }
+        for (const pf of portfolios) {
+            for (const pos of pf.positions) {
+                if (!byProduct[pos.name]) {
+                    byProduct[pos.name] = {
+                        name: pos.name,
+                        qty: 0,
+                        value: 0,
+                        invested: 0,
+                        price: pos.price,
+                        breakdown: [],
+                    };
+                }
+                const b = byProduct[pos.name];
+                b.qty += pos.qty;
+                b.value += pos.value;
+                b.invested += pos.invested;
+                b.breakdown.push({ pf: pf.name, qty: pos.qty });
+            }
+        }
+        const aggregatedSorted = Object.values(byProduct)
+            .map(p => ({
+                ...p,
+                value: Math.round(p.value * 100) / 100,
+                invested: Math.round(p.invested * 100) / 100,
+                pnl: Math.round((p.value - p.invested) * 100) / 100,
+                pnlPct: p.invested > 0 ? Math.round(((p.value - p.invested) / p.invested) * 100) : null,
+            }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 30); // top 30 produits uniques
+
+        const aggregatedBlock = aggregatedSorted.map((p, i) => {
+            const breakdownTxt = p.breakdown.length === 1
+                ? `(${p.breakdown[0].qty}x ${p.breakdown[0].pf})`
+                : `reparti en : ${p.breakdown.map(b => `${b.qty}x ${b.pf}`).join(' + ')}`;
+            return `${i + 1}. ${p.name} : TOTAL ${p.qty}x · valeur ${p.value} € · P&L ${p.pnl >= 0 ? '+' : ''}${p.pnl} € (${p.pnlPct != null ? (p.pnlPct >= 0 ? '+' : '') + p.pnlPct + ' %' : 'n/a'}) · ${breakdownTxt}`;
+        }).join('\n');
+
         // Construit le prompt systeme avec le contexte structure par portefeuille
         // Limite le nombre d'items par portefeuille pour controler la taille du prompt
         const MAX_ITEMS_PER_PF = 20;
@@ -2248,34 +2288,33 @@ Tu peux suggerer d'acheter, vendre, ou conserver, et tu argumentes avec les donn
 Si la question est hors sujet (pas Pokemon TCG), tu refuses poliment de repondre.
 Sois concis : reponds en 3-6 phrases maximum sauf demande de detail.
 
-═════════════════════════════════════
-REGLE ABSOLUE - LECTURE DES PORTEFEUILLES
-═════════════════════════════════════
-L'utilisateur a ${portfolioCount} portefeuilles SEPARES (boxes physiques distinctes).
-Une position dans "Principal" et une position avec le MEME nom de produit dans "Box 1" sont DEUX positions DIFFERENTES qui ne doivent JAMAIS etre additionnees ou fusionnees.
+L'utilisateur a ${portfolioCount} portefeuilles physiques distincts (boxes). Tu disposes de DEUX vues complementaires :
+  - VUE A : detail par portefeuille (utile pour repondre "quelle box vaut le plus", "compare Box 1 et Box 2", "quoi vendre dans Principal", etc.)
+  - VUE B : top produits aggreges (utile pour repondre "mes 5 plus grosses positions", "quel produit me rapporte le plus", "ai-je trop d'un produit", etc.)
 
-INTERDICTIONS STRICTES :
-- NE JAMAIS sommer les quantites d'un meme produit entre plusieurs portefeuilles
-  (ex : 4x dans Principal + 4x dans Box 2 NE FONT PAS "8x", ce sont 2 lignes distinctes)
-- NE JAMAIS dire "vous avez Nx d'un produit" sans preciser dans quel portefeuille
-- NE JAMAIS additionner les valeurs de positions identiques entre boxes dans une meme reponse
-
-REGLES POSITIVES :
-- Quand tu cites une position, indique TOUJOURS le nom du portefeuille : "4x Display Bundle Heros Transcendants dans Principal"
-- Si un meme produit est dans plusieurs portefeuilles, liste-les separement :
-    "Display Bundle Heros Transcendants : 4x dans Principal, 4x dans Box 2 (deux positions distinctes)"
-- "Top positions" = les lignes individuelles les plus grosses (apres tri par valeur de la ligne), pas un produit somme.
-- Les TOTAUX (investi, valeur, P&L) sont calcules globalement pour info, mais les positions detaillees restent toujours par portefeuille.
+REGLES D'USAGE :
+- Pour les "top positions / plus grosses positions" : utilise VUE B (produits uniques avec total + breakdown).
+  Exemple correct : "1. Display Bundle Heros Transcendants : 8x au total (4x Principal + 4x Box 3) · 4600 €"
+  PAS : "1. Display X 4x Principal 2300 €  /  2. Display X 4x Box 3 2300 €" (doublons interdits)
+- Pour les questions par box : utilise VUE A.
+- Pour vendre/conserver : utilise VUE B (impact total) en mentionnant ou ils sont stockes (depuis la breakdown).
+- Quand tu cites le total d'un produit, indique TOUJOURS le breakdown par box entre parentheses.
 
 ═════════════════════════════════════
-TOTAUX GLOBAUX (info uniquement, ne JAMAIS appliquer cette logique de somme aux positions detaillees) :
+TOTAUX GLOBAUX :
 - Total investi : ${globalInvested.toFixed(2)} €
 - Valeur actuelle : ${globalValue.toFixed(2)} €
 - P&L global : ${(globalValue - globalInvested).toFixed(2)} € (${globalInvested > 0 ? Math.round(((globalValue - globalInvested) / globalInvested) * 100) : 0} %)
 ═════════════════════════════════════
 
-DETAIL DE CHAQUE PORTEFEUILLE (tries du plus gros au plus petit en valeur actuelle) :
+═════════════════════════════════════
+VUE B - TOP PRODUITS AGREGES (tries par valeur totale descendante, breakdown inclus)
+═════════════════════════════════════
+${aggregatedBlock}
 
+═════════════════════════════════════
+VUE A - DETAIL DE CHAQUE PORTEFEUILLE (tries du plus gros au plus petit en valeur)
+═════════════════════════════════════
 ${portfoliosBlock}
 
 ═════════════════════════════════════
