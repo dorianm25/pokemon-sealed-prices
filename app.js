@@ -531,6 +531,10 @@ function openDetail(productName) {
                                 <button class="chart-period-btn" data-period="90" onclick="setChartPeriod(90)">90j</button>
                                 <button class="chart-period-btn" data-period="0" onclick="setChartPeriod(0)">Tout</button>
                             </div>
+                            <div class="chart-scale-bar" id="chartScaleBar">
+                                <button class="chart-scale-btn active" data-scale="eur" onclick="setChartScale('eur')" title="Échelle absolue en euros">€</button>
+                                <button class="chart-scale-btn" data-scale="pct" onclick="setChartScale('pct')" title="Variation en % depuis le début de la période (base 100)">%</button>
+                            </div>
                         </div>
                         <div class="detail-chart-card">
                             <div class="detail-chart-canvas-wrap">
@@ -688,6 +692,7 @@ async function loadIndicators(productId) {
 let priceChartInstance = null;
 let _priceChartHistory = [];   // cache pour switching de periode sans refetch
 let _priceChartPeriod = 30;     // periode courante en jours (0 = tout)
+let _priceChartScale = 'eur';   // 'eur' (absolu €) ou 'pct' (base 100)
 
 async function loadPriceChart(productId) {
     try {
@@ -709,6 +714,14 @@ function setChartPeriod(days) {
         b.classList.toggle('active', String(b.dataset.period) === String(days));
     });
     renderPriceChartForPeriod(days);
+}
+
+function setChartScale(scale) {
+    _priceChartScale = scale === 'pct' ? 'pct' : 'eur';
+    document.querySelectorAll('.chart-scale-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.scale === _priceChartScale);
+    });
+    renderPriceChartForPeriod(_priceChartPeriod);
 }
 
 function renderPriceChartForPeriod(days) {
@@ -789,6 +802,34 @@ function renderPriceChartForPeriod(days) {
         return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
     });
 
+    // ── Transformation des datasets selon l'echelle ──
+    // En mode 'pct', on normalise chaque serie a base 100 sur la 1ere valeur
+    // valide de la fenetre. La courbe affiche alors la variation cumulee en %
+    // (100 = pas de change, 110 = +10% depuis le debut, etc.).
+    // Avantage : visualise les mouvements relatifs meme quand les ranges
+    // min/max ecartent fortement le median.
+    const isPct = _priceChartScale === 'pct';
+
+    function normalizeToBase100(rawValues) {
+        if (!isPct) return rawValues;
+        // Trouve la 1ere valeur valide (>0) comme baseline
+        const baseline = rawValues.find(v => v != null && v > 0);
+        if (!baseline) return rawValues;
+        return rawValues.map(v => (v != null && v > 0) ? (v / baseline) * 100 : v);
+    }
+
+    const dsMedian = normalizeToBase100(history.map(h => h.median));
+    const dsLast = normalizeToBase100(history.map(h => h.lastPrice));
+    const dsLow = normalizeToBase100(history.map(h => h.low));
+    const dsHigh = normalizeToBase100(history.map(h => h.high));
+
+    const yAxisCallback = isPct
+        ? (v) => v.toFixed(0) + ''
+        : (v) => v + ' €';
+    const tooltipFormat = isPct
+        ? (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}` + (ctx.parsed.y === 100 ? ' (base)' : ' (' + (ctx.parsed.y >= 100 ? '+' : '') + (ctx.parsed.y - 100).toFixed(1) + ' %)')
+        : (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} €`;
+
     priceChartInstance = new Chart(canvas, {
         type: 'line',
         data: {
@@ -796,7 +837,7 @@ function renderPriceChartForPeriod(days) {
             datasets: [
                 {
                     label: 'Prix médian',
-                    data: history.map(h => h.median),
+                    data: dsMedian,
                     borderColor: '#2ea043',
                     backgroundColor: 'rgba(46,160,67,0.1)',
                     borderWidth: 2,
@@ -807,7 +848,7 @@ function renderPriceChartForPeriod(days) {
                 },
                 {
                     label: 'Dernier prix',
-                    data: history.map(h => h.lastPrice),
+                    data: dsLast,
                     borderColor: '#58a6ff',
                     backgroundColor: 'transparent',
                     borderWidth: 2,
@@ -818,7 +859,7 @@ function renderPriceChartForPeriod(days) {
                 },
                 {
                     label: 'Min',
-                    data: history.map(h => h.low),
+                    data: dsLow,
                     borderColor: 'rgba(255,255,255,0.15)',
                     backgroundColor: 'transparent',
                     borderWidth: 1,
@@ -828,7 +869,7 @@ function renderPriceChartForPeriod(days) {
                 },
                 {
                     label: 'Max',
-                    data: history.map(h => h.high),
+                    data: dsHigh,
                     borderColor: 'rgba(255,255,255,0.15)',
                     backgroundColor: 'transparent',
                     borderWidth: 1,
@@ -854,9 +895,12 @@ function renderPriceChartForPeriod(days) {
                     borderWidth: 1,
                     padding: 10,
                     callbacks: {
-                        label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)} €`,
+                        label: tooltipFormat,
                     },
                 },
+                // Annotation : ligne horizontale a 100 en mode % pour reperer
+                // visuellement le 'depart'. Utilise un dataset secondaire
+                // simple plutot qu'un plugin externe.
             },
             scales: {
                 x: {
@@ -864,8 +908,10 @@ function renderPriceChartForPeriod(days) {
                     grid: { color: 'rgba(255,255,255,0.04)' },
                 },
                 y: {
-                    ticks: { color: '#484f58', font: { size: 11 }, callback: v => v + ' €' },
+                    ticks: { color: '#484f58', font: { size: 11 }, callback: yAxisCallback },
                     grid: { color: 'rgba(255,255,255,0.04)' },
+                    // En mode %, force 100 a apparaitre sur l'axe pour repere visuel
+                    ...(isPct ? { suggestedMin: 90, suggestedMax: 110 } : {}),
                 },
             },
         },

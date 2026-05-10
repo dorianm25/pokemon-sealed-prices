@@ -9488,6 +9488,43 @@ html, body {
     border-radius: 8px;
     padding: 3px;
 }
+
+/* Scale bar (€ / %) : meme style mais plus compact, separe par margin */
+.chart-scale-bar {
+    display: inline-flex;
+    gap: 2px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+    padding: 3px;
+    margin-left: 8px;
+}
+.chart-scale-btn {
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all var(--dur-fast);
+    font-family: inherit;
+    min-height: 32px;
+    min-width: 32px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+.chart-scale-btn:hover { color: var(--text-primary); }
+.chart-scale-btn.active {
+    background: linear-gradient(90deg, #38bdf8, #22d3ee);
+    color: #0b1320;
+    font-weight: 800;
+}
+
+@media (max-width: 540px) {
+    .chart-scale-bar { margin-left: 4px; padding: 2px; }
+    .chart-scale-btn { padding: 4px 10px; min-height: 28px; min-width: 28px; font-size: 12px; }
+}
 .chart-period-btn {
     padding: 6px 12px;
     border: none;
