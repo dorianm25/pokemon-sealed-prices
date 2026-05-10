@@ -2114,6 +2114,56 @@ async function requireAdmin(req, res, next) {
     next();
 }
 
+// Import bulk inventory : cree N portfolios + remplit les holdings en 1 call.
+// L'admin peut s'en servir pour son propre compte ou un autre user.
+app.post('/api/admin/import-inventory', authMiddleware, requireAdmin, async (req, res) => {
+    const { boxes, userId: targetUserId } = req.body || {};
+    if (!Array.isArray(boxes) || boxes.length === 0) {
+        return res.status(400).json({ error: 'boxes doit etre un tableau non vide' });
+    }
+    if (boxes.length > 30) {
+        return res.status(400).json({ error: 'Max 30 boxes par batch' });
+    }
+    const userId = targetUserId || req.userId;
+
+    const result = { created: 0, totalItems: 0, errors: [], details: [] };
+    for (const box of boxes) {
+        if (!box.name || typeof box.name !== 'string') {
+            result.errors.push({ box: box.name || '?', error: 'name requis' });
+            continue;
+        }
+        if (!box.items || typeof box.items !== 'object') {
+            result.errors.push({ box: box.name, error: 'items doit etre un objet' });
+            continue;
+        }
+        try {
+            const id = 'pf_' + crypto.randomBytes(8).toString('hex');
+            await createPortfolioGroup(id, userId, {
+                name: box.name.trim().slice(0, 50),
+                icon: (box.icon || '📦').slice(0, 4),
+                color: '#22c55e',
+                sortOrder: result.created,
+            });
+            const holdings = {};
+            let qtyTotal = 0;
+            for (const [name, qty] of Object.entries(box.items)) {
+                const q = parseInt(qty);
+                if (q > 0) {
+                    holdings[name] = { qty: q, cost: 0 };
+                    qtyTotal += q;
+                }
+            }
+            await setPortfolioByGroup(userId, id, holdings);
+            result.created++;
+            result.totalItems += Object.keys(holdings).length;
+            result.details.push({ box: box.name, items: Object.keys(holdings).length, qty: qtyTotal });
+        } catch (e) {
+            result.errors.push({ box: box.name, error: e.message || 'inconnue' });
+        }
+    }
+    res.json({ ok: true, ...result });
+});
+
 // Liste les comptes (sans salt/hash). Inclut un flag "isAdmin" et le nb de
 // positions dans le portfolio de chaque user pour avoir un apercu rapide.
 app.get('/api/admin/users', authMiddleware, requireAdmin, async (req, res) => {

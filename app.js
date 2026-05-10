@@ -5985,6 +5985,16 @@ function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: 
             ` : '<p class="admin-card-sub" style="font-style:italic;margin-top:8px">Aucune entrée. Pré-remplis avec les défauts ou ajoute manuellement.</p>'}
         </div>
 
+        <!-- Import inventaire pre-defini (mai 2026, dorian) -->
+        <div class="admin-card">
+            <h3 class="admin-card-title">📥 Importer mon inventaire (8 boxes)</h3>
+            <p class="admin-card-sub">Crée 8 portfolios pré-remplis depuis ton inventaire physique : Box 1, Box 2, Box 3, Petite Box 1/2/3, Moyenne Box 1, Chambre/autre. Chaque item est ajouté à la box correspondante.</p>
+            <div class="admin-bulk-actions" style="margin-top:12px">
+                <button class="admin-btn admin-btn-primary" onclick="adminImportDorianInventory()">📥 Importer mes 8 boxes maintenant</button>
+            </div>
+            <div id="adminImportInventoryResult" class="admin-bulk-result"></div>
+        </div>
+
         <!-- Liste des comptes -->
         <div class="admin-card">
             <h3 class="admin-card-title">👥 Comptes utilisateurs (${usersData.count})</h3>
@@ -6070,6 +6080,122 @@ async function adminResetPassword(userId, username) {
 }
 
 // ── Admin : codes-barres ────────────────────────────────
+// ── Admin : import inventaire predefini (boxes dorian) ────
+async function adminImportDorianInventory() {
+    if (!isAdminUser()) return;
+    const boxes = [
+        { name: 'Box 1', icon: '📦', items: {
+            'ETB Héros Transcendants': 7,
+            'Coffret Anniversaire Pikachu': 9,
+            'Mini Tin Kanto': 5,
+            'Mini Tin Pokéball': 3,
+            'Pokébox Dracaufeu': 4,
+        }},
+        { name: 'Box 2', icon: '📦', items: {
+            'Display 36 Origine Perdue': 1,
+            'Display 36 Tempête Argentée': 1,
+            'Display 36 Aventures Ensemble': 2,
+            'UPC Dracaufeu': 3,
+            'Display Bundle Évolutions Prismatiques': 1,
+            'Display 36 Flammes Fantasmagoriques': 1,
+            'Coffret Anniversaire Pikachu': 4,
+            'Duo Pack Aventures/Flammes': 2,
+            'Tripack Flammes Fantasmagoriques': 2,
+        }},
+        { name: 'Box 3', icon: '📦', items: {
+            'Display Bundle Héros Transcendants': 4,
+            'Display Bundle Évolutions Prismatiques': 1,
+            'Display 36 Étincelles Déferlantes': 1,
+        }},
+        { name: 'Petite Box 1', icon: '🎁', items: {
+            'Booster Rivalités Destinées': 8,
+            'Booster Étincelles Déferlantes': 4,
+            'Tripack Étincelles Déferlantes': 1,
+            'Tripack Rivalités Destinées': 1,
+            'Tripack Évolutions Prismatiques': 1,
+            'Tripack Foudre Noire (EV10.5)': 1,
+            'Tripack Flamme Blanche (EV10.5)': 1,
+            'Coffret Mewtwo-ex': 2,
+            'Coffret Poster Évolutions Prismatiques': 1,
+            'Coffret Zénith Suprême Pikachu': 1,
+            'Coffret Pochette Évolutions Prismatiques': 2,
+        }},
+        { name: 'Petite Box 2', icon: '🎁', items: {
+            'Mini Tin Magnifique de Paldea': 1,
+            'Display 36 Rivalités Destinées': 1,
+            'Display 18 Rivalités Destinées': 2,
+            'ETB Évolutions Prismatiques': 1,
+            'ETB Foudre Noire (EV10.5)': 1,
+            'ETB Flamme Blanche (EV10.5)': 1,
+            'ETB Destinées de Paldea': 1,
+            'ETB Zénith Suprême': 1,
+            'ETB Rivalités Destinées': 1,
+            'Coffret Victini': 1,
+        }},
+        { name: 'Petite Box 3', icon: '🎁', items: {
+            'Coffret Classeur Flamme Blanche': 1,
+            'Coffret Classeur Foudre Noire': 1,
+            'Bundle 6 Rivalités Destinées': 2,
+            'Bundle 6 Pokémon 151': 1,
+            'Bundle 6 Destinées de Paldea': 1,
+            'Pokébox Kyogre': 1,
+            'Coffret Carchacrok-ex de Cynthia': 4,
+        }},
+        { name: 'Moyenne Box 1', icon: '📥', items: {
+            'Case 24 Boosters Méga-Évolution': 1,
+            'ETB Méga-Gardevoir': 1,
+            'ETB Méga-Lucario': 1,
+            'ETB Flammes Fantasmagoriques': 1,
+            'ETB Flamme Blanche (EV10.5)': 1,
+            'Bundle 6 Méga-Évolution': 3,
+            'Pokébox Team Rocket': 2,
+            'UPC Dracaufeu': 1,
+            'Tripack Méga-Évolution': 2,
+            'Coffret Poster Flamme Blanche': 1,
+        }},
+        { name: 'Chambre / autre', icon: '🏠', items: {
+            'Coffret 151 Eau Florissante': 1,
+            'Display Bundle Évolutions Prismatiques': 1,
+            'Display Bundle Pokémon 151': 1,
+        }},
+    ];
+
+    if (!confirm(`Créer ${boxes.length} portfolios avec ton inventaire ?\n\nTotal positions : ${boxes.reduce((s, b) => s + Object.values(b.items).reduce((a,c)=>a+c,0), 0)} exemplaires.\n\nNote : ne touche pas au portfolio principal.`)) return;
+
+    const result = document.getElementById('adminImportInventoryResult');
+    result.innerHTML = '<span style="color:var(--text-secondary)">⏳ Création en cours...</span>';
+
+    try {
+        const res = await fetch('/api/admin/import-inventory', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+            body: JSON.stringify({ boxes }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            result.innerHTML = `<span class="admin-bulk-error">Erreur : ${data.error || res.status}</span>`;
+            return;
+        }
+        let html = `<div class="admin-bulk-ok">✅ ${data.created} portfolios créés (${data.totalItems} positions au total)</div>`;
+        if (data.details && data.details.length > 0) {
+            html += '<ul style="margin:8px 0 0;padding-left:18px;font-size:12px;color:var(--text-secondary)">';
+            for (const d of data.details) {
+                html += `<li><strong>${d.box}</strong> : ${d.items} produits différents (${d.qty} exemplaires)</li>`;
+            }
+            html += '</ul>';
+        }
+        if (data.errors && data.errors.length > 0) {
+            html += `<details style="margin-top:8px"><summary style="color:#ef4444;cursor:pointer">${data.errors.length} erreur(s)</summary><ul style="font-size:11px">`;
+            for (const e of data.errors) html += `<li>${e.box} : ${e.error}</li>`;
+            html += '</ul></details>';
+        }
+        html += '<p style="margin-top:10px;font-size:11px;color:var(--text-muted)">💡 Va sur Portfolio pour voir les nouveaux onglets.</p>';
+        result.innerHTML = html;
+    } catch (e) {
+        result.innerHTML = `<span class="admin-bulk-error">Erreur réseau : ${e.message}</span>`;
+    }
+}
+
 async function adminImportBarcodes() {
     const textarea = document.getElementById('adminBulkBarcodes');
     const result = document.getElementById('adminBulkResult');
