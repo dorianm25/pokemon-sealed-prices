@@ -5993,6 +5993,15 @@ function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: 
                 <button class="admin-btn admin-btn-primary" onclick="adminImportDorianInventory()">📥 Importer mes 8 boxes maintenant</button>
             </div>
             <div id="adminImportInventoryResult" class="admin-bulk-result"></div>
+
+            <hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
+
+            <h4 style="font-size:13px;font-weight:700;margin:0 0 6px;color:var(--text-primary)">🔄 Synchroniser les prix d'achat</h4>
+            <p class="admin-card-sub">Reprend le PRU de chaque item du portfolio principal et l'applique aux mêmes items dans les autres portefeuilles. Évite de tout retaper.</p>
+            <div class="admin-bulk-actions" style="margin-top:10px">
+                <button class="admin-btn admin-btn-secondary" onclick="adminSyncPortfolioCosts()">🔄 Sync prix depuis Principal</button>
+            </div>
+            <div id="adminSyncCostsResult" class="admin-bulk-result"></div>
         </div>
 
         <!-- Liste des comptes -->
@@ -6080,6 +6089,46 @@ async function adminResetPassword(userId, username) {
 }
 
 // ── Admin : codes-barres ────────────────────────────────
+// ── Admin : sync costs depuis portfolio principal ─────────
+async function adminSyncPortfolioCosts() {
+    if (!isAdminUser()) return;
+    if (!confirm('Reprendre les prix d\'achat du portfolio principal et les appliquer aux autres ?\n\nCela écrasera les costs des items qui ont le même nom dans les autres portfolios.')) return;
+
+    const result = document.getElementById('adminSyncCostsResult');
+    result.innerHTML = '<span style="color:var(--text-secondary)">⏳ Sync en cours...</span>';
+
+    try {
+        const res = await fetch('/api/admin/sync-portfolio-costs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            result.innerHTML = `<span class="admin-bulk-error">Erreur : ${data.error || res.status}</span>`;
+            return;
+        }
+        if (data.message) {
+            result.innerHTML = `<span class="admin-bulk-error">${data.message}</span>`;
+            return;
+        }
+        let html = `<div class="admin-bulk-ok">✅ ${data.updates} prix mis à jour sur ${data.groups} portfolios (depuis ${data.mainItems} items du Principal)</div>`;
+        if (data.details && data.details.length > 0) {
+            html += '<ul style="margin:8px 0 0;padding-left:18px;font-size:12px;color:var(--text-secondary)">';
+            for (const d of data.details) {
+                if (d.updates > 0) html += `<li><strong>${d.group}</strong> : ${d.updates} prix mis à jour</li>`;
+            }
+            const noChange = data.details.filter(d => d.updates === 0);
+            if (noChange.length > 0) {
+                html += `<li style="color:var(--text-muted);font-style:italic">${noChange.length} groupe(s) sans changement (items absents du principal ou déjà à jour)</li>`;
+            }
+            html += '</ul>';
+        }
+        result.innerHTML = html;
+    } catch (e) {
+        result.innerHTML = `<span class="admin-bulk-error">Erreur réseau : ${e.message}</span>`;
+    }
+}
+
 // ── Admin : import inventaire predefini (boxes dorian) ────
 async function adminImportDorianInventory() {
     if (!isAdminUser()) return;

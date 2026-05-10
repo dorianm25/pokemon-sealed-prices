@@ -2114,6 +2114,66 @@ async function requireAdmin(req, res, next) {
     next();
 }
 
+// Sync : prend les costs (prix d'achat) du portfolio principal et les applique
+// aux items correspondants dans tous les portfolios extra du user. Utile apres
+// l'import bulk pour propager les PRU sans avoir a tout retaper.
+app.post('/api/admin/sync-portfolio-costs', authMiddleware, requireAdmin, async (req, res) => {
+    const { userId: targetUserId } = req.body || {};
+    const userId = targetUserId || req.userId;
+
+    try {
+        // 1. Lire le portfolio principal
+        const mainPortfolio = await getPortfolio(userId);
+        const costMap = {};
+        for (const [name, data] of Object.entries(mainPortfolio || {})) {
+            if (data && data.cost > 0) {
+                costMap[name] = data.cost;
+            }
+        }
+        const mainCount = Object.keys(costMap).length;
+        if (mainCount === 0) {
+            return res.json({
+                ok: true,
+                groups: 0,
+                updates: 0,
+                message: 'Aucun cost > 0 dans le portfolio principal',
+            });
+        }
+
+        // 2. Pour chaque groupe extra, mettre a jour les costs des items qui matchent
+        const groups = await listPortfolioGroups(userId);
+        let updatesTotal = 0;
+        const details = [];
+
+        for (const g of groups) {
+            const holdings = await getPortfolioByGroup(userId, g.id);
+            let updates = 0;
+            for (const [name, data] of Object.entries(holdings || {})) {
+                if (costMap[name] && data.cost !== costMap[name]) {
+                    data.cost = costMap[name];
+                    updates++;
+                }
+            }
+            if (updates > 0) {
+                await setPortfolioByGroup(userId, g.id, holdings);
+                updatesTotal += updates;
+            }
+            details.push({ group: g.name, updates });
+        }
+
+        res.json({
+            ok: true,
+            mainItems: mainCount,
+            groups: groups.length,
+            updates: updatesTotal,
+            details,
+        });
+    } catch (e) {
+        console.error('[admin/sync-portfolio-costs] error:', e);
+        res.status(500).json({ error: 'Erreur sync : ' + (e.message || 'inconnue') });
+    }
+});
+
 // Import bulk inventory : cree N portfolios + remplit les holdings en 1 call.
 // L'admin peut s'en servir pour son propre compte ou un autre user.
 app.post('/api/admin/import-inventory', authMiddleware, requireAdmin, async (req, res) => {
