@@ -4267,6 +4267,11 @@ async function exportAllPortfoliosFullCSV() {
             }
         }
 
+        // Recap : on utilise des FORMULES pour P&L et P&L % afin que les
+        // cellules soient calculees par Excel (modifiables, sommables, etc.).
+        // Le format '0.00%' multiplie deja par 100, donc on stocke le ratio brut.
+        // Layout cols : A=Portefeuille, B=Icône, C=Nb prod, D=Qty,
+        //   E=Investi, F=ValMed, G=ValLast, H=P&L med, I=P&L %, J=P&L dernier
         recapData.forEach((d, idx) => {
             const rowIdx = 4 + idx;
             const row = wsRecap.getRow(rowIdx);
@@ -4277,9 +4282,10 @@ async function exportAllPortfoliosFullCSV() {
             row.getCell(5).value = d.inv;
             row.getCell(6).value = d.valMed;
             row.getCell(7).value = d.valLast;
-            row.getCell(8).value = d.pnlMed;
-            row.getCell(9).value = d.pnlPct;
-            row.getCell(10).value = d.pnlLast;
+            // FORMULES calculees : H = F-E, I = IFERROR(H/E, 0), J = G-E
+            row.getCell(8).value = { formula: `F${rowIdx}-E${rowIdx}` };
+            row.getCell(9).value = { formula: `IFERROR(H${rowIdx}/E${rowIdx},0)` };
+            row.getCell(10).value = { formula: `G${rowIdx}-E${rowIdx}` };
             // Zebra
             const zebra = idx % 2 === 0 ? COLORS.zebraEven : COLORS.zebraOdd;
             for (let c = 1; c <= 10; c++) {
@@ -4292,31 +4298,37 @@ async function exportAllPortfoliosFullCSV() {
             row.getCell(8).numFmt = '#,##0.00 "€"';
             row.getCell(9).numFmt = '0.00%';
             row.getCell(10).numFmt = '#,##0.00 "€"';
-            // Coloration P&L
+            // Coloration P&L (sur les valeurs calculees JS)
             colorPnlCell(row.getCell(8), d.pnlMed);
-            colorPnlCell(row.getCell(9), d.pnlPct);
+            colorPnlCell(row.getCell(9), d.pnlMed); // signe meme que pnlMed
             colorPnlCell(row.getCell(10), d.pnlLast);
-            // Bold pour le portfolio Principal (pour le distinguer)
             if (d.pf.id === 'default') {
                 row.getCell(1).font = { bold: true };
             }
         });
 
-        // Ligne TOTAL hors principal
+        // Ligne TOTAL : SUM formules pour pouvoir tracker dynamiquement
         const totalRowIdx = 4 + recapData.length + 1;
+        const dataStartRow = 4;
+        const dataEndRow = 4 + recapData.length - 1;
         wsRecap.mergeCells(totalRowIdx, 1, totalRowIdx, 3);
         const totalRow = wsRecap.getRow(totalRowIdx);
         totalRow.getCell(1).value = 'TOTAL (somme des boxes, hors Principal)';
-        totalRow.getCell(4).value = grandQty;
-        totalRow.getCell(5).value = grandInv;
-        totalRow.getCell(6).value = grandValMed;
-        totalRow.getCell(7).value = grandValLast;
-        const grandPnlMed = grandValMed - grandInv;
-        const grandPnlLast = grandValLast - grandInv;
-        const grandPnlPct = grandInv > 0 ? (grandPnlMed / grandInv) / 100 : null;
-        totalRow.getCell(8).value = grandPnlMed;
-        totalRow.getCell(9).value = grandPnlPct;
-        totalRow.getCell(10).value = grandPnlLast;
+        // Pour ne pas double-compter le Principal (qui est l'aggregation),
+        // on identifie sa position et on le SOUSTRAIT du SUM total
+        const principalIdx = recapData.findIndex(d => d.pf.id === 'default');
+        const principalRow = principalIdx >= 0 ? (4 + principalIdx) : null;
+        const sumExclPrincipal = (col) => {
+            const fullSum = `SUM(${col}${dataStartRow}:${col}${dataEndRow})`;
+            return principalRow ? `${fullSum}-${col}${principalRow}` : fullSum;
+        };
+        totalRow.getCell(4).value = { formula: sumExclPrincipal('D') };
+        totalRow.getCell(5).value = { formula: sumExclPrincipal('E') };
+        totalRow.getCell(6).value = { formula: sumExclPrincipal('F') };
+        totalRow.getCell(7).value = { formula: sumExclPrincipal('G') };
+        totalRow.getCell(8).value = { formula: `F${totalRowIdx}-E${totalRowIdx}` };
+        totalRow.getCell(9).value = { formula: `IFERROR(H${totalRowIdx}/E${totalRowIdx},0)` };
+        totalRow.getCell(10).value = { formula: `G${totalRowIdx}-E${totalRowIdx}` };
         for (let c = 1; c <= 10; c++) {
             totalRow.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.totalBg } };
             totalRow.getCell(c).font = { bold: true, color: { argb: COLORS.totalText } };
@@ -4430,7 +4442,10 @@ async function exportAllPortfoliosFullCSV() {
                 return ((pb?.price || 0) * b.qty) - ((pa?.price || 0) * a.qty);
             });
 
-            let totInv = 0, totValMed = 0, totValLast = 0, totQty = 0;
+            // Layout cols : A=Produit, B=Type, C=Bloc, D=Extension,
+            //   E=Qty, F=PRU, G=PrixMed, H=PrixLast,
+            //   I=Investi, J=ValMed, K=ValLast, L=P&LMed, M=P&L%, N=P&LLast
+            let totQty = 0;
             sorted.forEach((h, idx) => {
                 const p = products.find(pr => pr.name === h.name);
                 const priceMedian = p?.price || 0;
@@ -4438,12 +4453,12 @@ async function exportAllPortfoliosFullCSV() {
                 const invested = h.qty * h.cost;
                 const valueMedian = h.qty * priceMedian;
                 const valueLast = h.qty * priceLast;
-                const pnlMedian = valueMedian - invested;
-                const pnlLast = valueLast - invested;
-                const pnlPct = invested > 0 ? (pnlMedian / invested) / 100 : null;
+                const pnlMedianVal = valueMedian - invested;
+                const pnlLastVal = valueLast - invested;
 
                 const rowIdx = 4 + idx;
                 const row = ws.getRow(rowIdx);
+                // Inputs : nom, type, bloc, extension, qty, PRU, prix
                 row.getCell(1).value = h.name;
                 row.getCell(2).value = TYPE_LABELS[p?.type] || p?.type || '';
                 row.getCell(3).value = p?.serie || '';
@@ -4452,12 +4467,13 @@ async function exportAllPortfoliosFullCSV() {
                 row.getCell(6).value = h.cost;
                 row.getCell(7).value = priceMedian;
                 row.getCell(8).value = priceLast;
-                row.getCell(9).value = invested;
-                row.getCell(10).value = valueMedian;
-                row.getCell(11).value = valueLast;
-                row.getCell(12).value = pnlMedian;
-                row.getCell(13).value = pnlPct;
-                row.getCell(14).value = pnlLast;
+                // FORMULES : Investi = Qty*PRU, ValMed = Qty*PrixMed, etc.
+                row.getCell(9).value = { formula: `E${rowIdx}*F${rowIdx}` };
+                row.getCell(10).value = { formula: `E${rowIdx}*G${rowIdx}` };
+                row.getCell(11).value = { formula: `E${rowIdx}*H${rowIdx}` };
+                row.getCell(12).value = { formula: `J${rowIdx}-I${rowIdx}` };
+                row.getCell(13).value = { formula: `IFERROR(L${rowIdx}/I${rowIdx},0)` };
+                row.getCell(14).value = { formula: `K${rowIdx}-I${rowIdx}` };
 
                 // Zebra
                 const zebra = idx % 2 === 0 ? COLORS.zebraEven : COLORS.zebraOdd;
@@ -4469,32 +4485,28 @@ async function exportAllPortfoliosFullCSV() {
                     row.getCell(parseInt(col)).numFmt = '#,##0.00 "€"';
                 });
                 row.getCell(13).numFmt = '0.00%';
-                // Color P&L
-                colorPnlCell(row.getCell(12), pnlMedian);
-                colorPnlCell(row.getCell(13), pnlPct);
-                colorPnlCell(row.getCell(14), pnlLast);
+                // Color P&L (basé sur la valeur calculee JS pour le rendu initial)
+                colorPnlCell(row.getCell(12), pnlMedianVal);
+                colorPnlCell(row.getCell(13), pnlMedianVal); // meme signe
+                colorPnlCell(row.getCell(14), pnlLastVal);
 
-                totInv += invested;
-                totValMed += valueMedian;
-                totValLast += valueLast;
                 totQty += h.qty;
             });
 
-            // Ligne TOTAL
+            // Ligne TOTAL : utilise SUM sur les data rows
             const totRowIdx = 4 + sorted.length + 1;
+            const dataStart = 4;
+            const dataEnd = 4 + sorted.length - 1;
             ws.mergeCells(totRowIdx, 1, totRowIdx, 4);
             const tr = ws.getRow(totRowIdx);
             tr.getCell(1).value = 'TOTAL';
-            tr.getCell(5).value = totQty;
-            tr.getCell(9).value = totInv;
-            tr.getCell(10).value = totValMed;
-            tr.getCell(11).value = totValLast;
-            const totPnlMed = totValMed - totInv;
-            const totPnlLast = totValLast - totInv;
-            const totPnlPct = totInv > 0 ? (totPnlMed / totInv) / 100 : null;
-            tr.getCell(12).value = totPnlMed;
-            tr.getCell(13).value = totPnlPct;
-            tr.getCell(14).value = totPnlLast;
+            tr.getCell(5).value = { formula: `SUM(E${dataStart}:E${dataEnd})` };
+            tr.getCell(9).value = { formula: `SUM(I${dataStart}:I${dataEnd})` };
+            tr.getCell(10).value = { formula: `SUM(J${dataStart}:J${dataEnd})` };
+            tr.getCell(11).value = { formula: `SUM(K${dataStart}:K${dataEnd})` };
+            tr.getCell(12).value = { formula: `J${totRowIdx}-I${totRowIdx}` };
+            tr.getCell(13).value = { formula: `IFERROR(L${totRowIdx}/I${totRowIdx},0)` };
+            tr.getCell(14).value = { formula: `K${totRowIdx}-I${totRowIdx}` };
             for (let c = 1; c <= 14; c++) {
                 tr.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLORS.totalBg } };
                 tr.getCell(c).font = { bold: true, color: { argb: COLORS.totalText } };
