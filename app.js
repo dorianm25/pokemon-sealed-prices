@@ -71,6 +71,42 @@ const products = [
     { name: 'UPC Pokémon 151', ext: 'EV3.5 — Pokémon 151', serie: 'Écarlate et Violet', type: 'coffret', price: 500, old: 119.99, trend: 0, low: 400, high: 700 },
     { name: 'UPC Évolutions Prismatiques', ext: 'EV8.5 — Évolutions Prismatiques', serie: 'Écarlate et Violet', type: 'coffret', price: 350, old: 119.99, trend: 0, low: 280, high: 450 },
     { name: 'UPC Dracaufeu', ext: 'Special — Dracaufeu', serie: 'Écarlate et Violet', type: 'coffret', price: 400, old: 119.99, trend: 0, low: 300, high: 600 },
+
+    // ═══ Stock perso ajouté mai 2026 ═══
+    // ETB spéciales Méga-Évolution
+    { name: 'ETB Méga-Gardevoir',                  ext: 'ME01 — Méga-Évolution',         serie: 'Méga-Évolution',     type: 'etb',     price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'ETB Méga-Lucario',                    ext: 'ME01 — Méga-Évolution',         serie: 'Méga-Évolution',     type: 'etb',     price: 0, old: 0, trend: 0, low: 0, high: 0 },
+
+    // Coffrets ex (collector boxes)
+    { name: 'Coffret Mewtwo-ex',                   ext: 'EV3.5 — Pokémon 151',           serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Coffret Carchacrok-ex de Cynthia',    ext: 'Special — Cynthia',             serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Coffret Victini',                     ext: 'Special — Victini',             serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+
+    // Coffrets thématiques
+    { name: 'Coffret 151 Eau Florissante',         ext: 'EV3.5 — Pokémon 151',           serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Coffret Anniversaire Pikachu',        ext: 'Special — Anniversaire',        serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+
+    // Pochettes / Albums / Classeurs
+    { name: 'Coffret Pochette Évolutions Prismatiques', ext: 'EV8.5 — Évolutions Prismatiques', serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Coffret Poster Évolutions Prismatiques',   ext: 'EV8.5 — Évolutions Prismatiques', serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Coffret Poster Flamme Blanche',            ext: 'EV10.5 — Flamme Blanche',         serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Coffret Classeur Flamme Blanche',          ext: 'EV10.5 — Flamme Blanche',         serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Coffret Classeur Foudre Noire',            ext: 'EV10.5 — Foudre Noire',           serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Coffret Zénith Suprême Pikachu',           ext: 'EB12.5 — Zénith Suprême',         serie: 'Épée et Bouclier',   type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+
+    // Pokébox
+    { name: 'Pokébox Dracaufeu',     ext: 'Special — Dracaufeu',   serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Pokébox Kyogre',        ext: 'Special — Kyogre',      serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Pokébox Team Rocket',   ext: 'Special — Team Rocket', serie: 'Écarlate et Violet', type: 'coffret', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+
+    // Mini Tins
+    { name: 'Mini Tin Kanto',                      ext: 'Special — Mini Tin',            serie: 'Écarlate et Violet', type: 'tripack', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Mini Tin Pokéball',                   ext: 'Special — Mini Tin',            serie: 'Écarlate et Violet', type: 'tripack', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Mini Tin Magnifique de Paldea',       ext: 'Special — Mini Tin',            serie: 'Écarlate et Violet', type: 'tripack', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+
+    // Spéciaux
+    { name: 'Duo Pack Aventures/Flammes',          ext: 'EV09 — Aventures Ensemble',     serie: 'Écarlate et Violet', type: 'tripack', price: 0, old: 0, trend: 0, low: 0, high: 0 },
+    { name: 'Case 24 Boosters Méga-Évolution',     ext: 'ME01 — Méga-Évolution',         serie: 'Méga-Évolution',     type: 'display', price: 0, old: 0, trend: 0, low: 0, high: 0 },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -266,6 +302,30 @@ function buildEbayMap() {
     map['upc-151'] = 'UPC Pokémon 151';
     map['upc-ev85'] = 'UPC Évolutions Prismatiques';
     map['upc-dracaufeu'] = 'UPC Dracaufeu';
+
+    // Stock perso ajoute mai 2026
+    map['me01-etb-gardevoir'] = 'ETB Méga-Gardevoir';
+    map['me01-etb-lucario'] = 'ETB Méga-Lucario';
+    map['coffret-mewtwo-ex'] = 'Coffret Mewtwo-ex';
+    map['coffret-carchacrok-cynthia'] = 'Coffret Carchacrok-ex de Cynthia';
+    map['coffret-victini'] = 'Coffret Victini';
+    map['coffret-151-florissante'] = 'Coffret 151 Eau Florissante';
+    map['coffret-anniv-pikachu'] = 'Coffret Anniversaire Pikachu';
+    map['coffret-pochette-ev85'] = 'Coffret Pochette Évolutions Prismatiques';
+    map['coffret-poster-ev85'] = 'Coffret Poster Évolutions Prismatiques';
+    map['coffret-poster-fb'] = 'Coffret Poster Flamme Blanche';
+    map['coffret-classeur-fb'] = 'Coffret Classeur Flamme Blanche';
+    map['coffret-classeur-fn'] = 'Coffret Classeur Foudre Noire';
+    map['coffret-zenith-pikachu'] = 'Coffret Zénith Suprême Pikachu';
+    map['pokebox-dracaufeu'] = 'Pokébox Dracaufeu';
+    map['pokebox-kyogre'] = 'Pokébox Kyogre';
+    map['pokebox-team-rocket'] = 'Pokébox Team Rocket';
+    map['minitin-kanto'] = 'Mini Tin Kanto';
+    map['minitin-pokeball'] = 'Mini Tin Pokéball';
+    map['minitin-magnifique-paldea'] = 'Mini Tin Magnifique de Paldea';
+    map['duo-pack-aventure-flamme'] = 'Duo Pack Aventures/Flammes';
+    map['case-24-mega-evolution'] = 'Case 24 Boosters Méga-Évolution';
+
     return map;
 }
 

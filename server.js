@@ -556,6 +556,42 @@ const PRODUCTS_TO_TRACK = [
     { id: 'upc-151',         query: 'UPC Pokemon 151 ultra premium',                    name: 'UPC Pokémon 151',                 minPrice: 300, maxPrice: 5000 },
     { id: 'upc-ev85',        query: 'UPC Evolutions Prismatiques ultra premium',        name: 'UPC Évolutions Prismatiques',     minPrice: 200, maxPrice: 3000 },
     { id: 'upc-dracaufeu',   query: 'coffret ultra premium dracaufeu pokemon',          name: 'UPC Dracaufeu',                   minPrice: 200, maxPrice: 3000 },
+
+    // ═══ Stock perso ajoute mai 2026 ═══
+    // ETB speciales Mega-Evolution (ME01)
+    { id: 'me01-etb-gardevoir', query: 'ETB Mega Gardevoir Mega Evolution ME01 pokemon',  name: 'ETB Méga-Gardevoir',                       minPrice: 60,  maxPrice: 250 },
+    { id: 'me01-etb-lucario',   query: 'ETB Mega Lucario Mega Evolution ME01 pokemon',    name: 'ETB Méga-Lucario',                         minPrice: 60,  maxPrice: 250 },
+
+    // Coffrets ex (collector boxes avec carte promo)
+    { id: 'coffret-mewtwo-ex',         query: 'coffret Mewtwo ex pokemon 151 -lot',              name: 'Coffret Mewtwo-ex',                  minPrice: 30,  maxPrice: 200 },
+    { id: 'coffret-carchacrok-cynthia',query: 'coffret Carchacrok ex Cynthia pokemon -lot',      name: 'Coffret Carchacrok-ex de Cynthia',   minPrice: 25,  maxPrice: 100 },
+    { id: 'coffret-victini',           query: 'coffret Victini pokemon -lot',                    name: 'Coffret Victini',                    minPrice: 15,  maxPrice: 80 },
+
+    // Coffrets thematiques speciaux
+    { id: 'coffret-151-florissante',  query: 'coffret Pokemon 151 Eau Florissante -lot',         name: 'Coffret 151 Eau Florissante',        minPrice: 30,  maxPrice: 200 },
+    { id: 'coffret-anniv-pikachu',    query: 'coffret anniversaire Pikachu pokemon -lot -25',    name: 'Coffret Anniversaire Pikachu',       minPrice: 20,  maxPrice: 120 },
+
+    // Pochettes / Albums / Classeurs
+    { id: 'coffret-pochette-ev85',    query: 'coffret pochette Evolutions Prismatiques -lot',           name: 'Coffret Pochette Évolutions Prismatiques', minPrice: 25,  maxPrice: 100 },
+    { id: 'coffret-poster-ev85',      query: 'coffret collection poster Evolutions Prismatiques -lot',  name: 'Coffret Poster Évolutions Prismatiques',   minPrice: 40,  maxPrice: 200 },
+    { id: 'coffret-poster-fb',        query: 'coffret collection poster Flamme Blanche EV10.5 -lot',    name: 'Coffret Poster Flamme Blanche',            minPrice: 25,  maxPrice: 100 },
+    { id: 'coffret-classeur-fb',      query: 'coffret classeur Flamme Blanche EV10.5 -lot',             name: 'Coffret Classeur Flamme Blanche',          minPrice: 25,  maxPrice: 100 },
+    { id: 'coffret-classeur-fn',      query: 'coffret classeur Foudre Noire EV10.5 -lot',               name: 'Coffret Classeur Foudre Noire',            minPrice: 25,  maxPrice: 100 },
+    { id: 'coffret-zenith-pikachu',   query: 'coffret Zenith Supreme Pikachu EB12.5 -lot -upc',         name: 'Coffret Zénith Suprême Pikachu',           minPrice: 25,  maxPrice: 120 },
+
+    // Pokebox (collector boxes Asmodee FR)
+    { id: 'pokebox-dracaufeu',     query: 'pokebox Dracaufeu pokemon -lot',                  name: 'Pokébox Dracaufeu',                  minPrice: 30,  maxPrice: 200 },
+    { id: 'pokebox-kyogre',        query: 'pokebox Kyogre pokemon -lot',                     name: 'Pokébox Kyogre',                     minPrice: 20,  maxPrice: 100 },
+    { id: 'pokebox-team-rocket',   query: 'pokebox Team Rocket pokemon -lot',                name: 'Pokébox Team Rocket',                minPrice: 20,  maxPrice: 120 },
+
+    // Mini Tins
+    { id: 'minitin-kanto',         query: 'mini tin Kanto pokemon -lot',                     name: 'Mini Tin Kanto',                     minPrice: 5,   maxPrice: 30 },
+    { id: 'minitin-pokeball',      query: 'mini tin pokeball pokemon -lot',                  name: 'Mini Tin Pokéball',                  minPrice: 5,   maxPrice: 25 },
+    { id: 'minitin-magnifique-paldea', query: 'mini tin Magnifique Paldea pokemon -lot',     name: 'Mini Tin Magnifique de Paldea',      minPrice: 5,   maxPrice: 25 },
+
+    // Spéciaux
+    { id: 'duo-pack-aventure-flamme',  query: 'duo pack Aventures Ensemble Flammes Fantasmagoriques pokemon -lot', name: 'Duo Pack Aventures/Flammes',  minPrice: 8,   maxPrice: 40 },
+    { id: 'case-24-mega-evolution',    query: 'case 24 boosters Mega Evolution ME01 pokemon scelle',               name: 'Case 24 Boosters Méga-Évolution', minPrice: 200, maxPrice: 800 },
 ];
 
 // ── Fetch specific eBay item by URL ─────────────────────────
