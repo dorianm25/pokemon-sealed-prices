@@ -2217,7 +2217,7 @@ Date du jour : ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month:
         res.json({
             reply: result.reply,
             usage: result.usage,
-            provider: providers[provider].name,
+            provider: result.model || providers[provider].name,
         });
     } catch (e) {
         console.error('[ai/chat] error:', e);
@@ -2234,34 +2234,52 @@ async function callAIProvider(provider, apiKey, systemPrompt, messages) {
     throw new Error('Provider inconnu : ' + provider);
 }
 
-// Google Gemini 2.0 Flash (gratuit jusqu'a 1500 req/jour, 15 RPM)
+// Google Gemini Flash (gratuit). Si un modele a "limit: 0" on essaie le suivant.
+// Override possible via env GEMINI_MODEL=gemini-2.5-flash etc.
 // https://ai.google.dev/gemini-api/docs
 async function callGemini(apiKey, systemPrompt, messages) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const body = {
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: messages.map(m => ({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }],
-        })),
-        generationConfig: { maxOutputTokens: 1024, temperature: 0.7 },
-    };
-    const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    const data = await r.json();
-    if (!r.ok) {
-        console.error('[ai/chat] gemini error:', data);
-        const msg = data?.error?.message || `HTTP ${r.status}`;
-        const err = new Error('Erreur API Gemini : ' + msg);
-        err.statusCode = 502;
-        throw err;
+    // Liste de modeles a essayer (du + recent au + ancien). Free tier varie selon le projet.
+    const customModel = process.env.GEMINI_MODEL?.trim();
+    const modelsToTry = customModel
+        ? [customModel]
+        : ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
+    let lastErr = null;
+    for (const model of modelsToTry) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const body = {
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: messages.map(m => ({
+                role: m.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: m.content }],
+            })),
+            generationConfig: { maxOutputTokens: 1024, temperature: 0.7 },
+        };
+        const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await r.json();
+        if (r.ok) {
+            const reply = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '(reponse vide)';
+            const u = data.usageMetadata || {};
+            return {
+                reply,
+                usage: { input: u.promptTokenCount || 0, output: u.candidatesTokenCount || 0 },
+                model,
+            };
+        }
+        // Si "limit: 0" (pas de quota free tier sur ce modele), on essaie le suivant
+        const msg = data?.error?.message || '';
+        console.error(`[ai/chat] gemini ${model} error:`, msg.slice(0, 200));
+        lastErr = msg || `HTTP ${r.status}`;
+        // Si ce n'est PAS un probleme de quota free tier, on arrete tout de suite
+        if (!msg.includes('limit: 0') && !msg.includes('quota') && !msg.includes('not found')) {
+            break;
+        }
     }
-    const reply = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '(reponse vide)';
-    const u = data.usageMetadata || {};
-    return { reply, usage: { input: u.promptTokenCount || 0, output: u.candidatesTokenCount || 0 } };
+    throw new Error('Erreur API Gemini : ' + lastErr);
 }
 
 // Groq (Llama 3.3 70B), free tier 14400 req/jour. API OpenAI-compat.
