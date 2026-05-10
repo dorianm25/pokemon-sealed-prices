@@ -2061,18 +2061,15 @@ app.put('/api/query/:productId', async (req, res) => {
 
     // 2. Limites de prix (admin uniquement)
     if (minPrice !== undefined || maxPrice !== undefined || resetPriceLimits) {
-        // Verifie l'admin : on lit le token comme dans authMiddleware mais en ligne
+        // Verifie l'admin : on utilise les memes helpers que authMiddleware/requireAdmin
         const auth = req.headers.authorization || '';
         const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
-        let isAdmin = false;
-        if (token) {
-            try {
-                const payload = jwt.verify(token, JWT_SECRET);
-                const adminUsername = (process.env.ADMIN_USERNAME || 'dorian').toLowerCase();
-                isAdmin = payload.username && payload.username.toLowerCase() === adminUsername;
-            } catch {}
+        const payload = verifyToken(token);
+        if (!payload || !payload.id) {
+            return res.status(401).json({ error: 'Authentification requise pour modifier les limites de prix' });
         }
-        if (!isAdmin) {
+        const me = await getUserById(payload.id);
+        if (!me || me.username.toLowerCase() !== ADMIN_USERNAME) {
             return res.status(403).json({ error: 'Modification des limites de prix reservee a l\'admin' });
         }
         if (resetPriceLimits) {
