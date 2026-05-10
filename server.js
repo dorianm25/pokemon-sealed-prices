@@ -2186,24 +2186,42 @@ app.post('/api/ai/chat', authMiddleware, async (req, res) => {
         }
 
         // 3. Construit les positions avec prix actuel
+        // Source des prix par ordre de fiabilite :
+        //   1. cache eBay (frais < 1h) si dispo (price = median, lastPrice = derniere annonce)
+        //   2. dernier point de price_history (mediane du jour, fiable mais peut dater de la veille)
         const positions = [];
         let totalInvested = 0, totalValue = 0;
+        let priceMissingCount = 0;
         for (const product of PRODUCTS_TO_TRACK) {
             const a = aggregated[product.name];
             if (!a || a.qty <= 0) continue;
+
             const cached = await readCache(product.id);
-            const price = cached?.price || cached?.lastPrice || 0;
+            let price = cached?.price || cached?.lastPrice || 0;
+            let lastPrice = cached?.lastPrice || 0;
+
+            // Fallback : si cache vide/expire, on prend le dernier point d'historique
+            if (price <= 0) {
+                const hist = await readHistory(product.id);
+                if (hist && hist.length > 0) {
+                    const last = hist[hist.length - 1];
+                    price = last.median || last.lastPrice || 0;
+                    if (!lastPrice) lastPrice = last.lastPrice || 0;
+                }
+            }
+
             const inv = a.totalCost;
             const val = a.qty * price;
             const pru = a.qty > 0 ? a.totalCost / a.qty : 0;
             totalInvested += inv;
             totalValue += val;
+            if (price <= 0) priceMissingCount++;
             positions.push({
                 name: product.name,
                 qty: a.qty,
                 pru: Math.round(pru * 100) / 100,
-                priceMedian: price,
-                lastPrice: cached?.lastPrice || 0,
+                priceMedian: Math.round(price * 100) / 100,
+                lastPrice: Math.round(lastPrice * 100) / 100,
                 invested: Math.round(inv * 100) / 100,
                 value: Math.round(val * 100) / 100,
                 pnl: Math.round((val - inv) * 100) / 100,
@@ -2229,11 +2247,14 @@ Contexte du portfolio agrege de l'utilisateur (somme principal + ${groups.length
 - P&L : ${(totalValue - totalInvested).toFixed(2)} € (${totalInvested > 0 ? Math.round(((totalValue - totalInvested) / totalInvested) * 100) : 0} %)
 - Nombre de positions distinctes : ${positions.length}
 - Nombre de portefeuilles : ${portfolioCount}
+${priceMissingCount > 0 ? `- ${priceMissingCount} position(s) sans prix actuel disponible (rare, peut etre une nouveaute pas encore listee sur eBay)` : ''}
 
 Top 25 positions par valeur actuelle (qty * prix median) :
 ${topPositions.map(p => `- ${p.name} : ${p.qty}x · PRU ${p.pru} € · prix actuel ${p.priceMedian} € · valeur ${p.value} € · P&L ${p.pnl >= 0 ? '+' : ''}${p.pnl} € (${p.pnlPct != null ? (p.pnlPct >= 0 ? '+' : '') + p.pnlPct + ' %' : 'n/a'})${p.sources.length > 1 ? ` · reparti sur ${p.sources.length} portefeuilles` : ''}`).join('\n')}
 
-Date du jour : ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+Date du jour : ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+
+IMPORTANT : les prix actuels viennent d'eBay (median des annonces "Buy It Now" en France) et sont rafraichis quotidiennement. Tu peux donc faire confiance a ces valeurs pour ton analyse, elles reflètent le marché actuel.`;
 
         // Construit l'historique de conversation (max 10 derniers tours pour contenir le cout)
         const messages = [];
