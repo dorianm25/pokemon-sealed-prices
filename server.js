@@ -2154,9 +2154,16 @@ app.post('/api/ai/chat', authMiddleware, async (req, res) => {
     }
 
     try {
-        // Charge le contexte du user : on garde le portfolio principal et chaque box extra
-        // SEPARES, pour que l'IA puisse repondre a "Quelle box vaut le plus ?", etc.
-        // Cache des prix mis en commun pour eviter les appels DB redondants.
+        // MODELE MENTAL DE L'UTILISATEUR :
+        //   - Le portfolio "Principal" = source unique de verite avec TOUT l'inventaire reel
+        //   - Les autres portfolios ("Box 1", "Box 3", "Chambre/autre", etc.) = etiquettes de
+        //     rangement physique. Ils SOUS-ENSEMBLE du Principal, jamais ajoutes a celui-ci.
+        //   - Donc : si Principal = 4x et Box 3 = 4x du meme produit, ces 4 et ces 4 sont les
+        //     MEMES 4 items, l'un est l'inventaire global, l'autre dit ou ils sont ranges.
+        //
+        // Consequence : tous les calculs (qty, valeur, P&L) se font UNIQUEMENT sur le Principal.
+        // Les boxes servent juste a dire "tel item est range dans Box X".
+
         const priceCache = {}; // productName -> price (calcule 1 fois)
         async function getCurrentPrice(product) {
             if (priceCache[product.name] != null) return priceCache[product.name];
@@ -2173,98 +2180,107 @@ app.post('/api/ai/chat', authMiddleware, async (req, res) => {
             return price;
         }
 
-        // Construit la liste des "portefeuilles" : Principal + chaque box extra
-        const groups = await listPortfolioGroups(req.userId);
+        // 1. Le Principal = source de verite
         const mainPf = await getPortfolio(req.userId);
-        const portfoliosList = [{ name: 'Principal', holdings: mainPf || {} }];
+        // 2. Les box = juste des localisations (sous-ensembles du Principal)
+        const groups = await listPortfolioGroups(req.userId);
+        const boxesData = []; // [{ name, holdings }]
         for (const g of groups) {
             const holdings = await getPortfolioByGroup(req.userId, g.id);
-            portfoliosList.push({ name: g.name, holdings: holdings || {} });
+            boxesData.push({ name: g.name, holdings: holdings || {} });
         }
 
-        // Calcule positions + totaux par portefeuille
-        const portfolios = [];
-        let globalInvested = 0, globalValue = 0;
-        for (const pf of portfoliosList) {
-            const positions = [];
-            let pInvested = 0, pValue = 0;
-            for (const product of PRODUCTS_TO_TRACK) {
-                const h = pf.holdings[product.name];
-                if (!h || h.qty <= 0) continue;
-                const price = await getCurrentPrice(product);
-                const inv = h.qty * (h.cost || 0);
-                const val = h.qty * price;
-                pInvested += inv;
-                pValue += val;
-                positions.push({
-                    name: product.name,
-                    qty: h.qty,
-                    pru: Math.round((h.cost || 0) * 100) / 100,
-                    price: Math.round(price * 100) / 100,
-                    invested: Math.round(inv * 100) / 100,
-                    value: Math.round(val * 100) / 100,
-                    pnl: Math.round((val - inv) * 100) / 100,
-                    pnlPct: inv > 0 ? Math.round(((val - inv) / inv) * 100) : null,
-                });
+        // 3. Construit les positions a partir du Principal uniquement
+        // Pour chaque item, on note dans quelle(s) box il est range
+        const positions = [];
+        let totalInvested = 0, totalValue = 0;
+        for (const product of PRODUCTS_TO_TRACK) {
+            const h = mainPf?.[product.name];
+            if (!h || h.qty <= 0) continue;
+            const price = await getCurrentPrice(product);
+            const inv = h.qty * (h.cost || 0);
+            const val = h.qty * price;
+            totalInvested += inv;
+            totalValue += val;
+
+            // Cherche cet item dans chaque box (info de rangement)
+            const locations = [];
+            for (const box of boxesData) {
+                const boxItem = box.holdings[product.name];
+                if (boxItem && boxItem.qty > 0) {
+                    locations.push({ box: box.name, qty: boxItem.qty });
+                }
             }
-            // Trie par valeur descendante au sein du portefeuille
-            positions.sort((a, b) => b.value - a.value);
-            globalInvested += pInvested;
-            globalValue += pValue;
-            portfolios.push({
-                name: pf.name,
-                positions,
-                invested: Math.round(pInvested * 100) / 100,
-                value: Math.round(pValue * 100) / 100,
-                pnl: Math.round((pValue - pInvested) * 100) / 100,
-                pnlPct: pInvested > 0 ? Math.round(((pValue - pInvested) / pInvested) * 100) : null,
-                positionsCount: positions.length,
+            const totalInBoxes = locations.reduce((s, l) => s + l.qty, 0);
+            const unassigned = Math.max(0, h.qty - totalInBoxes);
+
+            positions.push({
+                name: product.name,
+                qty: h.qty,
+                pru: Math.round((h.cost || 0) * 100) / 100,
+                price: Math.round(price * 100) / 100,
+                invested: Math.round(inv * 100) / 100,
+                value: Math.round(val * 100) / 100,
+                pnl: Math.round((val - inv) * 100) / 100,
+                pnlPct: inv > 0 ? Math.round(((val - inv) / inv) * 100) : null,
+                locations,
+                unassigned,
             });
         }
+        // Tri par valeur descendante
+        positions.sort((a, b) => b.value - a.value);
+        const positionsCount = positions.length;
+        const boxCount = boxesData.length;
 
-        // Tri des portefeuilles par valeur descendante (le plus gros en haut)
-        portfolios.sort((a, b) => b.value - a.value);
-        const portfolioCount = portfolios.length;
-
-        // Vue agregee PAR PRODUIT (pour repondre a "top 5 positions" sans doublons).
-        // On somme qty et valeur, mais on garde le detail des emplacements pour transparence.
-        const byProduct = {}; // name -> { qty, value, invested, breakdown:[{pf,qty}] }
-        for (const pf of portfolios) {
-            for (const pos of pf.positions) {
-                if (!byProduct[pos.name]) {
-                    byProduct[pos.name] = {
-                        name: pos.name,
-                        qty: 0,
-                        value: 0,
-                        invested: 0,
-                        price: pos.price,
-                        breakdown: [],
-                    };
-                }
-                const b = byProduct[pos.name];
-                b.qty += pos.qty;
-                b.value += pos.value;
-                b.invested += pos.invested;
-                b.breakdown.push({ pf: pf.name, qty: pos.qty });
+        // 4. Stats par box (juste pour info localisation, pas pour totaux globaux)
+        // On utilise les costs et prices du Principal pour valoriser ce qui est dans chaque box
+        const boxStats = boxesData.map(box => {
+            let bInv = 0, bVal = 0, bCount = 0;
+            const items = [];
+            for (const product of PRODUCTS_TO_TRACK) {
+                const boxItem = box.holdings[product.name];
+                if (!boxItem || boxItem.qty <= 0) continue;
+                // Utilise le PRU du Principal (source de verite) si dispo, sinon celui de la box
+                const principalItem = mainPf?.[product.name];
+                const cost = principalItem?.cost ?? boxItem.cost ?? 0;
+                const price = priceCache[product.name] ?? 0;
+                const inv = boxItem.qty * cost;
+                const val = boxItem.qty * price;
+                bInv += inv;
+                bVal += val;
+                bCount++;
+                items.push({
+                    name: product.name,
+                    qty: boxItem.qty,
+                    value: Math.round(val * 100) / 100,
+                });
             }
-        }
-        const aggregatedSorted = Object.values(byProduct)
-            .map(p => ({
-                ...p,
-                value: Math.round(p.value * 100) / 100,
-                invested: Math.round(p.invested * 100) / 100,
-                pnl: Math.round((p.value - p.invested) * 100) / 100,
-                pnlPct: p.invested > 0 ? Math.round(((p.value - p.invested) / p.invested) * 100) : null,
-            }))
-            .sort((a, b) => b.value - a.value)
-            .slice(0, 30); // top 30 produits uniques
+            items.sort((a, b) => b.value - a.value);
+            return {
+                name: box.name,
+                invested: Math.round(bInv * 100) / 100,
+                value: Math.round(bVal * 100) / 100,
+                pnl: Math.round((bVal - bInv) * 100) / 100,
+                pnlPct: bInv > 0 ? Math.round(((bVal - bInv) / bInv) * 100) : null,
+                itemsCount: bCount,
+                topItems: items.slice(0, 8),
+            };
+        });
+        boxStats.sort((a, b) => b.value - a.value);
 
-        const aggregatedBlock = aggregatedSorted.map((p, i) => {
-            const breakdownTxt = p.breakdown.length === 1
-                ? `(${p.breakdown[0].qty}x ${p.breakdown[0].pf})`
-                : `reparti en : ${p.breakdown.map(b => `${b.qty}x ${b.pf}`).join(' + ')}`;
-            return `${i + 1}. ${p.name} : TOTAL ${p.qty}x · valeur ${p.value} € · P&L ${p.pnl >= 0 ? '+' : ''}${p.pnl} € (${p.pnlPct != null ? (p.pnlPct >= 0 ? '+' : '') + p.pnlPct + ' %' : 'n/a'}) · ${breakdownTxt}`;
+        // 5. Construit les blocs de texte pour le system prompt
+        const positionsBlock = positions.slice(0, 35).map((p, i) => {
+            const locTxt = p.locations.length > 0
+                ? p.locations.map(l => `${l.qty}x ${l.box}`).join(' + ')
+                : 'non range';
+            const unassignedTxt = p.unassigned > 0 ? ` (${p.unassigned}x non range dans une box)` : '';
+            return `${i + 1}. ${p.name} : ${p.qty}x · PRU ${p.pru} € · prix ${p.price} € · valeur ${p.value} € · P&L ${p.pnl >= 0 ? '+' : ''}${p.pnl} € (${p.pnlPct != null ? (p.pnlPct >= 0 ? '+' : '') + p.pnlPct + ' %' : 'n/a'}) · range dans : ${locTxt}${unassignedTxt}`;
         }).join('\n');
+
+        const boxesBlock = boxStats.map(b => {
+            const itemsTxt = b.topItems.map(it => `    - ${it.name} : ${it.qty}x · ${it.value} €`).join('\n');
+            return `═══ ${b.name} ═══\n  Valeur stockee : ${b.value} €  ·  P&L estime : ${b.pnl >= 0 ? '+' : ''}${b.pnl} € (${b.pnlPct != null ? (b.pnlPct >= 0 ? '+' : '') + b.pnlPct + ' %' : 'n/a'})  ·  ${b.itemsCount} item(s)\n${itemsTxt || '  (vide)'}`;
+        }).join('\n\n');
 
         // Construit le prompt systeme avec le contexte structure par portefeuille
         // Limite le nombre d'items par portefeuille pour controler la taille du prompt
@@ -2288,34 +2304,39 @@ Tu peux suggerer d'acheter, vendre, ou conserver, et tu argumentes avec les donn
 Si la question est hors sujet (pas Pokemon TCG), tu refuses poliment de repondre.
 Sois concis : reponds en 3-6 phrases maximum sauf demande de detail.
 
-L'utilisateur a ${portfolioCount} portefeuilles physiques distincts (boxes). Tu disposes de DEUX vues complementaires :
-  - VUE A : detail par portefeuille (utile pour repondre "quelle box vaut le plus", "compare Box 1 et Box 2", "quoi vendre dans Principal", etc.)
-  - VUE B : top produits aggreges (utile pour repondre "mes 5 plus grosses positions", "quel produit me rapporte le plus", "ai-je trop d'un produit", etc.)
-
-REGLES D'USAGE :
-- Pour les "top positions / plus grosses positions" : utilise VUE B (produits uniques avec total + breakdown).
-  Exemple correct : "1. Display Bundle Heros Transcendants : 8x au total (4x Principal + 4x Box 3) · 4600 €"
-  PAS : "1. Display X 4x Principal 2300 €  /  2. Display X 4x Box 3 2300 €" (doublons interdits)
-- Pour les questions par box : utilise VUE A.
-- Pour vendre/conserver : utilise VUE B (impact total) en mentionnant ou ils sont stockes (depuis la breakdown).
-- Quand tu cites le total d'un produit, indique TOUJOURS le breakdown par box entre parentheses.
-
 ═════════════════════════════════════
-TOTAUX GLOBAUX :
-- Total investi : ${globalInvested.toFixed(2)} €
-- Valeur actuelle : ${globalValue.toFixed(2)} €
-- P&L global : ${(globalValue - globalInvested).toFixed(2)} € (${globalInvested > 0 ? Math.round(((globalValue - globalInvested) / globalInvested) * 100) : 0} %)
+MODELE A COMPRENDRE ABSOLUMENT
 ═════════════════════════════════════
+L'utilisateur a UN SEUL inventaire reel = le portfolio "Principal".
+Les ${boxCount} boxes (Box 1, Box 3, Petite Box 1, Chambre/autre, etc.) sont juste des ETIQUETTES de RANGEMENT pour savoir ou est physiquement stocke chaque item du Principal.
+
+Donc :
+- Si "Display X" est 4x dans Principal et 4x dans Box 3 -> ce sont les MEMES 4 items (pas 8).
+  Box 3 dit simplement : "ces 4 Display X du Principal sont ranges dans la Box 3".
+- TOUS LES TOTAUX (qty, valeur, P&L) viennent UNIQUEMENT du Principal. NE JAMAIS additionner Principal + boxes.
+- Les boxes servent UNIQUEMENT a localiser les items (info de rangement).
+
+Quand l'utilisateur demande "5 plus grosses positions", il veut les 5 plus grosses lignes de son Principal, avec leur localisation entre parentheses.
+  Exemple correct : "1. Display Heros Transcendants : 4x · 2300 € · range dans Box 3"
+  PAS : "8x au total" / "4x Principal + 4x Box 3" (faux, ce sont les memes items)
 
 ═════════════════════════════════════
-VUE B - TOP PRODUITS AGREGES (tries par valeur totale descendante, breakdown inclus)
+TOTAUX REELS (du Principal uniquement) :
+- Total investi : ${totalInvested.toFixed(2)} €
+- Valeur actuelle : ${totalValue.toFixed(2)} €
+- P&L : ${(totalValue - totalInvested).toFixed(2)} € (${totalInvested > 0 ? Math.round(((totalValue - totalInvested) / totalInvested) * 100) : 0} %)
+- Nombre de positions : ${positionsCount}
+- Nombre de boxes de rangement : ${boxCount}
 ═════════════════════════════════════
-${aggregatedBlock}
+
+POSITIONS DU PRINCIPAL (tri par valeur descendante, avec localisation) :
+
+${positionsBlock}
 
 ═════════════════════════════════════
-VUE A - DETAIL DE CHAQUE PORTEFEUILLE (tries du plus gros au plus petit en valeur)
+RANGEMENT PAR BOX (sous-ensembles du Principal, pour info de localisation) :
 ═════════════════════════════════════
-${portfoliosBlock}
+${boxesBlock}
 
 ═════════════════════════════════════
 Date du jour : ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
