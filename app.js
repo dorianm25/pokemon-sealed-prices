@@ -9579,6 +9579,7 @@ function renderAiMessages() {
             <div class="ai-empty-icon">✨</div>
             <h3>Bonjour ! Je suis ton conseiller IA</h3>
             <p>Je connais ton portfolio en détail (positions, P&L, prix actuels). Pose-moi une question, ou clique sur une suggestion ci-dessus.</p>
+            <p style="margin-top:10px;font-size:11px;color:var(--text-muted)">💡 Si tu reçois "AI non configuré", l'admin doit définir une clé API gratuite (Gemini, Groq ou Mistral).</p>
         </div>`;
         return;
     }
@@ -9682,7 +9683,10 @@ async function sendAiMessage() {
         } else {
             _aiHistory.push({ role: 'assistant', content: data.reply || '(réponse vide)' });
             const tokensEl = document.getElementById('aiTokensLast');
-            if (tokensEl && data.usage) tokensEl.textContent = `${data.usage.input}→${data.usage.output} tokens`;
+            if (tokensEl && data.usage) {
+                const provider = data.provider ? ` · ${data.provider}` : '';
+                tokensEl.textContent = `${data.usage.input}→${data.usage.output} tokens${provider}`;
+            }
         }
         saveAiHistory();
         renderAiMessages();

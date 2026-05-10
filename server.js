@@ -2120,11 +2120,28 @@ async function requireAdmin(req, res, next) {
 // Le user pose une question (ex: 'devrais-je vendre mes ETB ?') et Claude
 // repond avec analyse basee sur les donnees fournies en contexte.
 app.post('/api/ai/chat', authMiddleware, async (req, res) => {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    // Detection du provider selon la cle dispo (priorite : Gemini gratuit > Groq > Mistral > Claude)
+    // Tu peux forcer un provider via AI_PROVIDER=gemini|groq|mistral|claude
+    const forced = (process.env.AI_PROVIDER || '').toLowerCase().trim();
+    const providers = {
+        gemini: { key: process.env.GEMINI_API_KEY, name: 'Gemini 2.0 Flash' },
+        groq: { key: process.env.GROQ_API_KEY, name: 'Groq Llama 3.3 70B' },
+        mistral: { key: process.env.MISTRAL_API_KEY, name: 'Mistral Small' },
+        claude: { key: process.env.ANTHROPIC_API_KEY, name: 'Claude Sonnet 4.5' },
+    };
+    let provider = null;
+    if (forced && providers[forced]?.key) {
+        provider = forced;
+    } else {
+        // Auto-detect : 1er trouve dans l'ordre
+        for (const p of ['gemini', 'groq', 'mistral', 'claude']) {
+            if (providers[p].key) { provider = p; break; }
+        }
+    }
+    if (!provider) {
         return res.status(503).json({
             error: 'AI Advisor non configure',
-            help: 'L\'admin doit definir ANTHROPIC_API_KEY dans les env vars Render.',
+            help: 'Definir UNE des env vars : GEMINI_API_KEY (gratuit, recommande), GROQ_API_KEY, MISTRAL_API_KEY ou ANTHROPIC_API_KEY.',
         });
     }
 
@@ -2195,42 +2212,135 @@ Date du jour : ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month:
         }
         messages.push({ role: 'user', content: message });
 
-        // Appelle l'API Anthropic
-        const r = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-5',
-                max_tokens: 1024,
-                system: systemPrompt,
-                messages,
-            }),
-        });
-        const data = await r.json();
-        if (!r.ok) {
-            console.error('[ai/chat] anthropic error:', data);
-            return res.status(502).json({
-                error: 'Erreur API Claude : ' + (data?.error?.message || `HTTP ${r.status}`),
-            });
-        }
-        const reply = data.content?.[0]?.text || '(reponse vide)';
-        const usage = data.usage || {};
+        // Dispatch vers le bon provider
+        const result = await callAIProvider(provider, providers[provider].key, systemPrompt, messages);
         res.json({
-            reply,
-            usage: {
-                input: usage.input_tokens || 0,
-                output: usage.output_tokens || 0,
-            },
+            reply: result.reply,
+            usage: result.usage,
+            provider: providers[provider].name,
         });
     } catch (e) {
         console.error('[ai/chat] error:', e);
         res.status(500).json({ error: 'Erreur AI : ' + (e.message || 'inconnue') });
     }
 });
+
+// Dispatcher vers le bon provider AI. Renvoie { reply, usage:{input,output} }.
+async function callAIProvider(provider, apiKey, systemPrompt, messages) {
+    if (provider === 'gemini') return callGemini(apiKey, systemPrompt, messages);
+    if (provider === 'groq') return callGroq(apiKey, systemPrompt, messages);
+    if (provider === 'mistral') return callMistral(apiKey, systemPrompt, messages);
+    if (provider === 'claude') return callClaude(apiKey, systemPrompt, messages);
+    throw new Error('Provider inconnu : ' + provider);
+}
+
+// Google Gemini 2.0 Flash (gratuit jusqu'a 1500 req/jour, 15 RPM)
+// https://ai.google.dev/gemini-api/docs
+async function callGemini(apiKey, systemPrompt, messages) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const body = {
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: messages.map(m => ({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }],
+        })),
+        generationConfig: { maxOutputTokens: 1024, temperature: 0.7 },
+    };
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+        console.error('[ai/chat] gemini error:', data);
+        const msg = data?.error?.message || `HTTP ${r.status}`;
+        const err = new Error('Erreur API Gemini : ' + msg);
+        err.statusCode = 502;
+        throw err;
+    }
+    const reply = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '(reponse vide)';
+    const u = data.usageMetadata || {};
+    return { reply, usage: { input: u.promptTokenCount || 0, output: u.candidatesTokenCount || 0 } };
+}
+
+// Groq (Llama 3.3 70B), free tier 14400 req/jour. API OpenAI-compat.
+// https://console.groq.com
+async function callGroq(apiKey, systemPrompt, messages) {
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            max_tokens: 1024,
+            temperature: 0.7,
+            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+        }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+        console.error('[ai/chat] groq error:', data);
+        throw new Error('Erreur API Groq : ' + (data?.error?.message || `HTTP ${r.status}`));
+    }
+    const reply = data.choices?.[0]?.message?.content || '(reponse vide)';
+    const u = data.usage || {};
+    return { reply, usage: { input: u.prompt_tokens || 0, output: u.completion_tokens || 0 } };
+}
+
+// Mistral La Plateforme (free tier ~1 req/sec). API OpenAI-compat.
+// https://console.mistral.ai
+async function callMistral(apiKey, systemPrompt, messages) {
+    const r = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+            model: 'mistral-small-latest',
+            max_tokens: 1024,
+            temperature: 0.7,
+            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+        }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+        console.error('[ai/chat] mistral error:', data);
+        throw new Error('Erreur API Mistral : ' + (data?.message || data?.error?.message || `HTTP ${r.status}`));
+    }
+    const reply = data.choices?.[0]?.message?.content || '(reponse vide)';
+    const u = data.usage || {};
+    return { reply, usage: { input: u.prompt_tokens || 0, output: u.completion_tokens || 0 } };
+}
+
+// Anthropic Claude Sonnet 4.5 (payant)
+async function callClaude(apiKey, systemPrompt, messages) {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+            model: 'claude-sonnet-4-5',
+            max_tokens: 1024,
+            system: systemPrompt,
+            messages,
+        }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+        console.error('[ai/chat] anthropic error:', data);
+        throw new Error('Erreur API Claude : ' + (data?.error?.message || `HTTP ${r.status}`));
+    }
+    const reply = data.content?.[0]?.text || '(reponse vide)';
+    const u = data.usage || {};
+    return { reply, usage: { input: u.input_tokens || 0, output: u.output_tokens || 0 } };
+}
 
 // Smart purchase suggestions : combine plusieurs signaux pour suggerer les
 // meilleurs achats du moment. Chaque produit avec assez d'historique est note
