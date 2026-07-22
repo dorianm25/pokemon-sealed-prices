@@ -2811,17 +2811,19 @@ async function uploadBackupToS3(dump) {
     const region = process.env.S3_REGION || 'us-east-1';
     if (!bucket || !accessKey || !secretKey) throw new Error('Env S3 manquantes');
 
-    const body = JSON.stringify(dump);
+    // Body as Buffer pour bien calculer Content-Length (accents en UTF-8 = 2 bytes)
+    const body = Buffer.from(JSON.stringify(dump), 'utf-8');
     const date = new Date();
     const isoDate = date.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const key = `pokescelle-backups/backup-${isoDate}.json`;
+    // FIX : plus de prefixe bucket dans la key (evite /bucket/bucket/... dans l'URL)
+    const key = `backups/backup-${isoDate}.json`;
 
     const url = `${endpoint.replace(/\/$/, '')}/${bucket}/${key}`;
 
     // Signature AWS SigV4 (manual, pas de dep AWS SDK)
     const amzDate = date.toISOString().replace(/[:-]/g, '').slice(0, 15) + 'Z';
     const dateStamp = amzDate.slice(0, 8);
-    const payloadHash = await sha256Hex(body);
+    const payloadHash = await sha256HexBuf(body);
 
     const host = new URL(url).host;
     const canonicalUri = `/${bucket}/${key}`;
@@ -2834,23 +2836,39 @@ async function uploadBackupToS3(dump) {
     const signature = (await hmacSha256Hex(signingKey, stringToSign));
     const authHeader = `AWS4-HMAC-SHA256 Credential=${accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
-    const r = await fetch(url, {
-        method: 'PUT',
-        headers: {
-            'Host': host,
-            'X-Amz-Content-Sha256': payloadHash,
-            'X-Amz-Date': amzDate,
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-            'Content-Length': String(body.length),
-        },
-        body,
-    });
+    console.log(`[S3] PUT ${url} (${body.length} bytes)`);
+    let r;
+    try {
+        // Pas de header Host manuel : fetch le derive de l'URL automatiquement
+        // et forcer un Host manuel cause "fetch failed" sur undici (Node 18+).
+        r = await fetch(url, {
+            method: 'PUT',
+            headers: {
+                'X-Amz-Content-Sha256': payloadHash,
+                'X-Amz-Date': amzDate,
+                'Authorization': authHeader,
+                'Content-Type': 'application/json',
+                // Content-Length calcule automatiquement quand body est un Buffer
+            },
+            body,
+        });
+    } catch (e) {
+        // fetch throw sur erreur reseau bas niveau (DNS, TLS, refused, etc.)
+        console.error('[S3] fetch throw:', e.message, e.cause?.message || '');
+        throw new Error(`Erreur reseau S3 : ${e.message}${e.cause ? ' (' + e.cause.message + ')' : ''}`);
+    }
     if (!r.ok) {
         const t = await r.text();
+        console.error(`[S3] ${r.status} response:`, t.slice(0, 500));
         throw new Error(`S3 ${r.status}: ${t.slice(0, 200)}`);
     }
     return { ok: true, key, sizeBytes: body.length, url };
+}
+
+// Version Buffer-safe de sha256Hex (evite le re-encoding UTF-8 double)
+async function sha256HexBuf(buf) {
+    const hash = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // Helpers crypto pour SigV4 (Node 18+ a webcrypto natif, sinon fallback)
