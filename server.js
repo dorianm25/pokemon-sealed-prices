@@ -28,7 +28,7 @@ import {
     listCustomProducts, getCustomProduct, createCustomProduct,
     updateCustomProduct, deleteCustomProduct,
     getCache as dbGetCache, setCache as dbSetCache, deleteCache as dbDeleteCache,
-    getAllCache as dbGetAllCache,
+    getAllCache as dbGetAllCache, purgeStaleCache,
     getCustomQueries, setCustomQuery,
     getOrCreateAppSecret,
 } from './db.js';
@@ -3629,7 +3629,10 @@ const CRON_SECRET = process.env.CRON_SECRET || '';
 
 async function runDailyCron() {
     const start = Date.now();
-    const summary = { refreshed: 0, failed: 0, users: 0, ownedProducts: 0, errors: [] };
+    const summary = {
+        refreshed: 0, failed: 0, users: 0, ownedProducts: 0,
+        cachePurged: 0, backup: null, errors: [],
+    };
 
     // Collecte des produits détenus (DB)
     const userIds = await listPortfolioUserIds();
@@ -3667,6 +3670,33 @@ async function runDailyCron() {
 
     // Snapshot
     await snapshotPortfolio();
+
+    // Purge auto du cache : entrees > 24h supprimees pour eviter croissance infinie.
+    // Preserve les app_secrets (persistent forever).
+    try {
+        summary.cachePurged = await purgeStaleCache(24);
+        console.log(`[Cron] Cache purge : ${summary.cachePurged} entree(s) supprimee(s)`);
+    } catch (err) {
+        console.error('[Cron] Cache purge failed:', err.message);
+        summary.errors.push(`cache purge: ${err.message}`);
+    }
+
+    // Backup S3 auto si configure (envs S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY)
+    // Sans ces envs, on skip silencieusement (backup manuel via UI admin toujours dispo).
+    if (process.env.S3_BUCKET && process.env.S3_ACCESS_KEY && process.env.S3_SECRET_KEY) {
+        try {
+            const dump = await createBackupDump();
+            const s3Result = await uploadBackupToS3(dump);
+            summary.backup = { ok: true, key: s3Result.key, sizeKB: Math.round(s3Result.sizeBytes / 1024) };
+            console.log(`[Cron] Backup S3 OK : ${s3Result.key} (${summary.backup.sizeKB} KB)`);
+        } catch (err) {
+            console.error('[Cron] Backup S3 failed:', err.message);
+            summary.backup = { ok: false, error: err.message };
+            summary.errors.push(`backup: ${err.message}`);
+        }
+    } else {
+        summary.backup = { skipped: 'S3 non configure' };
+    }
 
     summary.durationMs = Date.now() - start;
     console.log(`[Cron] Terminé en ${Math.round(summary.durationMs / 1000)}s`, summary);

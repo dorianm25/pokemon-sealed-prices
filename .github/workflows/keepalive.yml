@@ -1,0 +1,44 @@
+name: Keepalive (anti-desactivation GitHub)
+
+# GitHub desactive automatiquement les workflows planifies apres 60 jours
+# d'inactivite sur le repo. Ce workflow fait un commit vide tous les 25 jours
+# pour garantir de l'activite reguliere et eviter la desactivation.
+#
+# Le fichier .github/last-keepalive.txt est mis a jour a chaque run.
+
+on:
+  schedule:
+    # Toutes les 25 jours (au 5, 10 et 15 de chaque mois a 10h UTC)
+    # 3 runs/mois pour redondance : si un push GHA fail, les 2 autres prennent le relais.
+    - cron: '0 10 5,15,25 * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update last-keepalive timestamp
+        run: |
+          mkdir -p .github
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-keepalive.txt
+          echo "Anti-desactivation GitHub Actions : ce fichier est touche automatiquement" >> .github/last-keepalive.txt
+          echo "chaque mois pour garder les workflows planifies actifs." >> .github/last-keepalive.txt
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/last-keepalive.txt
+          if git diff --staged --quiet; then
+            echo "Aucun changement, on skip le commit"
+          else
+            git commit -m "chore: keepalive $(date -u +%Y-%m-%d)"
+            git push
+          fi

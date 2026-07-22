@@ -393,6 +393,17 @@ export async function deleteCache(key) {
     await db.execute({ sql: 'DELETE FROM cache WHERE key = ?', args: [key] });
 }
 
+// Purge les entrees cache plus anciennes que N heures. Retourne le nombre
+// de lignes supprimees. Preserve les app_secrets (prefixe __app_secret__).
+export async function purgeStaleCache(hours = 24) {
+    const cutoff = Date.now() - hours * 3600 * 1000;
+    const r = await db.execute({
+        sql: `DELETE FROM cache WHERE updated_at < ? AND key NOT LIKE '__app_secret__%'`,
+        args: [cutoff],
+    });
+    return Number(r.rowsAffected) || 0;
+}
+
 // Lit tout le cache en 1 requête. Retourne { [key]: data } pour les entrées
 // non expirées (si ttlMs est fourni). Inclut aussi updatedAt pour permettre
 // au client de raisonner sur la fraîcheur.
