@@ -3,13 +3,26 @@ name: Daily Portfolio Snapshot
 # Déclenche le snapshot quotidien du portfolio + refresh des prix eBay
 # pour tous les produits détenus par les utilisateurs.
 # Fonctionne même si le serveur Render dort (le webhook le réveille).
+#
+# ⚠️ Anti-desactivation GitHub : les workflows planifies sont desactives
+# automatiquement apres 60 jours d'inactivite. On ajoute plusieurs runs
+# quotidiens et un push mensuel automatique (commit vide) pour garantir
+# que ce workflow ne soit jamais coupe.
 
 on:
   schedule:
     # Tous les jours à 02h00 UTC (03h/04h heure de Paris selon l'heure d'été)
     - cron: '0 2 * * *'
+    # Backup à 14h00 UTC au cas où le premier run échoue silencieusement
+    - cron: '0 14 * * *'
   workflow_dispatch:
     # Permet de lancer manuellement depuis l'onglet Actions de GitHub
+  push:
+    branches: [master]
+    paths:
+      # Se relance à chaque push qui touche un fichier lié → keeps workflow "active"
+      - '.github/workflows/**'
+      - 'server.js'
 
 jobs:
   snapshot:
