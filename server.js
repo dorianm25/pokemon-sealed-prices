@@ -1287,6 +1287,30 @@ async function fetchPokecardexHomeData(locale = 'fr') {
     return decryptPokecardexData(payload.iv, payload.data);
 }
 
+// Fetch la page /series/ de Pokecardex qui contient TOUTES les series par bloc/region.
+// Structure : data.seriesMenu.blocksByRegion.FR = [{ id, name, series: [{ id, shortName, fullName, link }] }]
+async function fetchPokecardexSeries() {
+    const url = 'https://www.pokecardex.com/series/';
+    const r = await fetch(url, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'fr-FR,fr;q=0.9',
+        },
+        signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) throw new Error(`Pokecardex /series/ HTTP ${r.status}`);
+    const html = await r.text();
+    // Nouvelle variable "_ALL_" utilisee sur la page series
+    const m = html.match(/window\.__INITIAL_DATA_ALL_ENCRYPTED__\s*=\s*(\{.+?\});/s)
+           || html.match(/window\.__INITIAL_DATA_ENCRYPTED__\s*=\s*(\{.+?\});/s);
+    if (!m) throw new Error('Données chiffrées introuvables sur /series/');
+    const payload = JSON.parse(m[1]);
+    if (!payload.iv || !payload.data) throw new Error('Format inattendu');
+    const data = decryptPokecardexData(payload.iv, payload.data);
+    return data;
+}
+
 // Convertit une date Pokecardex 'DD/MM/YYYY' en ISO 'YYYY-MM-DD'
 function parsePokecardexDate(s) {
     if (!s || typeof s !== 'string') return null;
@@ -3645,6 +3669,71 @@ app.get('/api/transactions/stats', authMiddleware, async (req, res) => {
 // 3) Lance le snapshot portfolio pour tous les users
 const CRON_SECRET = process.env.CRON_SECRET || '';
 
+// Detecte si un nom de serie correspond a une extension "vraie" (set principal)
+// ou a un sous-set (energies, deck, mini-set). Les sous-sets sont skip car ils
+// n'ont pas de scelle standardise (ETB, Display, etc.).
+const SUBSET_MARKERS = [
+    /^Énergies /i, /^Energies /i,
+    /^Deck /i, /^Coffret /i, /^Preview /i,
+    / — /i, / Pikachu/i,
+];
+function isMainSet(name) {
+    if (!name) return false;
+    return !SUBSET_MARKERS.some(rx => rx.test(name));
+}
+
+// Sync : recupere toutes les series FR de Pokecardex et les inject dans
+// release_calendar. Dedupe par nom (case-insensitive) pour ne pas doublonner
+// les entrees deja creees manuellement avec une convention differente.
+// Retourne { added, skipped, total }.
+async function syncSetsFromPokecardex() {
+    const data = await fetchPokecardexSeries();
+    const blocs = data?.seriesMenu?.blocksByRegion?.FR || [];
+    if (!Array.isArray(blocs) || blocs.length === 0) {
+        throw new Error('Structure Pokecardex inattendue (pas de blocksByRegion.FR)');
+    }
+
+    // Set des noms existants (case-insensitive) pour dedupe
+    const existing = await listReleaseCalendar();
+    const existingNames = new Set(existing.map(e => (e.name || '').toLowerCase().trim()));
+
+    let added = 0, skipped = 0;
+    const addedList = [];
+    const today = new Date().toISOString().slice(0, 10);
+
+    for (const bloc of blocs) {
+        if (!bloc?.series || !Array.isArray(bloc.series)) continue;
+        const blockName = bloc.name || bloc.nameUS || '';
+        for (const s of bloc.series) {
+            const name = (s.fullName || '').trim();
+            const code = (s.shortName || '').trim();
+            if (!name || !code) { skipped++; continue; }
+            if (!isMainSet(name)) { skipped++; continue; }
+            if (existingNames.has(name.toLowerCase())) { skipped++; continue; }
+
+            try {
+                await upsertReleaseCalendar({
+                    code,
+                    name,
+                    block: blockName,
+                    date: today,          // date placeholder (admin peut editer)
+                    confidence: 'estimated',
+                    note: s.link || null,
+                    sortOrder: 0,
+                }, 'pokecardex-sync');
+                existingNames.add(name.toLowerCase());
+                added++;
+                addedList.push(`${code} ${name}`);
+            } catch (e) {
+                console.warn(`[sync-sets] skip ${code}:`, e.message);
+                skipped++;
+            }
+        }
+    }
+
+    return { added, skipped, total: added + skipped, addedList };
+}
+
 // Mapping des prefixes de code -> nom de bloc pour la sidebar.
 // Nouveau code = juste ajouter le prefixe ici, tout marche.
 const CODE_PREFIX_TO_BLOCK = [
@@ -3676,18 +3765,25 @@ async function autoTrackFromReleaseCalendar() {
     const releases = await listReleaseCalendar();
     const added = [];
 
-    // Set des prefixes deja utilises (id des produits existants normalises)
+    // Sets de dedupe : prefixe d'ID + nom d'extension (case-insensitive)
+    // Le double check evite les doublons quand Pokecardex utilise un code
+    // different (ex: 'PBL') que l'user a deja avec un autre code (ex: 'me04').
     const existingCodePrefixes = new Set();
+    const existingExtNames = new Set();
     for (const p of PRODUCTS_TO_TRACK) {
-        // Ex: 'ev01-etb' -> 'ev01'. On garde la partie avant le premier '-'.
         const prefix = p.id.split('-')[0].toLowerCase();
         existingCodePrefixes.add(prefix);
+        if (p.ext) existingExtNames.add(p.ext.toLowerCase().trim());
+        // Extract ext from name too : 'ETB Nuit Noire' -> 'Nuit Noire'
+        const nameExt = (p.name || '').replace(/^(ETB|Display 36|Display 18|Tripack|Bundle 6|Booster)\s+/i, '').trim();
+        if (nameExt) existingExtNames.add(nameExt.toLowerCase());
     }
 
     for (const r of releases) {
         if (!r.code || !r.name) continue;
         const idPrefix = r.code.toLowerCase().replace(/[.\s]/g, '');
-        if (existingCodePrefixes.has(idPrefix)) continue; // deja tracke
+        if (existingCodePrefixes.has(idPrefix)) continue; // deja tracke (par code)
+        if (existingExtNames.has(r.name.toLowerCase().trim())) continue; // deja tracke (par nom)
 
         // Detecte le bloc depuis le code (fallback : r.block du calendrier)
         const block = r.block || guessBlockFromCode(r.code) || 'Autres';
@@ -3723,6 +3819,7 @@ async function autoTrackFromReleaseCalendar() {
         }
         added.push(r.code);
         existingCodePrefixes.add(idPrefix);
+        existingExtNames.add(r.name.toLowerCase().trim());
     }
 
     return added;
@@ -3782,8 +3879,24 @@ async function runDailyCron() {
         summary.errors.push(`cache purge: ${err.message}`);
     }
 
-    // Auto-tracker les nouveaux sets Pokemon depuis le release_calendar.
-    // Idempotent : ne cree pas de doublons si le code est deja tracke.
+    // 1. Sync depuis Pokecardex : populate le release_calendar avec les nouveaux
+    //    sets Pokemon qui sortent (Nuit Noire, Chaos Ascendant, etc.).
+    //    Best-effort : si Pokecardex change son API, on continue quand meme au step 2
+    //    pour au moins tracker ce qui est deja dans le calendrier manuellement.
+    try {
+        const syncResult = await syncSetsFromPokecardex();
+        summary.pokecardexSynced = syncResult.added;
+        if (syncResult.added > 0) {
+            summary.pokecardexAddedList = syncResult.addedList;
+            console.log(`[Cron] Pokecardex sync : +${syncResult.added} sets dans le calendrier`);
+        }
+    } catch (err) {
+        console.error('[Cron] Pokecardex sync failed:', err.message);
+        summary.errors.push(`pokecardex sync: ${err.message}`);
+    }
+
+    // 2. Auto-tracker les nouveaux sets Pokemon depuis le release_calendar.
+    //    Idempotent : ne cree pas de doublons si le code/nom est deja tracke.
     try {
         const added = await autoTrackFromReleaseCalendar();
         summary.newSetsTracked = added.length;
@@ -3818,6 +3931,36 @@ async function runDailyCron() {
     console.log(`[Cron] Terminé en ${Math.round(summary.durationMs / 1000)}s`, summary);
     return summary;
 }
+
+// Trigger manuel : sync depuis Pokecardex vers release_calendar
+// puis genere immediatement les 6 produits pour les nouveaux sets.
+// Pipeline complet en 1 clic.
+app.post('/api/admin/sync-pokecardex-sets', authMiddleware, requireAdmin, async (_req, res) => {
+    try {
+        // 1. Sync depuis Pokecardex
+        const syncResult = await syncSetsFromPokecardex();
+        // 2. Auto-track les nouveaux sets du calendrier
+        const trackedCodes = syncResult.added > 0 ? await autoTrackFromReleaseCalendar() : [];
+        if (trackedCodes.length > 0) await refreshProductsCache();
+        res.json({
+            ok: true,
+            calendar: {
+                added: syncResult.added,
+                skipped: syncResult.skipped,
+                total: syncResult.total,
+                addedList: syncResult.addedList,
+            },
+            products: {
+                newSetsCount: trackedCodes.length,
+                newSetsList: trackedCodes,
+                totalProducts: PRODUCTS_TO_TRACK.length,
+            },
+        });
+    } catch (err) {
+        console.error('[sync-pokecardex-sets] error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // Trigger manuel : detecte les nouveaux sets du release_calendar et cree
 // les 6 produits eBay pour chacun (idempotent).

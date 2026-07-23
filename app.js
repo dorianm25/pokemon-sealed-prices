@@ -6658,17 +6658,19 @@ function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: 
             <div id="adminSyncCostsResult" class="admin-bulk-result"></div>
         </div>
 
-        <!-- Auto-track des nouveaux sets Pokemon depuis le release_calendar -->
+        <!-- Auto-track des nouveaux sets Pokemon (Pokecardex + calendrier) -->
         <div class="admin-card">
-            <h3 class="admin-card-title">🆕 Auto-tracker les nouveaux sets</h3>
+            <h3 class="admin-card-title">🆕 Sync auto des nouveaux sets Pokémon</h3>
             <p class="admin-card-sub">
-                Pour chaque set du <strong>calendrier des sorties</strong> qui n'a pas encore de produits eBay associés,
-                génère automatiquement les 6 produits standards (ETB, Display 36, Display 18, Tripack, Bundle 6, Booster)
-                avec des recherches eBay pré-configurées. <strong>Se déclenche automatiquement chaque jour via le cron</strong>,
-                ce bouton est juste pour forcer maintenant.
+                Pipeline complet en 1 clic : (1) fetch la liste des séries FR depuis
+                <a href="https://www.pokecardex.com/series/" target="_blank" rel="noopener" style="color:var(--text-link)">Pokecardex</a>
+                et ajoute les nouvelles au calendrier · (2) pour chaque set du calendrier sans produits associés,
+                génère les 6 produits eBay standards (ETB, Display 36, Display 18, Tripack, Bundle 6, Booster).
+                <strong>Se déclenche automatiquement chaque jour via le cron</strong>.
             </p>
-            <div class="admin-bulk-actions" style="margin-top:10px">
-                <button class="admin-btn admin-btn-primary" onclick="adminAutoTrackSets()">🆕 Détecter et tracker les nouveaux sets</button>
+            <div class="admin-bulk-actions" style="margin-top:10px;flex-wrap:wrap">
+                <button class="admin-btn admin-btn-primary" onclick="adminSyncPokecardexSets()">🌐 Sync Pokecardex + auto-track (complet)</button>
+                <button class="admin-btn admin-btn-secondary" onclick="adminAutoTrackSets()">🆕 Auto-track seul (depuis calendrier existant)</button>
             </div>
             <div id="adminAutoTrackResult" class="admin-bulk-result"></div>
         </div>
@@ -9981,6 +9983,41 @@ async function adminDownloadBackup() {
         showToast('✅', 'Backup téléchargé', 'Conserve-le en lieu sûr');
     } catch (e) {
         showToast('⚠️', 'Erreur réseau', e.message || 'Téléchargement échoué');
+    }
+}
+
+async function adminSyncPokecardexSets() {
+    if (!isAdminUser()) return;
+    const result = document.getElementById('adminAutoTrackResult');
+    if (result) result.innerHTML = '<div class="admin-bulk-running">⏳ Fetch Pokecardex + génération produits eBay (peut prendre 20 sec)…</div>';
+    try {
+        const res = await fetch('/api/admin/sync-pokecardex-sets', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (!(res.headers.get('content-type') || '').includes('application/json')) {
+            if (result) result.innerHTML = `<div class="admin-bulk-error">⚠️ Serveur redéploie ? Attends 1 min et retente.</div>`;
+            return;
+        }
+        const data = await res.json();
+        if (!res.ok) {
+            if (result) result.innerHTML = `<div class="admin-bulk-error">❌ ${data.error || 'Erreur'}</div>`;
+            return;
+        }
+        const cal = data.calendar || {};
+        const prod = data.products || {};
+        const calBlock = cal.added > 0
+            ? `<div class="admin-bulk-success">📅 ${cal.added} nouveau(x) set(s) ajouté(s) au calendrier :<br><small>${(cal.addedList || []).map(s => `<code>${s}</code>`).join(' · ')}</small></div>`
+            : `<div class="admin-bulk-help">📅 Aucun nouveau set côté Pokecardex (${cal.skipped} déjà connus)</div>`;
+        const prodBlock = prod.newSetsCount > 0
+            ? `<div class="admin-bulk-success" style="margin-top:8px">🛒 ${prod.newSetsCount} set(s) tracké(s) sur eBay : <strong>${(prod.newSetsList || []).join(', ')}</strong><br><small>+${prod.newSetsCount * 6} produits eBay créés. Total : ${prod.totalProducts} produits.</small></div>`
+            : `<div class="admin-bulk-help" style="margin-top:8px">🛒 Aucun nouveau produit eBay à créer</div>`;
+        if (result) result.innerHTML = calBlock + prodBlock;
+        if (cal.added > 0 || prod.newSetsCount > 0) {
+            showToast('🎉', `Sync OK`, `+${cal.added} sets, +${prod.newSetsCount * 6} produits`);
+        }
+    } catch (e) {
+        if (result) result.innerHTML = `<div class="admin-bulk-error">❌ ${e.message || 'Erreur réseau'}</div>`;
     }
 }
 
