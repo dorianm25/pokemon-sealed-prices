@@ -200,13 +200,40 @@ const SERIES_ICONS = {
     'Wizards': { icon: '🧙', color: '#8e44ad' },
 };
 
-let activeBlocs = new Set(['Écarlate et Violet', 'Méga-Évolution', 'Épée et Bouclier']); // blocs cochés par défaut
+// Persistance du choix des blocs actifs en localStorage
+// Defaut : TOUS les blocs coches (nouveaux users voient tout)
+const ACTIVE_BLOCS_KEY = 'pokescelle-active-blocs';
+function loadActiveBlocs() {
+    try {
+        const raw = localStorage.getItem(ACTIVE_BLOCS_KEY);
+        if (raw) return new Set(JSON.parse(raw));
+    } catch {}
+    // Par defaut : tous les blocs de BLOCS_SERIES
+    return new Set(BLOCS_SERIES.map(b => b.bloc));
+}
+function saveActiveBlocs() {
+    try { localStorage.setItem(ACTIVE_BLOCS_KEY, JSON.stringify([...activeBlocs])); } catch {}
+}
+
+let activeBlocs = loadActiveBlocs();
 let openBloc = null; // bloc déplié (accordéon)
 let activeSerie = null;
 
 function renderBlocsAccordion() {
     const container = document.getElementById('blocsAccordion');
-    container.innerHTML = BLOCS_SERIES.map(b => {
+    const allBlocCount = BLOCS_SERIES.length;
+    const activeCount = activeBlocs.size;
+    const allSelected = activeCount === allBlocCount;
+    const noneSelected = activeCount === 0;
+
+    // Barre "Tout / Rien" en haut pour toggler rapidement
+    const toolbar = `<div class="blocs-toolbar">
+        <button class="blocs-toolbar-btn ${allSelected ? 'active' : ''}" onclick="selectAllBlocs()">Tout ${allSelected ? '✓' : ''}</button>
+        <button class="blocs-toolbar-btn ${noneSelected ? 'active' : ''}" onclick="clearAllBlocs()">Rien</button>
+        <span class="blocs-toolbar-count">${activeCount}/${allBlocCount}</span>
+    </div>`;
+
+    container.innerHTML = toolbar + BLOCS_SERIES.map(b => {
         const isChecked = activeBlocs.has(b.bloc);
         const isOpen = openBloc === b.bloc;
         const hasProducts = products.some(p => p.serie === b.bloc);
@@ -243,6 +270,24 @@ function toggleBlocFilter(bloc, checked) {
         activeBlocs.delete(bloc);
     }
     activeSerie = null;
+    saveActiveBlocs();
+    renderBlocsAccordion();
+    render();
+}
+
+function selectAllBlocs() {
+    activeBlocs = new Set(BLOCS_SERIES.map(b => b.bloc));
+    activeSerie = null;
+    saveActiveBlocs();
+    renderBlocsAccordion();
+    render();
+}
+
+function clearAllBlocs() {
+    activeBlocs = new Set();
+    activeSerie = null;
+    saveActiveBlocs();
+    renderBlocsAccordion();
     render();
 }
 
