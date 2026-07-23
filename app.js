@@ -208,7 +208,7 @@ function loadActiveBlocs() {
         const raw = localStorage.getItem(ACTIVE_BLOCS_KEY);
         if (raw) return new Set(JSON.parse(raw));
     } catch {}
-    // Par defaut : tous les blocs de BLOCS_SERIES
+    // Par defaut : tous les blocs hardcoded (l'auto-decouverte les rajoutera au render)
     return new Set(BLOCS_SERIES.map(b => b.bloc));
 }
 function saveActiveBlocs() {
@@ -219,9 +219,35 @@ let activeBlocs = loadActiveBlocs();
 let openBloc = null; // bloc déplié (accordéon)
 let activeSerie = null;
 
+// Enrichit BLOCS_SERIES avec les series decouvertes dans products (auto-detection).
+// Une nouvelle serie ajoutee cote serveur (Nuit Noire, Chaos Ascendant, etc.)
+// apparait sans avoir a modifier BLOCS_SERIES hardcode.
+function getBlocsSeriesWithDiscovered() {
+    // Copie profonde pour ne pas muter la constante
+    const merged = BLOCS_SERIES.map(b => ({ bloc: b.bloc, series: [...b.series] }));
+    const blocMap = new Map(merged.map(b => [b.bloc, b]));
+
+    // Scanne les produits pour trouver les series (ext) non listees
+    for (const p of products) {
+        if (!p.serie || !p.ext) continue;
+        let block = blocMap.get(p.serie);
+        if (!block) {
+            // Bloc completement nouveau (ex: si tu ajoutes une entree dans un bloc inconnu)
+            block = { bloc: p.serie, series: [] };
+            blocMap.set(p.serie, block);
+            merged.push(block);
+        }
+        if (!block.series.includes(p.ext)) {
+            block.series.push(p.ext);
+        }
+    }
+    return merged;
+}
+
 function renderBlocsAccordion() {
     const container = document.getElementById('blocsAccordion');
-    const allBlocCount = BLOCS_SERIES.length;
+    const blocsList = getBlocsSeriesWithDiscovered();
+    const allBlocCount = blocsList.length;
     const activeCount = activeBlocs.size;
     const allSelected = activeCount === allBlocCount;
     const noneSelected = activeCount === 0;
@@ -233,7 +259,7 @@ function renderBlocsAccordion() {
         <span class="blocs-toolbar-count">${activeCount}/${allBlocCount}</span>
     </div>`;
 
-    container.innerHTML = toolbar + BLOCS_SERIES.map(b => {
+    container.innerHTML = toolbar + blocsList.map(b => {
         const isChecked = activeBlocs.has(b.bloc);
         const isOpen = openBloc === b.bloc;
         const hasProducts = products.some(p => p.serie === b.bloc);
@@ -276,7 +302,7 @@ function toggleBlocFilter(bloc, checked) {
 }
 
 function selectAllBlocs() {
-    activeBlocs = new Set(BLOCS_SERIES.map(b => b.bloc));
+    activeBlocs = new Set(getBlocsSeriesWithDiscovered().map(b => b.bloc));
     activeSerie = null;
     saveActiveBlocs();
     renderBlocsAccordion();
@@ -6632,6 +6658,21 @@ function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: 
             <div id="adminSyncCostsResult" class="admin-bulk-result"></div>
         </div>
 
+        <!-- Auto-track des nouveaux sets Pokemon depuis le release_calendar -->
+        <div class="admin-card">
+            <h3 class="admin-card-title">🆕 Auto-tracker les nouveaux sets</h3>
+            <p class="admin-card-sub">
+                Pour chaque set du <strong>calendrier des sorties</strong> qui n'a pas encore de produits eBay associés,
+                génère automatiquement les 6 produits standards (ETB, Display 36, Display 18, Tripack, Bundle 6, Booster)
+                avec des recherches eBay pré-configurées. <strong>Se déclenche automatiquement chaque jour via le cron</strong>,
+                ce bouton est juste pour forcer maintenant.
+            </p>
+            <div class="admin-bulk-actions" style="margin-top:10px">
+                <button class="admin-btn admin-btn-primary" onclick="adminAutoTrackSets()">🆕 Détecter et tracker les nouveaux sets</button>
+            </div>
+            <div id="adminAutoTrackResult" class="admin-bulk-result"></div>
+        </div>
+
         <!-- Backup DB : telechargement direct + upload S3 si configure -->
         <div class="admin-card">
             <h3 class="admin-card-title">💾 Sauvegarde de la base</h3>
@@ -9940,6 +9981,38 @@ async function adminDownloadBackup() {
         showToast('✅', 'Backup téléchargé', 'Conserve-le en lieu sûr');
     } catch (e) {
         showToast('⚠️', 'Erreur réseau', e.message || 'Téléchargement échoué');
+    }
+}
+
+async function adminAutoTrackSets() {
+    if (!isAdminUser()) return;
+    const result = document.getElementById('adminAutoTrackResult');
+    if (result) result.innerHTML = '<div class="admin-bulk-running">⏳ Détection des nouveaux sets…</div>';
+    try {
+        const res = await fetch('/api/admin/auto-track-sets', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (!(res.headers.get('content-type') || '').includes('application/json')) {
+            if (result) result.innerHTML = `<div class="admin-bulk-error">⚠️ Serveur redéploie ? Attends 1 min et retente.</div>`;
+            return;
+        }
+        const data = await res.json();
+        if (!res.ok) {
+            if (result) result.innerHTML = `<div class="admin-bulk-error">❌ ${data.error || 'Erreur'}</div>`;
+            return;
+        }
+        if (data.newSetsCount === 0) {
+            if (result) result.innerHTML = `<div class="admin-bulk-help">✅ Tous les sets du calendrier ont déjà des produits trackés (${data.totalProducts} produits au total).</div>`;
+        } else {
+            if (result) result.innerHTML = `<div class="admin-bulk-success">
+                ✅ ${data.newSetsCount} nouveau(x) set(s) tracké(s) : <strong>${data.newSetsList.join(', ')}</strong><br>
+                <small>${data.newSetsCount * 6} nouveaux produits eBay créés. Total : ${data.totalProducts} produits.</small>
+            </div>`;
+            showToast('🆕', `${data.newSetsCount} set(s) ajouté(s)`, `+${data.newSetsCount * 6} produits`);
+        }
+    } catch (e) {
+        if (result) result.innerHTML = `<div class="admin-bulk-error">❌ ${e.message || 'Erreur réseau'}</div>`;
     }
 }
 

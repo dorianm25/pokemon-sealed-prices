@@ -3645,6 +3645,89 @@ app.get('/api/transactions/stats', authMiddleware, async (req, res) => {
 // 3) Lance le snapshot portfolio pour tous les users
 const CRON_SECRET = process.env.CRON_SECRET || '';
 
+// Mapping des prefixes de code -> nom de bloc pour la sidebar.
+// Nouveau code = juste ajouter le prefixe ici, tout marche.
+const CODE_PREFIX_TO_BLOCK = [
+    { prefix: /^ME/i, block: 'Méga-Évolution', typeHint: 'ME' },
+    { prefix: /^EV/i, block: 'Écarlate et Violet', typeHint: 'EV' },
+    { prefix: /^EB/i, block: 'Épée et Bouclier', typeHint: 'EB' },
+    { prefix: /^SL/i, block: 'Soleil et Lune', typeHint: 'SL' },
+    { prefix: /^XY/i, block: 'XY', typeHint: 'XY' },
+    { prefix: /^NB/i, block: 'Noir et Blanc', typeHint: 'NB' },
+    { prefix: /^HGSS/i, block: 'HeartGold SoulSilver', typeHint: 'HGSS' },
+    { prefix: /^PLT/i, block: 'Platine', typeHint: 'PLT' },
+    { prefix: /^DP/i, block: 'Diamant et Perle', typeHint: 'DP' },
+    { prefix: /^EX/i, block: 'EX', typeHint: 'EX' },
+];
+
+function guessBlockFromCode(code) {
+    for (const entry of CODE_PREFIX_TO_BLOCK) {
+        if (entry.prefix.test(code)) return entry.block;
+    }
+    return null;
+}
+
+// Auto-track : pour chaque entree de release_calendar sans produits associes,
+// genere les 6 produits eBay (ETB, Display 36, Display 18, Tripack, Bundle, Booster)
+// et les insere dans tracked_products_custom.
+// Idempotent : skip si le code est deja tracke (hardcoded ou custom).
+// Retourne la liste des codes nouvellement ajoutes.
+async function autoTrackFromReleaseCalendar() {
+    const releases = await listReleaseCalendar();
+    const added = [];
+
+    // Set des prefixes deja utilises (id des produits existants normalises)
+    const existingCodePrefixes = new Set();
+    for (const p of PRODUCTS_TO_TRACK) {
+        // Ex: 'ev01-etb' -> 'ev01'. On garde la partie avant le premier '-'.
+        const prefix = p.id.split('-')[0].toLowerCase();
+        existingCodePrefixes.add(prefix);
+    }
+
+    for (const r of releases) {
+        if (!r.code || !r.name) continue;
+        const idPrefix = r.code.toLowerCase().replace(/[.\s]/g, '');
+        if (existingCodePrefixes.has(idPrefix)) continue; // deja tracke
+
+        // Detecte le bloc depuis le code (fallback : r.block du calendrier)
+        const block = r.block || guessBlockFromCode(r.code) || 'Autres';
+
+        // Genere les 6 produits standards pour ce set
+        const products = [
+            { suffix: 'etb',       name: `ETB ${r.name}`,        query: `ETB ${r.name} ${r.code}`,                       type: 'etb',       minPrice: 40,  maxPrice: 800 },
+            { suffix: 'display',   name: `Display 36 ${r.name}`, query: `display ${r.name} ${r.code} -demi`,             type: 'display',   minPrice: 150, maxPrice: 1500 },
+            { suffix: 'display18', name: `Display 18 ${r.name}`, query: `demi display ${r.name} ${r.code}`,              type: 'display18', minPrice: 80,  maxPrice: 600 },
+            { suffix: 'tripack',   name: `Tripack ${r.name}`,    query: `tripack ${r.name} ${r.code}`,                   type: 'tripack',   minPrice: 12,  maxPrice: 80 },
+            { suffix: 'bundle',    name: `Bundle 6 ${r.name}`,   query: `bundle ${r.name} ${r.code}`,                    type: 'bundle',    minPrice: 25,  maxPrice: 200 },
+            { suffix: 'booster',   name: `Booster ${r.name}`,    query: `booster ${r.name} ${r.code} -display -lot`,     type: 'booster',   minPrice: 4,   maxPrice: 40 },
+        ];
+
+        for (const p of products) {
+            const productId = `${idPrefix}-${p.suffix}`;
+            try {
+                await createCustomProduct({
+                    id: productId,
+                    name: p.name,
+                    query: p.query,
+                    type: p.type,
+                    serie: block,
+                    ext: r.name,
+                    minPrice: p.minPrice,
+                    maxPrice: p.maxPrice,
+                }, 'auto-cron');
+            } catch (e) {
+                // ID collision possible si un product custom du meme prefixe existe
+                // deja avec un suffix different. Skip silencieusement.
+                console.warn(`[auto-track] skip ${productId}:`, e.message);
+            }
+        }
+        added.push(r.code);
+        existingCodePrefixes.add(idPrefix);
+    }
+
+    return added;
+}
+
 async function runDailyCron() {
     const start = Date.now();
     const summary = {
@@ -3699,6 +3782,21 @@ async function runDailyCron() {
         summary.errors.push(`cache purge: ${err.message}`);
     }
 
+    // Auto-tracker les nouveaux sets Pokemon depuis le release_calendar.
+    // Idempotent : ne cree pas de doublons si le code est deja tracke.
+    try {
+        const added = await autoTrackFromReleaseCalendar();
+        summary.newSetsTracked = added.length;
+        if (added.length > 0) {
+            summary.newSetsList = added;
+            console.log(`[Cron] Nouveaux sets auto-trackes : ${added.join(', ')}`);
+            await refreshProductsCache(); // Rafraichit PRODUCTS_TO_TRACK
+        }
+    } catch (err) {
+        console.error('[Cron] Auto-track sets failed:', err.message);
+        summary.errors.push(`auto-track sets: ${err.message}`);
+    }
+
     // Backup S3 auto si configure (envs S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY)
     // Sans ces envs, on skip silencieusement (backup manuel via UI admin toujours dispo).
     if (process.env.S3_BUCKET && process.env.S3_ACCESS_KEY && process.env.S3_SECRET_KEY) {
@@ -3720,6 +3818,24 @@ async function runDailyCron() {
     console.log(`[Cron] Terminé en ${Math.round(summary.durationMs / 1000)}s`, summary);
     return summary;
 }
+
+// Trigger manuel : detecte les nouveaux sets du release_calendar et cree
+// les 6 produits eBay pour chacun (idempotent).
+app.post('/api/admin/auto-track-sets', authMiddleware, requireAdmin, async (_req, res) => {
+    try {
+        const added = await autoTrackFromReleaseCalendar();
+        if (added.length > 0) await refreshProductsCache();
+        res.json({
+            ok: true,
+            newSetsCount: added.length,
+            newSetsList: added,
+            totalProducts: PRODUCTS_TO_TRACK.length,
+        });
+    } catch (err) {
+        console.error('[auto-track] error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 app.post('/api/cron/daily', async (req, res) => {
     const provided = req.headers['x-cron-secret'] || req.query.secret;
