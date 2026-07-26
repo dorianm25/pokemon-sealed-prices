@@ -3850,7 +3850,8 @@ async function autoTrackFromReleaseCalendar() {
 async function runDailyCron() {
     const start = Date.now();
     const summary = {
-        refreshed: 0, failed: 0, users: 0, ownedProducts: 0,
+        refreshed: 0, refreshedOwned: 0, refreshedUnowned: 0,
+        failed: 0, users: 0, ownedProducts: 0, unownedProducts: 0,
         cachePurged: 0, backup: null, errors: [],
     };
 
@@ -3870,23 +3871,43 @@ async function runDailyCron() {
         }
     }
 
-    summary.ownedProducts = ownedIds.size;
-    console.log(`[Cron] ${ownedIds.size} produits détenus à rafraichir`);
+    // Separe owned (priorite) et unowned (catchup pour catalogue frais)
+    const ownedList = PRODUCTS_TO_TRACK.filter(p => ownedIds.has(p.id));
+    const unownedList = PRODUCTS_TO_TRACK.filter(p => !ownedIds.has(p.id));
+    summary.ownedProducts = ownedList.length;
+    summary.unownedProducts = unownedList.length;
+    console.log(`[Cron] ${ownedList.length} owned + ${unownedList.length} unowned = ${PRODUCTS_TO_TRACK.length} produits a rafraichir`);
 
-    // Refresh les prix (throttle pour ménager l'API eBay)
-    for (const productId of ownedIds) {
-        const product = PRODUCTS_TO_TRACK.find(p => p.id === productId);
-        if (!product) continue;
+    // Pass 1 : produits detenus par au moins un user (throttle rapide 400ms)
+    for (const product of ownedList) {
         try {
             await refreshProductPrice(product);
-            summary.refreshed++;
+            summary.refreshedOwned++;
             await new Promise(r => setTimeout(r, 400));
         } catch (err) {
             summary.failed++;
-            summary.errors.push(`${productId}: ${err.message}`);
-            console.error(`[Cron] refresh ${productId} failed:`, err.message);
+            summary.errors.push(`${product.id}: ${err.message}`);
+            console.error(`[Cron] refresh ${product.id} failed:`, err.message);
         }
     }
+    console.log(`[Cron] Pass 1 (owned) : ${summary.refreshedOwned}/${ownedList.length} OK`);
+
+    // Pass 2 : catalogue complet (unowned). Throttle plus grand (700ms) pour
+    // menager le rate limit eBay puisqu'on fait potentiellement beaucoup + de
+    // calls. Sur ~200 unowned = ~2.5 min supplementaires.
+    for (const product of unownedList) {
+        try {
+            await refreshProductPrice(product);
+            summary.refreshedUnowned++;
+            await new Promise(r => setTimeout(r, 700));
+        } catch (err) {
+            summary.failed++;
+            summary.errors.push(`${product.id}: ${err.message}`);
+            console.warn(`[Cron] refresh unowned ${product.id} failed:`, err.message);
+        }
+    }
+    console.log(`[Cron] Pass 2 (unowned) : ${summary.refreshedUnowned}/${unownedList.length} OK`);
+    summary.refreshed = summary.refreshedOwned + summary.refreshedUnowned;
 
     // Snapshot
     await snapshotPortfolio();
@@ -4027,6 +4048,35 @@ app.post('/api/admin/sync-pokecardex-sets', authMiddleware, requireAdmin, async 
         console.error('[sync-pokecardex-sets] error:', err);
         res.status(500).json({ error: err.message });
     }
+});
+
+// Trigger manuel : refresh eBay pour TOUS les produits (owned + unowned).
+// Utile apres avoir ajoute un nouveau bloc pour remplir les prix manquants
+// sans attendre le cron du lendemain.
+app.post('/api/admin/refresh-all-prices', authMiddleware, requireAdmin, async (_req, res) => {
+    // Reponse immediate + refresh en arriere plan (peut prendre 5+ min)
+    res.json({
+        ok: true,
+        message: 'Refresh lance en arriere-plan',
+        totalProducts: PRODUCTS_TO_TRACK.length,
+        estimatedDurationSec: Math.round(PRODUCTS_TO_TRACK.length * 0.7),
+    });
+    // Lance en background sans await
+    (async () => {
+        console.log(`[refresh-all] Start for ${PRODUCTS_TO_TRACK.length} products`);
+        let ok = 0, fail = 0;
+        for (const product of PRODUCTS_TO_TRACK) {
+            try {
+                await refreshProductPrice(product);
+                ok++;
+                await new Promise(r => setTimeout(r, 500));
+            } catch (err) {
+                fail++;
+                console.warn(`[refresh-all] ${product.id} failed:`, err.message);
+            }
+        }
+        console.log(`[refresh-all] Done : ${ok} OK, ${fail} fail`);
+    })().catch(e => console.error('[refresh-all] fatal:', e));
 });
 
 // Trigger manuel : detecte les nouveaux sets du release_calendar et cree

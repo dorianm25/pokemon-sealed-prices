@@ -6698,6 +6698,7 @@ function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: 
             <div class="admin-bulk-actions" style="margin-top:10px;flex-wrap:wrap">
                 <button class="admin-btn admin-btn-primary" onclick="adminSyncPokecardexSets()">🌐 Sync Pokecardex + auto-track (complet)</button>
                 <button class="admin-btn admin-btn-secondary" onclick="adminAutoTrackSets()">🆕 Auto-track seul (depuis calendrier existant)</button>
+                <button class="admin-btn admin-btn-secondary" onclick="adminRefreshAllPrices()">🔄 Refresh prix TOUS les produits (~5 min en arrière-plan)</button>
                 <button class="admin-btn admin-btn-danger" onclick="adminCleanupDuplicates()">🧹 Nettoyer les doublons</button>
             </div>
             <div id="adminAutoTrackResult" class="admin-bulk-result"></div>
@@ -10011,6 +10012,32 @@ async function adminDownloadBackup() {
         showToast('✅', 'Backup téléchargé', 'Conserve-le en lieu sûr');
     } catch (e) {
         showToast('⚠️', 'Erreur réseau', e.message || 'Téléchargement échoué');
+    }
+}
+
+async function adminRefreshAllPrices() {
+    if (!isAdminUser()) return;
+    const ok = confirm('Lancer un refresh eBay pour TOUS les produits (~5 min en arrière-plan) ?\n\nÇa remplira les prix manquants des séries que personne ne track dans son portfolio.');
+    if (!ok) return;
+    const result = document.getElementById('adminAutoTrackResult');
+    if (result) result.innerHTML = '<div class="admin-bulk-running">⏳ Lancement du refresh…</div>';
+    try {
+        const res = await fetch('/api/admin/refresh-all-prices', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            if (result) result.innerHTML = `<div class="admin-bulk-error">❌ ${data.error || 'Erreur'}</div>`;
+            return;
+        }
+        if (result) result.innerHTML = `<div class="admin-bulk-success">
+            🔄 Refresh lancé en arrière-plan pour <strong>${data.totalProducts}</strong> produits.<br>
+            <small>Durée estimée : ~${Math.round(data.estimatedDurationSec / 60)} min. Reviens dans 10 min et recharge (Ctrl+Shift+R) pour voir les nouveaux prix.</small>
+        </div>`;
+        showToast('🔄', 'Refresh en cours', `~${Math.round(data.estimatedDurationSec / 60)} min en arrière-plan`);
+    } catch (e) {
+        if (result) result.innerHTML = `<div class="admin-bulk-error">❌ ${e.message || 'Erreur réseau'}</div>`;
     }
 }
 
