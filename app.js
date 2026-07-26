@@ -219,26 +219,47 @@ let activeBlocs = loadActiveBlocs();
 let openBloc = null; // bloc déplié (accordéon)
 let activeSerie = null;
 
+// Normalise un nom pour dedup robuste : minuscules, sans accents,
+// sans prefixe de code type "ME01 - " ni "EV3.5 - ".
+function normalizeSetNameClient(s) {
+    return (s || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')  // sans accents
+        .replace(/^[a-z0-9.]+\s*[-—–]\s*/i, '')            // vire "me01 - " etc
+        .replace(/[.\s—–-]+/g, ' ')
+        .trim();
+}
+
 // Enrichit BLOCS_SERIES avec les series decouvertes dans products (auto-detection).
 // Une nouvelle serie ajoutee cote serveur (Nuit Noire, Chaos Ascendant, etc.)
 // apparait sans avoir a modifier BLOCS_SERIES hardcode.
+// Dedup par nom normalise pour eviter "Méga-Évolution" + "ME01 — Méga-Évolution".
 function getBlocsSeriesWithDiscovered() {
     // Copie profonde pour ne pas muter la constante
     const merged = BLOCS_SERIES.map(b => ({ bloc: b.bloc, series: [...b.series] }));
     const blocMap = new Map(merged.map(b => [b.bloc, b]));
+
+    // Pour chaque bloc, indexe les series normalisees deja presentes
+    const seriesKeys = new Map(); // bloc -> Set<normalized>
+    for (const b of merged) {
+        seriesKeys.set(b.bloc, new Set(b.series.map(normalizeSetNameClient)));
+    }
 
     // Scanne les produits pour trouver les series (ext) non listees
     for (const p of products) {
         if (!p.serie || !p.ext) continue;
         let block = blocMap.get(p.serie);
         if (!block) {
-            // Bloc completement nouveau (ex: si tu ajoutes une entree dans un bloc inconnu)
+            // Bloc completement nouveau
             block = { bloc: p.serie, series: [] };
             blocMap.set(p.serie, block);
             merged.push(block);
+            seriesKeys.set(p.serie, new Set());
         }
-        if (!block.series.includes(p.ext)) {
+        const normalized = normalizeSetNameClient(p.ext);
+        if (!seriesKeys.get(block.bloc).has(normalized)) {
             block.series.push(p.ext);
+            seriesKeys.get(block.bloc).add(normalized);
         }
     }
     return merged;
@@ -275,7 +296,13 @@ function renderBlocsAccordion() {
             ${isOpen ? `<div class="bloc-series">
                 ${b.series.map(s => {
                     const isActive = activeSerie === s;
-                    const count = products.filter(p => p.ext?.includes(s)).length;
+                    // Match par nom normalise (pas .includes qui matchait 2 fois
+                    // le meme set avec/sans prefix ME01)
+                    const sNorm = normalizeSetNameClient(s);
+                    const count = products.filter(p => {
+                        if (!p.ext) return false;
+                        return normalizeSetNameClient(p.ext) === sNorm;
+                    }).length;
                     return `<div class="serie-link ${isActive ? 'active' : ''} ${count === 0 ? 'serie-empty' : ''}"
                         onclick="filterBySerie('${s.replace(/'/g, "\\'")}', '${b.bloc.replace(/'/g, "\\'")}')">${s}${count > 0 ? ` <span class="serie-count">${count}</span>` : ''}</div>`;
                 }).join('')}
@@ -6671,6 +6698,7 @@ function renderAdminPage(stats, usersData, barcodesData = { count: 0, barcodes: 
             <div class="admin-bulk-actions" style="margin-top:10px;flex-wrap:wrap">
                 <button class="admin-btn admin-btn-primary" onclick="adminSyncPokecardexSets()">🌐 Sync Pokecardex + auto-track (complet)</button>
                 <button class="admin-btn admin-btn-secondary" onclick="adminAutoTrackSets()">🆕 Auto-track seul (depuis calendrier existant)</button>
+                <button class="admin-btn admin-btn-danger" onclick="adminCleanupDuplicates()">🧹 Nettoyer les doublons</button>
             </div>
             <div id="adminAutoTrackResult" class="admin-bulk-result"></div>
         </div>
@@ -9983,6 +10011,47 @@ async function adminDownloadBackup() {
         showToast('✅', 'Backup téléchargé', 'Conserve-le en lieu sûr');
     } catch (e) {
         showToast('⚠️', 'Erreur réseau', e.message || 'Téléchargement échoué');
+    }
+}
+
+async function adminCleanupDuplicates() {
+    if (!isAdminUser()) return;
+    const ok = confirm('Supprimer les produits customs qui font doublon avec les produits hardcoded ?\n\n(Ex : si Méga-Évolution existe hardcoded et aussi comme custom, le custom est supprimé)');
+    if (!ok) return;
+    const result = document.getElementById('adminAutoTrackResult');
+    if (result) result.innerHTML = '<div class="admin-bulk-running">⏳ Analyse et nettoyage…</div>';
+    try {
+        const res = await fetch('/api/admin/cleanup-duplicate-products', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        if (!(res.headers.get('content-type') || '').includes('application/json')) {
+            if (result) result.innerHTML = `<div class="admin-bulk-error">⚠️ Serveur redéploie ? Attends 1 min et retente.</div>`;
+            return;
+        }
+        const data = await res.json();
+        if (!res.ok) {
+            if (result) result.innerHTML = `<div class="admin-bulk-error">❌ ${data.error || 'Erreur'}</div>`;
+            return;
+        }
+        if (data.removedCount === 0) {
+            if (result) result.innerHTML = `<div class="admin-bulk-success">✅ Aucun doublon trouvé. Tout est propre !</div>`;
+        } else {
+            if (result) result.innerHTML = `<div class="admin-bulk-success">
+                🧹 ${data.removedCount} produit(s) doublon supprimé(s).<br>
+                <small>Il reste ${data.totalCustomLeft} produits customs (hors hardcoded).</small>
+                <details style="margin-top:8px"><summary>Détail des supprimés</summary>
+                    <ul style="margin:6px 0;padding-left:18px;font-size:11px;max-height:200px;overflow-y:auto">
+                        ${data.removedList.map(r => `<li><code>${r.id}</code> : ${r.name}</li>`).join('')}
+                    </ul>
+                </details>
+            </div>`;
+            showToast('🧹', `${data.removedCount} doublons supprimés`, '');
+            // Recharge la liste des produits pour rafraichir la sidebar
+            setTimeout(() => fetchEbayPrices?.().then(() => render?.()), 1000);
+        }
+    } catch (e) {
+        if (result) result.innerHTML = `<div class="admin-bulk-error">❌ ${e.message || 'Erreur réseau'}</div>`;
     }
 }
 

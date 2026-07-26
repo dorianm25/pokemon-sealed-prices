@@ -3693,9 +3693,17 @@ async function syncSetsFromPokecardex() {
         throw new Error('Structure Pokecardex inattendue (pas de blocksByRegion.FR)');
     }
 
-    // Set des noms existants (case-insensitive) pour dedupe
+    // Set des noms existants (normalises) pour dedupe robuste.
+    // Inclut aussi les noms des produits deja trackes pour eviter d'ajouter
+    // au calendrier des sets qu'on a deja (juste avec un code different).
     const existing = await listReleaseCalendar();
-    const existingNames = new Set(existing.map(e => (e.name || '').toLowerCase().trim()));
+    const existingNames = new Set(existing.map(e => normalizeSetName(e.name)));
+    const PREFIX_RX = /^(ETB|Display 36|Display 18|Tripack|Bundle 6|Bundle|Booster|Coffret|Pack)\s+/i;
+    for (const p of PRODUCTS_TO_TRACK) {
+        if (p.ext) existingNames.add(normalizeSetName(p.ext));
+        const nameExt = (p.name || '').replace(PREFIX_RX, '').trim();
+        if (nameExt) existingNames.add(normalizeSetName(nameExt));
+    }
 
     let added = 0, skipped = 0;
     const addedList = [];
@@ -3761,29 +3769,43 @@ function guessBlockFromCode(code) {
 // et les insere dans tracked_products_custom.
 // Idempotent : skip si le code est deja tracke (hardcoded ou custom).
 // Retourne la liste des codes nouvellement ajoutes.
+// Normalise un nom de set pour matching : minuscules, sans accents, sans
+// prefixe de code (ex: 'ME01 - Méga-Évolution' -> 'mega evolution').
+// Utilise pour dedup robuste entre BLOCS_SERIES hardcoded, calendrier
+// avec vieux format, et Pokecardex avec nouveaux codes.
+function normalizeSetName(s) {
+    return (s || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '') // sans accents
+        .replace(/^[a-z0-9.]+\s*[-—–]\s*/i, '')           // vire prefixe "me01 - "
+        .replace(/[.\s—–-]+/g, ' ')                       // normalize whitespace
+        .trim();
+}
+
 async function autoTrackFromReleaseCalendar() {
     const releases = await listReleaseCalendar();
     const added = [];
 
-    // Sets de dedupe : prefixe d'ID + nom d'extension (case-insensitive)
-    // Le double check evite les doublons quand Pokecardex utilise un code
-    // different (ex: 'PBL') que l'user a deja avec un autre code (ex: 'me04').
+    // Sets de dedupe : normalizeSetName + prefixe d'ID.
+    // On extrait le nom du set depuis product.ext ET depuis product.name
+    // (en virant les prefixes ETB/Display/Booster/etc.)
     const existingCodePrefixes = new Set();
-    const existingExtNames = new Set();
+    const existingSetNames = new Set();
+    const PREFIX_RX = /^(ETB|Display 36|Display 18|Tripack|Bundle 6|Bundle|Booster|Coffret|Pack)\s+/i;
     for (const p of PRODUCTS_TO_TRACK) {
         const prefix = p.id.split('-')[0].toLowerCase();
         existingCodePrefixes.add(prefix);
-        if (p.ext) existingExtNames.add(p.ext.toLowerCase().trim());
-        // Extract ext from name too : 'ETB Nuit Noire' -> 'Nuit Noire'
-        const nameExt = (p.name || '').replace(/^(ETB|Display 36|Display 18|Tripack|Bundle 6|Booster)\s+/i, '').trim();
-        if (nameExt) existingExtNames.add(nameExt.toLowerCase());
+        if (p.ext) existingSetNames.add(normalizeSetName(p.ext));
+        const nameExt = (p.name || '').replace(PREFIX_RX, '').trim();
+        if (nameExt) existingSetNames.add(normalizeSetName(nameExt));
     }
 
     for (const r of releases) {
         if (!r.code || !r.name) continue;
         const idPrefix = r.code.toLowerCase().replace(/[.\s]/g, '');
         if (existingCodePrefixes.has(idPrefix)) continue; // deja tracke (par code)
-        if (existingExtNames.has(r.name.toLowerCase().trim())) continue; // deja tracke (par nom)
+        const normalized = normalizeSetName(r.name);
+        if (normalized && existingSetNames.has(normalized)) continue; // deja tracke (par nom normalise)
 
         // Detecte le bloc depuis le code (fallback : r.block du calendrier)
         const block = r.block || guessBlockFromCode(r.code) || 'Autres';
@@ -3931,6 +3953,51 @@ async function runDailyCron() {
     console.log(`[Cron] Terminé en ${Math.round(summary.durationMs / 1000)}s`, summary);
     return summary;
 }
+
+// Cleanup : supprime les tracked_products_custom qui font doublon avec un
+// produit hardcoded (meme set name normalise + meme type). Utile apres un
+// mauvais auto-track qui aurait cree "Méga-Évolution" custom alors que
+// "me01-etb" hardcoded existait deja.
+app.post('/api/admin/cleanup-duplicate-products', authMiddleware, requireAdmin, async (_req, res) => {
+    try {
+        const customs = await listCustomProducts();
+        const PREFIX_RX = /^(ETB|Display 36|Display 18|Tripack|Bundle 6|Bundle|Booster|Coffret|Pack)\s+/i;
+
+        // Indexe les hardcoded par (setNameNormalise + type)
+        const hardcodedKey = new Set();
+        for (const p of PRODUCTS_HARDCODED) {
+            const nameExt = (p.name || '').replace(PREFIX_RX, '').trim();
+            const prefixMatch = (p.name || '').match(PREFIX_RX);
+            const type = prefixMatch ? prefixMatch[1].toLowerCase().replace(/\s+/g, '') : 'other';
+            hardcodedKey.add(`${normalizeSetName(nameExt)}::${type}`);
+        }
+
+        const removed = [];
+        for (const c of customs) {
+            const source = c.ext || (c.name || '').replace(PREFIX_RX, '').trim();
+            const prefixMatch = (c.name || '').match(PREFIX_RX);
+            const type = prefixMatch ? prefixMatch[1].toLowerCase().replace(/\s+/g, '') : (c.type || 'other');
+            const key = `${normalizeSetName(source)}::${type}`;
+            if (hardcodedKey.has(key)) {
+                // Doublon : supprime
+                await deleteCustomProduct(c.id);
+                removed.push({ id: c.id, name: c.name });
+            }
+        }
+
+        if (removed.length > 0) await refreshProductsCache();
+
+        res.json({
+            ok: true,
+            removedCount: removed.length,
+            removedList: removed.slice(0, 100),
+            totalCustomLeft: PRODUCTS_TO_TRACK.length - PRODUCTS_HARDCODED.length,
+        });
+    } catch (err) {
+        console.error('[cleanup-duplicate-products] error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 // Trigger manuel : sync depuis Pokecardex vers release_calendar
 // puis genere immediatement les 6 produits pour les nouveaux sets.
