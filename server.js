@@ -3876,7 +3876,30 @@ async function runDailyCron() {
     const unownedList = PRODUCTS_TO_TRACK.filter(p => !ownedIds.has(p.id));
     summary.ownedProducts = ownedList.length;
     summary.unownedProducts = unownedList.length;
-    console.log(`[Cron] ${ownedList.length} owned + ${unownedList.length} unowned = ${PRODUCTS_TO_TRACK.length} produits a rafraichir`);
+
+    // OPTIM : skip les produits deja refresh aujourd'hui (price_history a une
+    // entree du jour). Utile pour le 2e run (14h UTC) qui saute quasi tout.
+    // Owned : force refresh (2× par jour = OK, ~40 calls, marge API tres large).
+    // Unowned : skip si deja fait aujourd'hui.
+    const today = new Date().toISOString().slice(0, 10);
+    async function alreadyRefreshedToday(productId) {
+        try {
+            const hist = await getPriceHistory(productId);
+            if (!hist || hist.length === 0) return false;
+            return hist[hist.length - 1]?.date === today;
+        } catch { return false; }
+    }
+    let skippedFresh = 0;
+    const unownedToRefresh = [];
+    for (const p of unownedList) {
+        if (await alreadyRefreshedToday(p.id)) {
+            skippedFresh++;
+        } else {
+            unownedToRefresh.push(p);
+        }
+    }
+    summary.skippedFresh = skippedFresh;
+    console.log(`[Cron] ${ownedList.length} owned + ${unownedToRefresh.length} unowned (${skippedFresh} skip = deja fait aujourd'hui) sur ${PRODUCTS_TO_TRACK.length}`);
 
     // Pass 1 : produits detenus par au moins un user (throttle rapide 400ms)
     for (const product of ownedList) {
@@ -3892,21 +3915,19 @@ async function runDailyCron() {
     }
     console.log(`[Cron] Pass 1 (owned) : ${summary.refreshedOwned}/${ownedList.length} OK`);
 
-    // Pass 2 : catalogue complet (unowned). Throttle plus grand (700ms) pour
-    // menager le rate limit eBay puisqu'on fait potentiellement beaucoup + de
-    // calls. Sur ~200 unowned = ~2.5 min supplementaires.
-    for (const product of unownedList) {
+    // Pass 2 : catalogue unowned pas encore refresh aujourd'hui. Throttle 500ms.
+    for (const product of unownedToRefresh) {
         try {
             await refreshProductPrice(product);
             summary.refreshedUnowned++;
-            await new Promise(r => setTimeout(r, 700));
+            await new Promise(r => setTimeout(r, 500));
         } catch (err) {
             summary.failed++;
             summary.errors.push(`${product.id}: ${err.message}`);
             console.warn(`[Cron] refresh unowned ${product.id} failed:`, err.message);
         }
     }
-    console.log(`[Cron] Pass 2 (unowned) : ${summary.refreshedUnowned}/${unownedList.length} OK`);
+    console.log(`[Cron] Pass 2 (unowned) : ${summary.refreshedUnowned}/${unownedToRefresh.length} OK (${skippedFresh} skip)`);
     summary.refreshed = summary.refreshedOwned + summary.refreshedUnowned;
 
     // Snapshot

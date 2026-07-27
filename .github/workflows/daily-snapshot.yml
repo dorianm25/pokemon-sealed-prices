@@ -40,7 +40,7 @@ jobs:
         run: |
           echo "Déclenchement du snapshot..."
           response=$(curl -s -w "\n__HTTP_CODE__:%{http_code}" \
-            --max-time 900 \
+            --max-time 1500 \
             -X POST \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
