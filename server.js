@@ -4118,6 +4118,9 @@ app.post('/api/admin/auto-track-sets', authMiddleware, requireAdmin, async (_req
     }
 });
 
+// Stocke le dernier resultat du cron pour diagnostic (accessible via GET)
+let _lastCronRun = null;
+
 app.post('/api/cron/daily', async (req, res) => {
     const provided = req.headers['x-cron-secret'] || req.query.secret;
     if (!CRON_SECRET) {
@@ -4126,13 +4129,45 @@ app.post('/api/cron/daily', async (req, res) => {
     if (provided !== CRON_SECRET) {
         return res.status(401).json({ error: 'Secret invalide' });
     }
-    try {
-        const summary = await runDailyCron();
-        res.json({ ok: true, ...summary });
-    } catch (err) {
-        console.error('[Cron] Erreur fatale:', err);
-        res.status(500).json({ error: err.message });
-    }
+    // IMPORTANT : Render free tier a un timeout dur de 15 min sur les requetes
+    // HTTP. Le cron peut prendre 6-10 min normalement, mais avec cold start +
+    // rate limit variables + 240 produits, on peut depasser. Solution : on
+    // repond IMMEDIATEMENT et on lance le cron en arriere plan. GHA est content.
+    // Le resultat est accessible via GET /api/cron/last-run pour verification.
+    const startedAt = new Date().toISOString();
+    _lastCronRun = { status: 'running', startedAt, summary: null, error: null };
+    res.json({
+        ok: true,
+        message: 'Cron lance en arriere-plan (Render timeout dur 15min contourne)',
+        startedAt,
+        check: '/api/cron/last-run',
+    });
+    // Background execution
+    (async () => {
+        try {
+            const summary = await runDailyCron();
+            _lastCronRun = {
+                status: 'success',
+                startedAt,
+                finishedAt: new Date().toISOString(),
+                summary,
+            };
+            console.log('[Cron] Background run OK');
+        } catch (err) {
+            _lastCronRun = {
+                status: 'error',
+                startedAt,
+                finishedAt: new Date().toISOString(),
+                error: err.message,
+            };
+            console.error('[Cron] Background run failed:', err);
+        }
+    })().catch(e => console.error('[Cron] Fatal:', e));
+});
+
+// Diagnostic : dernier resultat du cron (in-memory, reset au redeploy)
+app.get('/api/cron/last-run', (_req, res) => {
+    res.json(_lastCronRun || { status: 'never', message: 'Aucun cron execute depuis le demarrage du serveur' });
 });
 
 // Cron minuit : snapshot portfolio

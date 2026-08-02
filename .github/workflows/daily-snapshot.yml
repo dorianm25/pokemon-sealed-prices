@@ -36,11 +36,14 @@ jobs:
             --max-time 120 \
             "${{ secrets.RENDER_URL }}/api/status" || true
 
-      - name: Trigger daily snapshot
+      - name: Trigger daily snapshot (fire and forget)
         run: |
-          echo "Déclenchement du snapshot..."
+          echo "Déclenchement du snapshot (async, retour immédiat)..."
+          # Le serveur repond en < 2 sec puis lance le refresh en background.
+          # Render free tier a un timeout dur de 15 min qu'on contournait avant
+          # en attendant. Maintenant on fire-and-forget.
           response=$(curl -s -w "\n__HTTP_CODE__:%{http_code}" \
-            --max-time 1500 \
+            --max-time 60 \
             -X POST \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
@@ -53,6 +56,22 @@ jobs:
           echo "$body"
 
           if [ "$code" != "200" ]; then
-            echo "::error::Snapshot failed with HTTP $code"
+            echo "::error::Cron trigger failed with HTTP $code"
             exit 1
+          fi
+
+      - name: Wait 10 min then check last-run result
+        run: |
+          # Le background run prend 6-10 min. On attend 10 min puis on
+          # verifie que le run a bien fini avec succes.
+          echo "Attente 10 min que le background finisse..."
+          sleep 600
+          echo "Verification du resultat..."
+          result=$(curl -s --max-time 30 "${{ secrets.RENDER_URL }}/api/cron/last-run")
+          echo "$result"
+          status=$(echo "$result" | grep -oE '"status":"[^"]+"' | head -1 | cut -d'"' -f4)
+          if [ "$status" != "success" ]; then
+            echo "::warning::Cron last-run status = $status (attendu: success)"
+          else
+            echo "✅ Cron terminé avec succès"
           fi
