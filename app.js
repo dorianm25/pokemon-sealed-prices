@@ -622,33 +622,37 @@ function openDetail(productName) {
 
                     <!-- Section admin : limites de prix eBay (filtre des annonces) -->
                     ${isAdminUser() && ebayId ? `
-                    <div class="detail-price-limits" id="detailPriceLimits-${ebayId}">
-                        <div class="dpl-head">
-                            <h4 class="dpl-title">⚙️ Limites de prix eBay <small class="dpl-admin-badge">ADMIN</small></h4>
+                    <details class="detail-price-limits" id="detailPriceLimits-${ebayId}" ontoggle="if(this.open) loadPriceLimits('${ebayId}')">
+                        <summary class="dpl-summary">
+                            <span class="dpl-title">⚙️ Limites de prix eBay</span>
+                            <span class="dpl-admin-badge">ADMIN</span>
+                            <span class="dpl-summary-chevron">▸</span>
+                        </summary>
+                        <div class="dpl-body">
                             <p class="dpl-desc">Filtre les annonces eBay : seules celles dans cette fourchette sont prises en compte pour calculer le prix médian. Modifie ici si l'eBay capte des annonces faussées.</p>
-                        </div>
-                        <div class="dpl-loading" id="dplLoading-${ebayId}">Chargement…</div>
-                        <div class="dpl-form" id="dplForm-${ebayId}" style="display:none">
-                            <div class="dpl-fields">
-                                <div class="dpl-field">
-                                    <label class="dpl-label">Prix min (€)</label>
-                                    <input type="number" class="dpl-input" id="dplMin-${ebayId}" min="0" step="0.01">
-                                    <span class="dpl-default" id="dplDefMin-${ebayId}"></span>
+                            <div class="dpl-loading" id="dplLoading-${ebayId}">Chargement…</div>
+                            <div class="dpl-form" id="dplForm-${ebayId}" style="display:none">
+                                <div class="dpl-fields">
+                                    <div class="dpl-field">
+                                        <label class="dpl-label">Prix min (€)</label>
+                                        <input type="number" class="dpl-input" id="dplMin-${ebayId}" min="0" step="0.01">
+                                        <span class="dpl-default" id="dplDefMin-${ebayId}"></span>
+                                    </div>
+                                    <div class="dpl-field">
+                                        <label class="dpl-label">Prix max (€)</label>
+                                        <input type="number" class="dpl-input" id="dplMax-${ebayId}" min="0" step="0.01">
+                                        <span class="dpl-default" id="dplDefMax-${ebayId}"></span>
+                                    </div>
                                 </div>
-                                <div class="dpl-field">
-                                    <label class="dpl-label">Prix max (€)</label>
-                                    <input type="number" class="dpl-input" id="dplMax-${ebayId}" min="0" step="0.01">
-                                    <span class="dpl-default" id="dplDefMax-${ebayId}"></span>
+                                <div class="dpl-actions">
+                                    <button class="dpl-btn dpl-btn-reset" onclick="resetPriceLimits('${ebayId}','${p.name.replace(/'/g, "\\'")}')" title="Revenir aux valeurs par défaut">↺ Reset</button>
+                                    <button class="dpl-btn dpl-btn-save" onclick="savePriceLimits('${ebayId}','${p.name.replace(/'/g, "\\'")}')">💾 Enregistrer</button>
+                                    <button class="dpl-btn dpl-btn-saverefresh" onclick="savePriceLimits('${ebayId}','${p.name.replace(/'/g, "\\'")}',true)">💾 + Actualiser eBay</button>
                                 </div>
+                                <div class="dpl-result" id="dplResult-${ebayId}"></div>
                             </div>
-                            <div class="dpl-actions">
-                                <button class="dpl-btn dpl-btn-reset" onclick="resetPriceLimits('${ebayId}','${p.name.replace(/'/g, "\\'")}')" title="Revenir aux valeurs par défaut">↺ Reset</button>
-                                <button class="dpl-btn dpl-btn-save" onclick="savePriceLimits('${ebayId}','${p.name.replace(/'/g, "\\'")}')">💾 Enregistrer</button>
-                                <button class="dpl-btn dpl-btn-saverefresh" onclick="savePriceLimits('${ebayId}','${p.name.replace(/'/g, "\\'")}',true)">💾 + Actualiser eBay</button>
-                            </div>
-                            <div class="dpl-result" id="dplResult-${ebayId}"></div>
                         </div>
-                    </div>` : ''}
+                    </details>` : ''}
                     <div class="detail-chart-section">
                         <div class="detail-chart-head">
                             <h4>Évolution des prix</h4>
@@ -714,8 +718,8 @@ function openDetail(productName) {
     if (ebayId) {
         loadPriceChart(ebayId);
         loadIndicators(ebayId);
-        // Si admin, charge les limites de prix actuelles pour pre-remplir
-        if (isAdminUser()) loadPriceLimits(ebayId);
+        // Limites de prix admin : chargees seulement quand le <details> est ouvert
+        // (via ontoggle sur l'element), evite un fetch inutile a chaque modal.
     }
 }
 
@@ -724,6 +728,8 @@ async function loadPriceLimits(ebayId) {
     const loading = document.getElementById(`dplLoading-${ebayId}`);
     const form = document.getElementById(`dplForm-${ebayId}`);
     if (!loading || !form) return;
+    // Idempotent : si deja charge (form visible), skip
+    if (form.style.display === 'block') return;
     try {
         const res = await fetch(`/api/query/${ebayId}`);
         if (!res.ok) throw new Error('HTTP ' + res.status);
