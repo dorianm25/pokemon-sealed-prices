@@ -1115,6 +1115,7 @@ function renderPriceChartForPeriod(days) {
                     borderDash: [2, 2],
                     tension: 0.3,
                     pointRadius: 0,
+                    hidden: true, // masque par defaut, clic sur legend pour l'afficher
                 },
                 {
                     label: 'Max',
@@ -1125,6 +1126,7 @@ function renderPriceChartForPeriod(days) {
                     borderDash: [2, 2],
                     tension: 0.3,
                     pointRadius: 0,
+                    hidden: true, // masque par defaut, clic sur legend pour l'afficher
                 },
             ],
         },
